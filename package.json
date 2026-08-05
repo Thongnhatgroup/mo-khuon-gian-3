@@ -1,0 +1,21 @@
+{
+  "name": "quan-ly-khai-thac-mo-khuon-gian",
+  "version": "6.0.0",
+  "private": true,
+  "description": "Phần mềm quản lý khai thác mỏ đất Khuôn Giàn 3 - Công ty CP Dịch vụ và Thương mại Thống Nhất",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^7.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "tailwindcss": "^3.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.0",
+    "lucide-react": "^0.383.0",
+    "xlsx": "^0.18.5"
+  }
+}
