@@ -82,9 +82,30 @@ function soVN(n) { return Number(n || 0).toLocaleString('vi-VN'); }
 function tienVN(n) { return Number(n || 0).toLocaleString('vi-VN') + ' đ'; }
 function todayStr() { const d = new Date(Date.now() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); }
 function dayStrOf(iso) { const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); }
+// Chuyển "YYYY-MM-DD" -> "DD/MM/YYYY" đúng chuẩn Việt Nam — sửa lỗi ngày bị
+// hiển thị ngược theo Bảng hiệu chỉnh V7.0 (mục IV, VI).
+function ngayVN(yyyyMmDd) {
+  if (!yyyyMmDd || typeof yyyyMmDd !== 'string') return yyyyMmDd || '';
+  const p = yyyyMmDd.split('-');
+  if (p.length !== 3) return yyyyMmDd;
+  return `${p[2]}/${p[1]}/${p[0]}`;
+}
+// Bỏ dấu tiếng Việt, dùng để tự sinh username từ họ tên khi thêm tài khoản mới
+function boDauTV(s) {
+  return (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+function taoUsernameTuHoTen(hoTen) {
+  return boDauTV(hoTen).replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+}
 function gioVN(iso) {
-  try { return new Date(iso).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }); }
-  catch { return iso; }
+  try {
+    const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+    return `${hh}:${mm} ${dd}/${mo}`;
+  } catch { return iso; }
 }
 function lastNDays(n) {
   const out = [];
@@ -130,6 +151,25 @@ function xuatWord(html, tenFile) {
   const a = document.createElement('a'); a.href = url; a.download = `${tenFile}.doc`; a.click(); URL.revokeObjectURL(url);
 }
 
+// In TRỰC TIẾP bằng 1 cửa sổ riêng chỉ chứa đúng nội dung cần in — sửa đúng
+// lỗi "ấn In không ra được / in cả trang" vì window.print() trên trang chính
+// in luôn toàn bộ giao diện phần mềm phía sau, không chỉ riêng biên bản/báo
+// cáo. Khổ giấy mặc định A4 — truyền khoGiay='80mm' cho phiếu nhiệt.
+function inTrucTiep(html, tieuDe, khoGiay) {
+  const cuaSo = window.open('', '_blank', 'width=800,height=900');
+  if (!cuaSo) { alert('Trình duyệt đã chặn cửa sổ in — vui lòng cho phép popup rồi thử lại.'); return; }
+  const khoGiayCSS = khoGiay === '80mm' ? '@page{size:80mm auto;margin:4mm}' : '@page{size:A4;margin:14mm}';
+  cuaSo.document.write(`<!DOCTYPE html><html><head><meta charset='utf-8'><title>${tieuDe}</title><style>
+    ${khoGiayCSS}
+    body{font-family:'Times New Roman',serif;font-size:${khoGiay === '80mm' ? '10pt' : '13pt'};color:#000;margin:0;padding:${khoGiay === '80mm' ? '4mm' : '10mm'}}
+    table{border-collapse:collapse;width:100%} td,th{border:1px solid #000;padding:4px;font-size:inherit}
+    .ct{text-align:center} .khonvien,.khonvien td,.khonvien th{border:none}
+  </style></head><body>${html}</body></html>`);
+  cuaSo.document.close();
+  cuaSo.onload = () => { cuaSo.focus(); cuaSo.print(); };
+  setTimeout(() => { try { cuaSo.focus(); cuaSo.print(); } catch {} }, 400);
+}
+
 // ---------------------------------------------------------------------------
 // Lưu trữ dùng chung (window.storage — bộ nhớ dùng chung của Artifact)
 // ---------------------------------------------------------------------------
@@ -137,24 +177,46 @@ function xuatWord(html, tenFile) {
 // window.storage có sẵn) VÀ bản triển khai thật trên Netlify (gọi API
 // /api/kv do Netlify Functions + Netlify Blobs cung cấp — xem thư mục
 // netlify-deploy/ đi kèm để triển khai thật).
+// Hoạt động ở CẢ 2 môi trường: bản xem trước trong Claude Artifact (dùng
+// window.storage có sẵn) VÀ bản triển khai thật trên Netlify (gọi API
+// /api/kv do Netlify Functions + Netlify Blobs cung cấp). Trên Netlify thật,
+// lần gọi đầu tiên sau khi vừa deploy có thể bị "khởi động nguội" (cold
+// start) hoặc lỗi mạng thoáng qua — nên THỬ LẠI vài lần trước khi coi là
+// không có dữ liệu, tránh lỗi giả "Không tìm thấy tài khoản".
 const CO_ARTIFACT_STORAGE = typeof window !== 'undefined' && typeof window.storage !== 'undefined';
+function cho(ms) { return new Promise((r) => setTimeout(r, ms)); }
 async function storageGet(key, shared, fallback) {
-  try {
-    if (CO_ARTIFACT_STORAGE) {
-      const res = await window.storage.get(key, shared);
-      return res ? JSON.parse(res.value) : fallback;
-    }
-    const res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`);
-    if (!res.ok) return fallback;
-    const data = await res.json();
-    return data.value === undefined || data.value === null ? fallback : data.value;
-  } catch { return fallback; }
+  if (CO_ARTIFACT_STORAGE) {
+    try { const res = await window.storage.get(key, shared); return res ? JSON.parse(res.value) : fallback; }
+    catch { return fallback; }
+  }
+  let loiCuoi = null;
+  for (let lan = 0; lan < 4; lan++) {
+    try {
+      const res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`);
+      if (!res.ok) { loiCuoi = new Error('HTTP ' + res.status); await cho(400 * (lan + 1)); continue; }
+      const data = await res.json();
+      return data.value === undefined || data.value === null ? fallback : data.value;
+    } catch (e) { loiCuoi = e; await cho(400 * (lan + 1)); }
+  }
+  console.error('storageGet thất bại sau nhiều lần thử:', key, loiCuoi);
+  return fallback;
 }
 async function storageSet(key, value, shared) {
-  try {
-    if (CO_ARTIFACT_STORAGE) { await window.storage.set(key, JSON.stringify(value), shared); return; }
-    await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
-  } catch { /* im lặng */ }
+  if (CO_ARTIFACT_STORAGE) {
+    try { await window.storage.set(key, JSON.stringify(value), shared); } catch { /* im lặng */ }
+    return;
+  }
+  let loiCuoi = null;
+  for (let lan = 0; lan < 4; lan++) {
+    try {
+      const res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
+      if (res.ok) return;
+      loiCuoi = new Error('HTTP ' + res.status);
+    } catch (e) { loiCuoi = e; }
+    await cho(400 * (lan + 1));
+  }
+  console.error('storageSet thất bại sau nhiều lần thử:', key, loiCuoi);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,34 +234,50 @@ async function verifyPassword(password, salt, hash) {
   const { hash: check } = await hashPassword(password, salt);
   return check === hash;
 }
+// Đúng 20 tài khoản cá nhân theo "Danh sách tài khoản đăng nhập vào phần
+// mềm" công ty cung cấp (Bảng hiệu chỉnh V7.0, mục I.1) — mỗi người 1 tài
+// khoản riêng, không dùng chung nữa. [username, họ tên, chức danh, phân hệ]
 const TAI_KHOAN_MAC_DINH = [
-  ['giamdoc', 'Giám đốc mỏ', 'giamdoc'],
-  ['banlanhdao', 'Ban lãnh đạo trụ sở', 'banlanhdao'],
-  ['ketoancongty', 'Kế toán công ty (trụ sở)', 'ketoancongty'],
-  ['ketoan', 'Kế toán mỏ', 'ketoan'],
-  ['baove', 'Bảo vệ cổng', 'baove'],
-  ['kythuat', 'Kỹ thuật kiểm tra', 'kythuat'],
-  ['laixuc', 'Lái máy xúc (chung)', 'laixuc'],
+  ['baove1', 'Bảo vệ 1', 'Bảo vệ', 'baove'],
+  ['baove2', 'Bảo vệ 2', 'Bảo vệ', 'baove'],
+  ['tranvannhiem', 'Trần Văn Nhiệm', 'Người kiểm tra', 'kythuat'],
+  ['nguyentrungthanh', 'Nguyễn Trung Thành', 'Người kiểm tra', 'kythuat'],
+  ['nguyenvanphong', 'Nguyễn Văn Phong', 'Kỹ thuật', 'kythuat'],
+  ['laixuc1', 'Lái xúc 1', 'Lái máy xúc', 'laixuc'],
+  ['laixuc2', 'Lái xúc 2', 'Lái máy xúc', 'laixuc'],
+  ['laixuc3', 'Lái xúc 3', 'Lái máy xúc', 'laixuc'],
+  ['laixuc4', 'Lái xúc 4', 'Lái máy xúc', 'laixuc'],
+  ['laixuc5', 'Lái xúc 5', 'Lái máy xúc', 'laixuc'],
+  ['laixuc6', 'Lái xúc 6', 'Lái máy xúc', 'laixuc'],
+  ['ketoanmo1', 'Kế toán mỏ 1', 'Kế toán mỏ', 'ketoan'],
+  ['ketoanmo2', 'Kế toán mỏ 2', 'Kế toán mỏ', 'ketoan'],
+  ['nhudinhtuan', 'Như Đình Tuấn', 'Phó giám đốc', 'giamdoc'],
+  ['lyhoasim', 'Lý Hoa Sim', 'Kế toán trưởng', 'ketoancongty'],
+  ['thanthitrang', 'Thân Thị Trang', 'Phó phòng kế toán', 'ketoancongty'],
+  ['hoangthituyen', 'Hoàng Thị Tuyến', 'Kế toán', 'ketoancongty'],
+  ['nguyenvanthong', 'Nguyễn Văn Thống', 'Tổng Giám đốc', 'banlanhdao'],
+  ['phamvanhung', 'Phạm Văn Hưng', 'Giám đốc điều hành', 'banlanhdao'],
+  ['nguyenngocdung', 'Nguyễn Ngọc Dung', 'Ban lãnh đạo', 'banlanhdao'],
 ];
 // Tự động VÁ danh sách tài khoản nếu thiếu bất kỳ tài khoản mặc định nào — sự
 // cố "mất tài khoản Trụ sở chính" từng gặp là do dữ liệu cũ (từ bản trước khi
 // có tài khoản này) chưa từng được bổ sung; hàm này đảm bảo dù dữ liệu cũ đến
 // đâu, các tài khoản mặc định luôn tồn tại đầy đủ mà không xóa/ghi đè tài
-// khoản khác đã có (VD: tài khoản do Giám đốc tự tạo thêm).
+// khoản khác đã có (VD: tài khoản do Ban lãnh đạo tự thêm sau này).
 async function seedUsersIfNeeded() {
-  const make = async (username, name, role) => {
+  const make = async (username, hoTen, chucDanh, role) => {
     const { salt, hash } = await hashPassword('ThongNhat@123');
-    return { id: username, username, name, role, salt, hash, mustChangePassword: true, active: true };
+    return { id: username, username, name: hoTen, chucDanh, role, salt, hash, mustChangePassword: true, active: true };
   };
   const existing = await storageGet('users', true, null);
   if (!existing) {
-    const users = await Promise.all(TAI_KHOAN_MAC_DINH.map(([u, n, r]) => make(u, n, r)));
+    const users = await Promise.all(TAI_KHOAN_MAC_DINH.map(([u, n, c, r]) => make(u, n, c, r)));
     await storageSet('users', users, true);
     return users;
   }
   const thieuTaiKhoan = TAI_KHOAN_MAC_DINH.filter(([u]) => !existing.some((x) => x.username === u));
   if (thieuTaiKhoan.length === 0) return existing;
-  const boSung = await Promise.all(thieuTaiKhoan.map(([u, n, r]) => make(u, n, r)));
+  const boSung = await Promise.all(thieuTaiKhoan.map(([u, n, c, r]) => make(u, n, c, r)));
   const daVa = [...existing, ...boSung];
   await storageSet('users', daVa, true);
   return daVa;
@@ -255,7 +333,7 @@ function TopBar({ session, onLogout, onChangePassword, onlineCount, syncing }) {
           <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /><span>{syncing ? 'Đang đồng bộ...' : 'Đã đồng bộ'}</span>
         </div>
         <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-full px-3 py-1.5">
-          <Icon className="w-3.5 h-3.5 text-orange-500" /><span className="text-slate-200">{session.name} · {info?.label}</span>
+          <Icon className="w-3.5 h-3.5 text-orange-500" /><span className="text-slate-200">{session.name}{session.chucDanh ? ` — ${session.chucDanh}` : ''}</span>
         </div>
         <button onClick={onChangePassword} className="flex items-center gap-1 text-slate-400 hover:text-white"><KeyRound className="w-3.5 h-3.5" /> Đổi MK</button>
         <button onClick={onLogout} className="flex items-center gap-1 text-slate-400 hover:text-white"><LogOut className="w-3.5 h-3.5" /> Đăng xuất</button>
@@ -284,8 +362,8 @@ function useToast() {
   return [toast, notify];
 }
 function canhBaoCongNo(soDu, cfg) {
-  if (soDu <= cfg.canhBaoDo) return 'do';
-  if (soDu <= cfg.canhBaoVang) return 'vang';
+  if (soDu >= cfg.canhBaoVang) return 'do';
+  if (soDu >= cfg.canhBaoDo) return 'vang';
   return 'ok';
 }
 // Ô nhập mật khẩu có biểu tượng con mắt để hiện/ẩn — theo yêu cầu V3.0
@@ -310,6 +388,7 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('');
   const [loi, setLoi] = useState('');
   const [dangXuLy, setDangXuLy] = useState(false);
+  const [xemDanhSach, setXemDanhSach] = useState(false);
 
   const dangNhap = async () => {
     setLoi('');
@@ -318,10 +397,11 @@ function LoginScreen({ onLogin }) {
     const users = await seedUsersIfNeeded();
     const u = users.find((x) => x.username === username.trim().toLowerCase());
     setDangXuLy(false);
-    if (!u || !u.active) { setLoi('Sai tài khoản hoặc mật khẩu'); return; }
+    if (!u) { setLoi('Sai tài khoản hoặc mật khẩu'); return; }
+    if (!u.active) { setLoi('Tài khoản này đã bị KHOÁ — liên hệ Ban lãnh đạo để mở lại.'); return; }
     const ok = await verifyPassword(password, u.salt, u.hash);
     if (!ok) { setLoi('Sai tài khoản hoặc mật khẩu'); return; }
-    onLogin({ id: u.id, username: u.username, name: u.name, role: u.role, mustChangePassword: u.mustChangePassword });
+    onLogin({ id: u.id, username: u.username, name: u.name, chucDanh: u.chucDanh, role: u.role, mustChangePassword: u.mustChangePassword });
   };
 
   return (
@@ -330,11 +410,11 @@ function LoginScreen({ onLogin }) {
         <div className="text-center mb-7">
           <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-800 flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-orange-900/40">TN</div>
           <div className="text-white font-extrabold tracking-wide">CÔNG TY CP DỊCH VỤ VÀ THƯƠNG MẠI THỐNG NHẤT</div>
-          <div className="text-slate-400 text-sm mt-1">Đăng nhập bản xem trước V3 — Mỏ đất Khuôn Giàn</div>
+          <div className="text-slate-400 text-sm mt-1">Đăng nhập bản xem trước — Mỏ đất Khuôn Giàn 3</div>
         </div>
         <Card>
-          <label className="block text-slate-400 text-xs mb-1.5">Tài khoản</label>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="VD: giamdoc, ketoan, baove, kythuat, laixuc, banlanhdao"
+          <label className="block text-slate-400 text-xs mb-1.5">Tài khoản cá nhân</label>
+          <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="VD: baove1, tranvannhiem, laixuc1..."
             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white outline-none focus:border-orange-500 mb-3" />
           <label className="block text-slate-400 text-xs mb-1.5">Mật khẩu</label>
           <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && dangNhap()} />
@@ -343,9 +423,16 @@ function LoginScreen({ onLogin }) {
             <LogIn className="w-4 h-4" /> {dangXuLy ? 'Đang kiểm tra...' : 'Đăng nhập'}
           </button>
         </Card>
+        <button onClick={() => setXemDanhSach(!xemDanhSach)} className="w-full mt-3 text-orange-400 text-xs underline">{xemDanhSach ? 'Ẩn' : 'Xem'} danh sách 20 tài khoản cá nhân</button>
+        {xemDanhSach && (
+          <div className="mt-2 bg-slate-900 border border-slate-700 rounded-lg p-3 text-slate-300 text-xs max-h-64 overflow-y-auto">
+            {TAI_KHOAN_MAC_DINH.map(([u, ten, cd]) => (
+              <div key={u} className="flex justify-between py-0.5 border-b border-slate-800 last:border-0"><span>{ten} <span className="text-slate-500">({cd})</span></span><code className="text-emerald-400">{u}</code></div>
+            ))}
+          </div>
+        )}
         <div className="mt-4 bg-amber-500/10 border border-amber-600 rounded-lg p-3 text-amber-300 text-xs">
-          <b>Bản demo:</b> 7 tài khoản mặc định — <code>giamdoc</code>, <code>banlanhdao</code>, <code>ketoancongty</code>, <code>ketoan</code>, <code>baove</code>, <code>kythuat</code>, <code>laixuc</code> —
-          mật khẩu ban đầu đều là <code>ThongNhat@123</code>, bắt buộc đổi ngay lần đăng nhập đầu.
+          <b>Bản demo:</b> mật khẩu ban đầu của tất cả tài khoản đều là <code>ThongNhat@123</code>, bắt buộc đổi ngay lần đăng nhập đầu. Ban lãnh đạo có thể thêm/khoá tài khoản trong mục "Quản lý tài khoản".
         </div>
       </div>
     </div>
@@ -541,26 +628,21 @@ function GateScreen({ events, addEvent, addEvents }) {
   // (I.1) Camera tự động đối chiếu: xe vào cổng từ NGÀY TRƯỚC mà vẫn chưa ra -> cảnh báo ĐỎ
   const xeQuaHanChuaRa = dangTrongMo.filter((g) => dayStrOf(g.time) !== today);
 
-  // (I) Đối chiếu phiếu khi cho xe ra cổng: tìm phiếu gần nhất của biển số đang chọn để xe ra
+  // (II.1) Đối chiếu phiếu khi cho xe ra cổng — chỉ để BẢO VỆ XEM tham khảo,
+  // không cần thao tác ký gì thêm. Theo Bảng hiệu chỉnh V7.0: bỏ bước bảo vệ
+  // ký/xác nhận, chỉ còn lái xe ký khi nhận phiếu từ Kế toán mỏ.
   const phieuDoiChieu = plateRa.trim()
     ? events.filter((e) => e.type === 'ticket_print' && e.plate === plateRa.trim().toUpperCase()).sort((a, b) => b.time.localeCompare(a.time))[0]
     : null;
-  const daKyNhanPhieu = (ticketId) => events.some((e) => e.type === 'phieu_hoan_tra' && e.ticketId === ticketId);
-  const ketoanDaKy = (ticketId) => events.some((e) => e.type === 'phieu_ky_ketoan' && e.ticketId === ticketId);
+  const daKyNhanPhieu = (ticketId) => events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === ticketId);
 
-  const xeRaCong = (kyNhanPhieu) => {
+  const xeRaCong = () => {
     const p = plateRa.trim().toUpperCase();
     if (!p) return notify('Nhập biển số xe ra cổng', true);
     const laXeLa = !dangTrongMo.some((g) => g.plate === p);
     const gateOutEv = { id: genId('GO'), type: 'gate_out', plate: p, anomaly: laXeLa, time: new Date().toISOString() };
-    if (kyNhanPhieu && phieuDoiChieu) {
-      const kyNhanEv = { id: genId('HT'), type: 'phieu_hoan_tra', ticketId: phieuDoiChieu.id, ticketNo: phieuDoiChieu.ticketNo, plate: p, time: new Date().toISOString() };
-      addEvents([gateOutEv, kyNhanEv]);
-      notify(`Đã ghi nhận xe ${p} ra cổng — đã nhận lại liên ký xác nhận, chuyển Kế toán mỏ lưu`);
-    } else {
-      addEvent(gateOutEv);
-      notify(laXeLa ? `⚠ Xe ${p} ra cổng nhưng KHÔNG có ghi nhận vào trước đó — đã đánh dấu bất thường` : `Đã ghi nhận xe ${p} ra cổng`);
-    }
+    addEvent(gateOutEv);
+    notify(laXeLa ? `⚠ Xe ${p} ra cổng nhưng KHÔNG có ghi nhận vào trước đó — đã đánh dấu bất thường` : `Đã ghi nhận xe ${p} ra cổng`);
     setPlateRa('');
   };
 
@@ -674,9 +756,7 @@ function GateScreen({ events, addEvent, addEvents }) {
               <div className="text-emerald-400 text-xs font-bold mb-1">✅ Đối chiếu: có phiếu {phieuDoiChieu.ticketNo}</div>
               <div className="text-slate-300 text-xs">{soVN(phieuDoiChieu.volume)} m³ · KH: {phieuDoiChieu.customerName || '—'} · in lúc {gioVN(phieuDoiChieu.time)}</div>
               <div className="text-slate-500 text-[11px] mt-1">
-                {daKyNhanPhieu(phieuDoiChieu.id) ? 'Đã nhận lại liên ký xác nhận trước đó.'
-                  : ketoanDaKy(phieuDoiChieu.id) ? 'Kế toán đã ký — đưa phiếu cho lái xe ký nhận, bấm nút bên dưới để chuyển lại 1 liên cho Kế toán mỏ.'
-                  : '⏳ Kế toán mỏ chưa ký xác nhận phiếu này — chưa nhận lại được liên ký.'}
+                {daKyNhanPhieu(phieuDoiChieu.id) ? 'Lái xe đã ký nhận phiếu này (Kế toán mỏ đã ghi nhận).' : 'Chỉ cần lái xe ký nhận trực tiếp với Kế toán mỏ — Bảo vệ không cần xử lý gì thêm.'}
               </div>
             </div>
           ) : (
@@ -684,10 +764,7 @@ function GateScreen({ events, addEvent, addEvents }) {
           )
         )}
 
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          <button onClick={() => xeRaCong(false)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-lg text-sm">Chỉ ghi xe ra</button>
-          <button onClick={() => xeRaCong(true)} disabled={!phieuDoiChieu || !ketoanDaKy(phieuDoiChieu?.id)} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-40 text-white font-bold py-2.5 rounded-lg text-sm">Xe ra + đã ký nhận phiếu</button>
-        </div>
+        <button onClick={xeRaCong} className="w-full mt-2 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm">Ghi nhận xe ra cổng</button>
         {xeRaHomNay.length > 0 && <div className="text-slate-500 text-xs mt-2">{xeRaHomNay.length} xe đã ra cổng hôm nay</div>}
       </Card>
 
@@ -730,29 +807,25 @@ function GateScreen({ events, addEvent, addEvents }) {
 // Mẫu "BIÊN BẢN KIỂM TRA KHỐI LƯỢNG" đúng khuôn công ty (theo Bảng hiệu chỉnh
 // V5.0, khổ A4) — dùng chung cho xem trên màn hình lẫn xuất file Word.
 // ---------------------------------------------------------------------------
-function bienBanHTML(banDau, viPham) {
-  const t = new Date(viPham.time);
+function bienBanHTML(khaiBao) {
+  const t = new Date(khaiBao.time);
   const vn = new Date(t.getTime() + 7 * 3600 * 1000);
   return `
     <table class="khonvien" style="margin-bottom:16px"><tr>
       <td class="khonvien" style="width:50%"><b>CÔNG TY CP DV VÀ TM<br/>THỐNG NHẤT<br/>MỎ KHUÔN GIÀN 3</b></td>
       <td class="khonvien ct" style="width:50%"><b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br/><b>Độc lập – Tự do – Hạnh phúc</b></td>
     </tr></table>
-    <h2 class="ct">BIÊN BẢN KIỂM TRA KHỐI LƯỢNG</h2>
-    <p>Ngày ...... tháng ...... năm 2026 vào khoảng ${vn.getUTCHours()} giờ ${vn.getUTCMinutes()} phút, chúng tôi cùng nhau kiểm tra khối lượng cụ thể như sau:</p>
-    <p><b>Biển số xe:</b> ${viPham.plate || '................................'}</p>
-    <p><b>Tên lái xe:</b> ${viPham.tenLaiXe || '................................'}</p>
-    <p><b>Tên khách hàng:</b> ${viPham.customerName || '................................'}</p>
-    <p><b>Kích thước thùng xe ban đầu:</b></p>
-    <p>Rộng:${banDau?.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${banDau?.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${banDau?.cao ?? '........'}</p>
-    <p><b>Khối lượng ban đầu:</b> ${banDau?.khoiLuong ?? '................'} m3</p>
-    <p><b>Kích thước thùng xe kiểm tra lại:</b></p>
-    <p>Rộng:${viPham.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${viPham.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${viPham.cao ?? '........'}</p>
-    <p><b>Khối lượng kiểm tra:</b> ${viPham.khoiLuong} m3</p>
-    <p><b>Lý do kiểm tra lại:</b> Vi phạm vượt khối lượng kích thước thành thùng</p>
-    <p><b>Ghi chú:</b> ${viPham.ghiChuViPham || ''}</p>
-    <p>......................................................................................</p>
-    <p>......................................................................................</p>
+    <h2 class="ct">BIÊN BẢN XÁC NHẬN KHỐI LƯỢNG</h2>
+    <p>Ngày ...... tháng ...... năm ${vn.getUTCFullYear()} vào khoảng ${vn.getUTCHours()} giờ ${vn.getUTCMinutes()} phút, chúng tôi cùng nhau kiểm tra khối lượng cụ thể như sau:</p>
+    <p><b>Biển số xe:</b> ${khaiBao.plate || '................................'}</p>
+    <p><b>Tên lái xe:</b> ${khaiBao.tenLaiXe || '................................'}</p>
+    <p><b>Tên khách hàng:</b> ${khaiBao.customerName || '................................'}</p>
+    <p><b>Kích thước thùng xe:</b></p>
+    <p>Rộng:${khaiBao.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${khaiBao.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${khaiBao.cao ?? '........'}</p>
+    <p><b>Khối lượng:</b> ${khaiBao.khoiLuong} m3</p>
+    ${khaiBao.viPham ? `<p><b>Lý do kiểm tra lại:</b> Vi phạm vượt khối lượng kích thước thành thùng${khaiBao.ghiChuViPham ? ' — ' + khaiBao.ghiChuViPham : ''}</p>` : ''}
+    <p>Hai bên xác nhận khối lượng trên là chính xác và để thực hiện trong việc tính khối lượng xúc lên xe, đưa vào công nợ.</p>
+    <p>Nếu sau có thay đổi về khối lượng thì bên mua sẽ thông báo. Hai bên cùng nhau lập biên bản và xác nhận lại khối lượng, khối lượng đó sẽ được tính từ thời điểm kiểm tra.</p>
     <br/>
     <table class="khonvien"><tr>
       <td class="khonvien ct"><b>NGƯỜI KIỂM TRA</b></td><td class="khonvien ct"><b>KẾ TOÁN MỎ</b></td>
@@ -760,16 +833,15 @@ function bienBanHTML(banDau, viPham) {
     </tr><tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>
   `;
 }
-function BienBanModal({ khaiBao, khaiBaoBanDauTheoPlate, onClose }) {
+function BienBanModal({ khaiBao, onClose }) {
   if (!khaiBao) return null;
-  const banDau = khaiBaoBanDauTheoPlate[khaiBao.plate];
-  const html = bienBanHTML(banDau, khaiBao);
+  const html = bienBanHTML(khaiBao);
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white text-black rounded-lg p-6 w-full max-w-md max-h-[85vh] overflow-y-auto text-sm" onClick={(e) => e.stopPropagation()} dangerouslySetInnerHTML={{ __html: html }} />
       <div className="fixed bottom-6 flex gap-2" onClick={(e) => e.stopPropagation()}>
-        <button onClick={() => xuatWord(html, `bien-ban-kiem-tra-${khaiBao.plate}-${todayStr()}`)} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xuất Word</button>
-        <button onClick={() => window.print()} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg">🖨️ In (A4)</button>
+        <button onClick={() => xuatWord(html, `bien-ban-${khaiBao.plate}-${todayStr()}`)} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xuất Word</button>
+        <button onClick={() => inTrucTiep(html, `Biên bản ${khaiBao.plate}`)} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg">🖨️ In (A4)</button>
         <button onClick={onClose} className="bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold px-4 py-2.5 rounded-lg">Đóng</button>
       </div>
     </div>
@@ -989,18 +1061,16 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
           ) : g.khaiBao ? (
             <>
               <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³ · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {LOAI_XE_MAP[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}</div>
-              {g.khaiBao.viPham && (
-                <div className="mt-2 bg-amber-500/10 border border-amber-600 rounded-lg p-2">
-                  <div className="text-amber-400 text-xs">⚠ Biên bản vi phạm: {g.khaiBao.ghiChuViPham || 'cơi nới thùng không báo trước'}</div>
-                  <button onClick={() => setXemBienBanViPham(g.khaiBao)} className="mt-1.5 text-[11px] bg-amber-700 hover:bg-amber-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In biên bản</button>
-                </div>
-              )}
-              {!daLapBienBanIds.has(g.khaiBao.id) && (
-                <label className="flex items-center gap-2 mt-2 text-sm text-white">
-                  <input type="checkbox" checked={!!checked[g.khaiBao.id]} onChange={(e) => setChecked({ ...checked, [g.khaiBao.id]: e.target.checked })} className="w-4 h-4" />
-                  Chọn để đưa vào biên bản
-                </label>
-              )}
+              {g.khaiBao.viPham && <div className="mt-2 text-amber-400 text-xs">⚠ Biên bản vi phạm: {g.khaiBao.ghiChuViPham || 'cơi nới thùng không báo trước'}</div>}
+              <div className="flex items-center gap-3 mt-2">
+                <button onClick={() => setXemBienBanViPham(g.khaiBao)} className="text-[11px] bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In biên bản</button>
+                {!daLapBienBanIds.has(g.khaiBao.id) && (
+                  <label className="flex items-center gap-2 text-sm text-white">
+                    <input type="checkbox" checked={!!checked[g.khaiBao.id]} onChange={(e) => { setChecked({ ...checked, [g.khaiBao.id]: e.target.checked }); if (e.target.checked) setXemBienBanViPham(g.khaiBao); }} className="w-4 h-4" />
+                    Chọn đưa vào biên bản
+                  </label>
+                )}
+              </div>
             </>
           ) : null}
         </Card>
@@ -1038,7 +1108,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
           </div>
         </div>
       )}
-      <BienBanModal khaiBao={xemBienBanViPham} khaiBaoBanDauTheoPlate={kichThuocBanDauTheoPlate} onClose={() => setXemBienBanViPham(null)} />
+      <BienBanModal khaiBao={xemBienBanViPham} onClose={() => setXemBienBanViPham(null)} />
     </div>
   );
 }
@@ -1239,29 +1309,33 @@ function bangKhachHang(tickets, config) {
   });
   return Object.values(map);
 }
+// Công nợ khách hàng = TIỀN KHÁCH CÒN NỢ (khách lấy đất trước, trả tiền sau)
+// — công nợ TĂNG khi phát sinh khối lượng xuất, GIẢM khi khách thanh toán.
+// Đúng theo mẫu "Báo cáo công nợ khách hàng" của công ty (Bảng hiệu chỉnh
+// V7.0): Dư cuối kỳ = Dư đầu kỳ + Thành tiền phát sinh − Đã thanh toán.
 function tinhSoDuKhachHang(customerId, events, config) {
   const cus = config.customers.find((c) => c.id === customerId);
   const donGia = cus?.donGia || 0;
-  const naps = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId).reduce((s, e) => s + e.amount, 0);
-  const daTru = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId).reduce((s, e) => s + e.volume * donGia, 0);
-  return naps - daTru;
+  const thanhTien = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId).reduce((s, e) => s + e.volume * donGia, 0);
+  const daThanhToan = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId).reduce((s, e) => s + e.amount, 0);
+  return thanhTien - daThanhToan;
 }
-// Sổ công nợ theo kỳ [tuNgay, denNgay] (chuỗi YYYY-MM-DD) — đúng mẫu Bảng hiệu
-// chỉnh V5.0: Dư đầu kỳ / Phát sinh (khối lượng, đơn giá, thành tiền) / Đã
-// thanh toán trong kỳ / Dư cuối kỳ = Dư đầu kỳ + Đã thanh toán − Thành tiền.
+// Sổ công nợ theo kỳ [tuNgay, denNgay] (chuỗi YYYY-MM-DD) — đúng mẫu công ty:
+// Dư đầu kỳ / Phát sinh (khối lượng, đơn giá, thành tiền) / Đã thanh toán
+// trong kỳ / Dư cuối kỳ = Dư đầu kỳ + Thành tiền phát sinh − Đã thanh toán.
 function tinhCongNoTheoKy(customerId, tuNgay, denNgay, events, config) {
   const cus = config.customers.find((c) => c.id === customerId);
   const donGia = cus?.donGia || 0;
   const truoc = (e) => dayStrOf(e.time) < tuNgay;
   const trongKy = (e) => dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay;
-  const napTruocKy = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.amount, 0);
-  const truTruocKy = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.volume * donGia, 0);
-  const duDauKy = napTruocKy - truTruocKy;
+  const thanhTienTruocKy = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.volume * donGia, 0);
+  const thanhToanTruocKy = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.amount, 0);
+  const duDauKy = thanhTienTruocKy - thanhToanTruocKy;
   const ticketsTrongKy = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId && trongKy(e));
   const khoiLuong = ticketsTrongKy.reduce((s, e) => s + e.volume, 0);
   const thanhTien = khoiLuong * donGia;
   const daThanhToan = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId && trongKy(e)).reduce((s, e) => s + e.amount, 0);
-  const duCuoiKy = duDauKy + daThanhToan - thanhTien;
+  const duCuoiKy = duDauKy + thanhTien - daThanhToan;
   return { customerName: cus?.name || '—', duDauKy, khoiLuong, donGia, thanhTien, daThanhToan, duCuoiKy, soChuyen: ticketsTrongKy.length };
 }
 // Khai báo kỹ thuật còn HIỆU LỰC cho 1 biển số = lần khai báo gần nhất (bất kỳ
@@ -1323,30 +1397,44 @@ function BaoCaoKhachHangVaTraSoat({ events, config }) {
 
   const xuatCongNoExcel = () => {
     const rows = [
-      ['CÔNG TY CP DV VÀ TM THỐNG NHẤT — MỎ KHUÔN GIÀN 3'], ['BÁO CÁO CÔNG NỢ KHÁCH HÀNG'], [`Từ ngày ${tuNgay} đến ngày ${denNgay}`], [],
+      ['CÔNG TY CP DV VÀ TM THỐNG NHẤT — MỎ KHUÔN GIÀN 3'], ['BÁO CÁO CÔNG NỢ KHÁCH HÀNG'], [`Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`], [],
       ['STT', 'Tên khách hàng', 'Dư đầu kỳ', 'Khối lượng (m3)', 'Đơn giá', 'Thành tiền', 'Đã thanh toán', 'Dư cuối kỳ'],
     ];
     soCongNo.forEach((r, i) => rows.push([i + 1, r.customerName, r.duDauKy, r.khoiLuong, r.donGia, r.thanhTien, r.daThanhToan, r.duCuoiKy]));
     rows.push(['', 'Cộng', '', tongCong.khoiLuong, '', tongCong.thanhTien, tongCong.daThanhToan, '']);
     xuatExcel({ 'Công nợ': rows }, `bao-cao-cong-no-${tuNgay}_${denNgay}`);
   };
-  const xuatCongNoWord = () => {
+  const congNoHTML = () => {
     const hang = soCongNo.map((r, i) => `<tr><td>${i + 1}</td><td>${r.customerName}</td><td>${tienVN(r.duDauKy)}</td><td>${soVN(r.khoiLuong)}</td><td>${tienVN(r.donGia)}</td><td>${tienVN(r.thanhTien)}</td><td>${tienVN(r.daThanhToan)}</td><td>${tienVN(r.duCuoiKy)}</td></tr>`).join('');
-    xuatWord(`
+    return `
       <p class="ct"><b>CÔNG TY CP DV VÀ TM THỐNG NHẤT — MỎ KHUÔN GIÀN 3</b></p>
       <h2 class="ct">BÁO CÁO CÔNG NỢ KHÁCH HÀNG</h2>
-      <p class="ct">Từ ngày ${tuNgay} đến ngày ${denNgay}</p>
+      <p class="ct">Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}</p>
       <table><tr><th>STT</th><th>Tên khách hàng</th><th>Dư đầu kỳ</th><th>Khối lượng (m3)</th><th>Đơn giá</th><th>Thành tiền</th><th>Đã thanh toán</th><th>Dư cuối kỳ</th></tr>${hang}
       <tr><td colspan="3"></td><td><b>Cộng</b></td><td>${soVN(tongCong.khoiLuong)}</td><td></td><td>${tienVN(tongCong.thanhTien)}</td><td>${tienVN(tongCong.daThanhToan)}</td></tr></table>
-      <br/><table class="khonvien"><tr><td class="khonvien ct"><b>Kế toán mỏ</b></td><td class="khonvien ct"><b>Giám đốc mỏ</b></td><td class="khonvien ct"><b>Kế toán công ty</b></td></tr></table>
-    `, `bao-cao-cong-no-${tuNgay}_${denNgay}`);
+      <br/><table class="khonvien"><tr><td class="khonvien ct"><b>Kế toán mỏ</b></td><td class="khonvien ct"><b>Kỹ thuật</b></td><td class="khonvien ct"><b>Giám đốc mỏ</b></td></tr></table>
+    `;
   };
+  const xuatCongNoWord = () => xuatWord(congNoHTML(), `bao-cao-cong-no-${tuNgay}_${denNgay}`);
+  const inCongNo = () => inTrucTiep(congNoHTML(), 'Báo cáo công nợ khách hàng');
   const xuatChiTietExcel = () => {
     const rows = [['STT', 'Ngày', 'Biển số xe', 'Số phiếu', 'Khối lượng (m3)', 'Đơn giá', 'Thành tiền']];
     chiTietKH.forEach((t, i) => rows.push([i + 1, gioVN(t.time), t.plate, t.ticketNo, t.volume, donGiaXem, t.volume * donGiaXem]));
     const tongM3 = chiTietKH.reduce((s, t) => s + t.volume, 0);
     rows.push(['', '', '', 'Cộng', tongM3, '', tongM3 * donGiaXem]);
     xuatExcel({ 'Chi tiết': rows }, `chi-tiet-cong-no-${khDangXem?.name || ''}-${tuNgay}_${denNgay}`);
+  };
+  const inChiTiet = () => {
+    const hang = chiTietKH.map((t, i) => `<tr><td>${i + 1}</td><td>${gioVN(t.time)}</td><td>${t.plate}</td><td>${t.ticketNo}</td><td>${soVN(t.volume)}</td><td>${tienVN(donGiaXem)}</td><td>${tienVN(t.volume * donGiaXem)}</td></tr>`).join('');
+    const tongM3 = chiTietKH.reduce((s, t) => s + t.volume, 0);
+    inTrucTiep(`
+      <p class="ct"><b>CÔNG TY CP DV VÀ TM THỐNG NHẤT — MỎ KHUÔN GIÀN 3</b></p>
+      <h2 class="ct">CHI TIẾT CÔNG NỢ KHÁCH HÀNG</h2>
+      <p class="ct">Tên khách hàng: ${khDangXem?.name || ''}</p>
+      <table><tr><th>STT</th><th>Ngày</th><th>Biển số xe</th><th>Số phiếu</th><th>Khối lượng (m3)</th><th>Đơn giá</th><th>Thành tiền</th></tr>${hang}
+      <tr><td colspan="4"><b>Cộng</b></td><td>${soVN(tongM3)}</td><td></td><td>${tienVN(tongM3 * donGiaXem)}</td></tr></table>
+      <br/><table class="khonvien"><tr><td class="khonvien ct"><b>Xác nhận của khách hàng</b></td><td class="khonvien ct"><b>Kế toán</b></td><td class="khonvien ct"><b>Giám đốc</b></td></tr></table>
+    `, `Chi tiết công nợ ${khDangXem?.name || ''}`);
   };
 
   return (
@@ -1358,10 +1446,11 @@ function BaoCaoKhachHangVaTraSoat({ events, config }) {
       </div>
 
       <div className="flex items-center justify-between flex-wrap gap-2 mt-6 mb-3">
-        <h2 className="text-amber-400 font-bold border-l-4 border-orange-600 pl-3">Báo cáo công nợ khách hàng ({tuNgay} → {denNgay})</h2>
+        <h2 className="text-amber-400 font-bold border-l-4 border-orange-600 pl-3">Báo cáo công nợ khách hàng ({ngayVN(tuNgay)} → {ngayVN(denNgay)})</h2>
         <div className="flex gap-2">
           <button onClick={xuatCongNoExcel} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
           <button onClick={xuatCongNoWord} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileText className="w-3.5 h-3.5" /> Word</button>
+          <button onClick={inCongNo} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️ In</button>
         </div>
       </div>
       <Card>
@@ -1406,10 +1495,11 @@ function BaoCaoKhachHangVaTraSoat({ events, config }) {
             <div className="flex items-center justify-between mb-3">
               <div className="text-white font-bold">Chi tiết công nợ — {khDangXem?.name}</div>
               <button onClick={xuatChiTietExcel} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
+              <button onClick={inChiTiet} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️ In</button>
             </div>
             {chiTietKH.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có phiếu nào trong kỳ.</div> : (
-              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-right pb-2">m³</th><th className="text-right pb-2">Thành tiền</th></tr></thead>
-                <tbody>{chiTietKH.map((t) => (<tr key={t.id} className="border-t border-slate-700"><td className="py-1.5 text-slate-300">{gioVN(t.time)}</td><td className="py-1.5 text-white font-bold">{t.plate}</td><td className="py-1.5 text-right text-white">{soVN(t.volume)}</td><td className="py-1.5 text-right text-slate-300">{tienVN(t.volume * donGiaXem)}</td></tr>))}</tbody>
+              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Số phiếu</th><th className="text-right pb-2">m³</th><th className="text-right pb-2">Thành tiền</th></tr></thead>
+                <tbody>{chiTietKH.map((t) => (<tr key={t.id} className="border-t border-slate-700"><td className="py-1.5 text-slate-300">{gioVN(t.time)}</td><td className="py-1.5 text-white font-bold">{t.plate}</td><td className="py-1.5 text-slate-400">{t.ticketNo}</td><td className="py-1.5 text-right text-white">{soVN(t.volume)}</td><td className="py-1.5 text-right text-slate-300">{tienVN(t.volume * donGiaXem)}</td></tr>))}</tbody>
               </table>
             )}
             <button onClick={() => setXemChiTiet(null)} className="w-full mt-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm">Đóng</button>
@@ -1458,17 +1548,14 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
   const [xemBienBan, setXemBienBan] = useState(null);
   const today = todayStr();
   const tickets = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today).slice().reverse();
-  const bienBanViPhamHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.viPham && dayStrOf(e.time) === today).slice().reverse();
-  const khaiBaoBanDauTheoPlate = {};
-  events.filter((e) => e.type === 'ky_thuat_khai_bao').slice().sort((a, b) => a.time.localeCompare(b.time)).forEach((k) => { if (!khaiBaoBanDauTheoPlate[k.plate]) khaiBaoBanDauTheoPlate[k.plate] = k; });
+  const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today).slice().reverse();
   const xuatBaoCaoCuoiCa = () => {
     const rows = [
-      ['Số phiếu', 'Biển số', 'Khối lượng (m3)', 'Máy xúc', 'Lái máy xúc', 'Khách hàng', 'Thời gian', 'Kế toán đã ký', 'Đã hoàn trả liên'],
+      ['Số phiếu', 'Biển số', 'Khối lượng (m3)', 'Máy xúc', 'Lái máy xúc', 'Khách hàng', 'Thời gian', 'Lái xe đã ký'],
     ];
     tickets.forEach((t) => rows.push([
       t.ticketNo, t.plate, t.volume, t.excavatorName || '', t.operatorName || '', t.customerName || '',
-      gioVN(t.time), events.some((e) => e.type === 'phieu_ky_ketoan' && e.ticketId === t.id) ? 'Có' : 'Chưa',
-      events.some((e) => e.type === 'phieu_hoan_tra' && e.ticketId === t.id) ? 'Có' : 'Chưa',
+      gioVN(t.time), events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === t.id) ? 'Có' : 'Chưa',
     ]));
     xuatExcel({ 'Báo cáo cuối ca': rows }, `bao-cao-cuoi-ca-${today}`);
   };
@@ -1499,8 +1586,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
             {tickets.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Chưa có phiếu nào.</div> : (
               <div className="divide-y divide-slate-700 text-sm">
                 {tickets.map((t) => {
-                  const daKy = events.some((e) => e.type === 'phieu_ky_ketoan' && e.ticketId === t.id);
-                  const daHoanTra = events.some((e) => e.type === 'phieu_hoan_tra' && e.ticketId === t.id);
+                  const daKy = events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === t.id);
                   return (
                     <div key={t.id} className="py-2.5">
                       <button onClick={() => setXemLai(t)} className="w-full flex justify-between items-center text-left hover:bg-slate-700/30 px-1 rounded">
@@ -1508,9 +1594,8 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
                         <div className="text-right"><div className="text-white">{soVN(t.volume)} m³</div><div className="text-slate-500 text-[11px] flex items-center gap-1 justify-end"><Printer className="w-3 h-3" /> Xem 3 liên</div></div>
                       </button>
                       <div className="flex items-center gap-2 mt-1 px-1">
-                        {daHoanTra ? <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">✓ Đã nhận lại liên ký từ lái xe</span>
-                          : daKy ? <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Đã ký — chờ Bảo vệ chuyển lái xe ký</span>
-                          : <button onClick={() => addEvent({ id: genId('PK'), type: 'phieu_ky_ketoan', ticketId: t.id, ticketNo: t.ticketNo, plate: t.plate, time: new Date().toISOString() })} className="text-[10px] bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded-full font-semibold">Ký xác nhận, chuyển Bảo vệ</button>}
+                        {daKy ? <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">✓ Lái xe đã ký nhận</span>
+                          : <button onClick={() => addEvent({ id: genId('PK'), type: 'phieu_lai_xe_ky', ticketId: t.id, ticketNo: t.ticketNo, plate: t.plate, time: new Date().toISOString() })} className="text-[10px] bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded-full font-semibold">Đánh dấu lái xe đã ký nhận</button>}
                       </div>
                     </div>
                   );
@@ -1524,15 +1609,15 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
               <div className="divide-y divide-slate-700 text-sm">{bienBans.map((b) => <div key={b.id} className="py-2 flex justify-between"><span className="text-white">{b.soLuongXe} xe · {b.inspectorName}</span><span className="text-slate-400">{gioVN(b.time)}</span></div>)}</div>
             )}
           </Card>
-          {bienBanViPhamHomNay.length > 0 && (
+          {khaiBaoHomNay.length > 0 && (
             <>
-              <SectionTitle>⚠ Biên bản vi phạm — chỉ cần in ký ({bienBanViPhamHomNay.length})</SectionTitle>
+              <SectionTitle>📋 Biên bản xác nhận khối lượng hôm nay — chỉ cần in ký ({khaiBaoHomNay.length})</SectionTitle>
               <Card>
                 <div className="divide-y divide-slate-700 text-sm">
-                  {bienBanViPhamHomNay.map((k) => (
+                  {khaiBaoHomNay.map((k) => (
                     <div key={k.id} className="py-2 flex justify-between items-center">
-                      <div><span className="text-white font-bold tabular-nums">{k.plate}</span><span className="text-slate-500 text-xs"> · {k.ghiChuViPham}</span></div>
-                      <button onClick={() => setXemBienBan(k)} className="text-[11px] bg-amber-700 hover:bg-amber-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In</button>
+                      <div><span className="text-white font-bold tabular-nums">{k.plate}</span><span className="text-slate-500 text-xs"> · {k.khoiLuong} m³{k.viPham ? ' · ⚠ vi phạm' : ''}</span></div>
+                      <button onClick={() => setXemBienBan(k)} className="text-[11px] bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In</button>
                     </div>
                   ))}
                 </div>
@@ -1568,7 +1653,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
         return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemLai(null)}>
           <div className="flex gap-3 flex-wrap justify-center" onClick={(e) => e.stopPropagation()}>
-            {['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe giữ (ký hoàn trả)'].map((tieuDe) => (
+            {['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'].map((tieuDe) => (
               <div key={tieuDe} className="bg-white text-slate-900 rounded-lg p-4 w-full max-w-[300px] font-mono text-xs" style={{ width: '80mm' }}>
                 <div className="text-center font-bold text-[13px]">CÔNG TY CP DV VÀ TM THỐNG NHẤT</div>
                 <div className="text-center text-[11px] mb-2">Mỏ Khuôn Giàn 3</div>
@@ -1583,14 +1668,14 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
                 <div className="font-bold text-sm mt-1">Khối lượng: {soVN(xemLai.volume)} m3</div>
                 <div className="border-t border-dashed border-slate-400 my-2" />
                 <div className="flex justify-center my-2"><PseudoQR seed={xemLai.ticketNo + tieuDe} /></div>
-                <div className="flex justify-between mt-3 text-[11px]"><b>Bảo vệ</b><b>Kế toán mỏ</b></div>
+                <div className="flex justify-between mt-3 text-[11px]"><b>Kế toán mỏ</b><b>Lái xe ký nhận</b></div>
               </div>
             ))}
           </div>
         </div>
         );
       })()}
-      <BienBanModal khaiBao={xemBienBan} khaiBaoBanDauTheoPlate={khaiBaoBanDauTheoPlate} onClose={() => setXemBienBan(null)} />
+      <BienBanModal khaiBao={xemBienBan} onClose={() => setXemBienBan(null)} />
     </div>
   );
 }
@@ -1616,11 +1701,11 @@ function BaoCaoMayXuc({ events }) {
   const [ngay, setNgay] = useState(todayStr());
   const [tuThang, setTuThang] = useState(todayStr().slice(0, 8) + '01');
   const [denThang, setDenThang] = useState(todayStr());
+  const [xemChiTietMay, setXemChiTietMay] = useState(null); // excavatorId đang xem chi tiết theo biển số
 
   const phienNgay = phienCaLamViec(events, ngay, ngay);
 
-  const xuatWordNgay = (p) => {
-    xuatWord(`
+  const bcNgayHTML = (p) => `
       <p><b>Công ty CP DV và TM Thống Nhất</b></p><p>Mỏ khuôn giàn 3</p>
       <h2 class="ct">BÁO CÁO XÁC NHẬN KHỐI LƯỢNG MÁY XÚC</h2>
       <p>Ngày ${p.time.slice(8,10)} tháng ${p.time.slice(5,7)} năm ${p.time.slice(0,4)}</p>
@@ -1630,9 +1715,9 @@ function BaoCaoMayXuc({ events }) {
       <p><b>Số chuyến:</b> ${p.soChuyen}</p>
       <p><b>Tổng khối lượng:</b> ${soVN(p.tongKhoiLuong)} m3</p>
       <br/><table class="khonvien"><tr><td class="khonvien ct"><b>KẾ TOÁN MỎ</b></td><td class="khonvien ct"><b>GIÁM ĐỐC MỎ</b></td><td class="khonvien ct"><b>LÁI MÁY</b></td></tr>
-      <tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>
-    `, `bao-cao-may-xuc-${p.excavatorName}-${ngay}`);
-  };
+      <tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>`;
+  const xuatWordNgay = (p) => xuatWord(bcNgayHTML(p), `bao-cao-may-xuc-${p.excavatorName}-${ngay}`);
+  const inNgay = (p) => inTrucTiep(bcNgayHTML(p), `Báo cáo ${p.excavatorName}`);
   const xuatExcelNgay = () => {
     const rows = [['Máy xúc', 'Lái máy', 'Ca', 'Thời gian làm việc', 'Số chuyến', 'Tổng khối lượng (m3)']];
     phienNgay.forEach((p) => rows.push([p.excavatorName, p.operatorName, p.shift, p.thoiGianLamViec, p.soChuyen, p.tongKhoiLuong]));
@@ -1642,25 +1727,52 @@ function BaoCaoMayXuc({ events }) {
   const phienThang = phienCaLamViec(events, tuThang, denThang);
   const theoMayThang = {};
   phienThang.forEach((p) => {
-    theoMayThang[p.excavatorId] = theoMayThang[p.excavatorId] || { excavatorName: p.excavatorName, laiXe: new Set(), soChuyen: 0, tongKhoiLuong: 0 };
+    theoMayThang[p.excavatorId] = theoMayThang[p.excavatorId] || { excavatorId: p.excavatorId, excavatorName: p.excavatorName, laiXe: new Set(), soChuyen: 0, tongKhoiLuong: 0 };
     theoMayThang[p.excavatorId].laiXe.add(p.operatorName);
     theoMayThang[p.excavatorId].soChuyen += p.soChuyen;
     theoMayThang[p.excavatorId].tongKhoiLuong += p.tongKhoiLuong;
   });
-  const xuatWordThang = () => {
-    const hang = Object.values(theoMayThang).map((m) => `<p><b>Máy xúc:</b> ${m.excavatorName}</p><p><b>Tên lái máy:</b> ${Array.from(m.laiXe).join(', ')}</p><p><b>Số chuyến:</b> ${m.soChuyen}</p><p><b>Tổng khối lượng:</b> ${soVN(m.tongKhoiLuong)} m3</p><br/>`).join('');
-    xuatWord(`
-      <p><b>Công ty CP DV và TM Thống Nhất</b></p><p>Mỏ khuôn giàn 3</p>
+  const dsMayThang = Object.values(theoMayThang);
+  const tongThang = dsMayThang.reduce((s, m) => ({ soChuyen: s.soChuyen + m.soChuyen, tongKhoiLuong: s.tongKhoiLuong + m.tongKhoiLuong }), { soChuyen: 0, tongKhoiLuong: 0 });
+
+  const bcThangHTML = () => {
+    const hang = dsMayThang.map((m, i) => `<tr><td>${i + 1}</td><td>${m.excavatorName}</td><td>${Array.from(m.laiXe).join(', ')}</td><td>${soVN(m.soChuyen)}</td><td>${soVN(m.tongKhoiLuong)}</td><td></td></tr>`).join('');
+    return `
+      <p><b>Công ty Cp DV và TM Thống Nhất</b></p><p>Mỏ khuôn giàn 3</p>
       <h2 class="ct">BÁO CÁO TỔNG HỢP KHỐI LƯỢNG MÁY XÚC</h2>
-      <p>Từ ngày ${tuThang} đến ngày ${denThang}</p>${hang}
-      <table class="khonvien"><tr><td class="khonvien ct"><b>KẾ TOÁN MỎ</b></td><td class="khonvien ct"><b>GIÁM ĐỐC MỎ</b></td><td class="khonvien ct"><b>LÁI MÁY</b></td></tr>
-      <tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>
-    `, `bao-cao-tong-hop-may-xuc-${tuThang}_${denThang}`);
+      <p class="ct">Từ ngày ${ngayVN(tuThang)} đến ngày ${ngayVN(denThang)}</p>
+      <table><tr><th>STT</th><th>Tên máy xúc</th><th>Tên lái máy</th><th>Số chuyến</th><th>Tổng khối lượng (m3)</th><th>Ghi chú</th></tr>${hang}
+      <tr><td colspan="3"><b>Cộng</b></td><td>${soVN(tongThang.soChuyen)}</td><td>${soVN(tongThang.tongKhoiLuong)}</td><td></td></tr></table>
+      <br/><table class="khonvien"><tr><td class="khonvien ct"><b>Xác nhận của lái máy</b></td><td class="khonvien ct"><b>Kế toán mỏ</b></td><td class="khonvien ct"><b>Kỹ thuật</b></td></tr></table>`;
   };
+  const xuatWordThang = () => xuatWord(bcThangHTML(), `bao-cao-tong-hop-may-xuc-${tuThang}_${denThang}`);
+  const inThang = () => inTrucTiep(bcThangHTML(), 'Báo cáo tổng hợp khối lượng máy xúc');
   const xuatExcelThang = () => {
-    const rows = [['Máy xúc', 'Tên lái máy', 'Số chuyến', 'Tổng khối lượng (m3)']];
-    Object.values(theoMayThang).forEach((m) => rows.push([m.excavatorName, Array.from(m.laiXe).join(', '), m.soChuyen, m.tongKhoiLuong]));
+    const rows = [['STT', 'Tên máy xúc', 'Tên lái máy', 'Số chuyến', 'Tổng khối lượng (m3)', 'Ghi chú']];
+    dsMayThang.forEach((m, i) => rows.push([i + 1, m.excavatorName, Array.from(m.laiXe).join(', '), m.soChuyen, m.tongKhoiLuong, '']));
+    rows.push(['', 'Cộng', '', tongThang.soChuyen, tongThang.tongKhoiLuong, '']);
     xuatExcel({ [`${tuThang}_${denThang}`]: rows }, `bao-cao-tong-hop-may-xuc-${tuThang}_${denThang}`);
+  };
+
+  // Chi tiết khối lượng theo TỪNG BIỂN SỐ trong 1 máy xúc — đúng mẫu ảnh 11
+  const mayDangXem = dsMayThang.find((m) => m.excavatorId === xemChiTietMay);
+  const veTheoBienSo = {};
+  if (mayDangXem) {
+    events.filter((e) => e.type === 'ticket_print' && e.excavatorId === xemChiTietMay && dayStrOf(e.time) >= tuThang && dayStrOf(e.time) <= denThang)
+      .forEach((t) => { veTheoBienSo[t.plate] = veTheoBienSo[t.plate] || { plate: t.plate, soChuyen: 0, khoiLuong: 0 }; veTheoBienSo[t.plate].soChuyen += 1; veTheoBienSo[t.plate].khoiLuong += t.volume; });
+  }
+  const dsBienSo = Object.values(veTheoBienSo);
+  const tongBienSo = dsBienSo.reduce((s, b) => ({ soChuyen: s.soChuyen + b.soChuyen, khoiLuong: s.khoiLuong + b.khoiLuong }), { soChuyen: 0, khoiLuong: 0 });
+  const chiTietMayHTML = () => {
+    const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${b.plate}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
+    return `
+      <p><b>Công ty Cp DV và TM Thống Nhất</b></p><p>Mỏ khuôn giàn 3</p>
+      <h2 class="ct">BÁO CÁO CHI TIẾT KHỐI LƯỢNG MÁY XÚC</h2>
+      <p>máy xúc:....${mayDangXem?.excavatorName || ''}.... &nbsp;&nbsp; Lái máy xúc:....${Array.from(mayDangXem?.laiXe || []).join(', ')}....</p>
+      <p class="ct">Từ ngày ${ngayVN(tuThang)} đến ngày ${ngayVN(denThang)}</p>
+      <table><tr><th>STT</th><th>Biển số xe</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${hang}
+      <tr><td colspan="2"><b>Cộng</b></td><td>${soVN(tongBienSo.soChuyen)}</td><td>${soVN(tongBienSo.khoiLuong)}</td></tr></table>
+      <br/><table class="khonvien"><tr><td class="khonvien ct"><b>Xác nhận của lái máy</b></td><td class="khonvien ct"><b>Kế toán mỏ</b></td><td class="khonvien ct"><b>Kỹ thuật</b></td></tr></table>`;
   };
 
   return (
@@ -1683,7 +1795,10 @@ function BaoCaoMayXuc({ events }) {
                   <div className="text-white font-bold">{p.excavatorName} · {p.operatorName}</div>
                   <div className="text-slate-400 text-xs">Ca {p.shift} · {p.thoiGianLamViec} · {p.soChuyen} chuyến · {soVN(p.tongKhoiLuong)} m³</div>
                 </div>
-                <button onClick={() => xuatWordNgay(p)} className="flex items-center gap-1 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileText className="w-3.5 h-3.5" /> Word</button>
+                <div className="flex gap-1.5">
+                  <button onClick={() => xuatWordNgay(p)} className="flex items-center gap-1 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileText className="w-3.5 h-3.5" /> Word</button>
+                  <button onClick={() => inNgay(p)} className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️</button>
+                </div>
               </div>
             </Card>
           ))}
@@ -1698,20 +1813,44 @@ function BaoCaoMayXuc({ events }) {
             <input type="date" value={denThang} onChange={(e) => setDenThang(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
             <button onClick={xuatExcelThang} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-2 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
             <button onClick={xuatWordThang} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold px-2.5 py-2 rounded-lg"><FileText className="w-3.5 h-3.5" /> Word</button>
+            <button onClick={inThang} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-2 rounded-lg">🖨️ In</button>
           </div>
           <Card>
-            {Object.values(theoMayThang).length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có dữ liệu.</div> : (
+            {dsMayThang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có dữ liệu.</div> : (
               <div className="divide-y divide-slate-700">
-                {Object.values(theoMayThang).map((m, i) => (
-                  <div key={i} className="py-2.5">
-                    <div className="text-white font-semibold">{m.excavatorName}</div>
-                    <div className="text-slate-400 text-xs">Lái máy: {Array.from(m.laiXe).join(', ')} · {m.soChuyen} chuyến · {soVN(m.tongKhoiLuong)} m³</div>
+                {dsMayThang.map((m, i) => (
+                  <div key={i} className="py-2.5 flex items-center justify-between">
+                    <div>
+                      <div className="text-white font-semibold">{m.excavatorName}</div>
+                      <div className="text-slate-400 text-xs">Lái máy: {Array.from(m.laiXe).join(', ')} · {m.soChuyen} chuyến · {soVN(m.tongKhoiLuong)} m³</div>
+                    </div>
+                    <button onClick={() => setXemChiTietMay(m.excavatorId)} className="text-orange-400 text-xs underline flex-shrink-0">Chi tiết theo xe</button>
                   </div>
                 ))}
               </div>
             )}
           </Card>
         </>
+      )}
+
+      {xemChiTietMay && mayDangXem && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemChiTietMay(null)}>
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-white font-bold">Chi tiết theo xe — {mayDangXem.excavatorName}</div>
+              <div className="flex gap-1.5">
+                <button onClick={() => xuatExcel({ 'Chi tiết': [['STT', 'Biển số xe', 'Số chuyến', 'Khối lượng (m3)'], ...dsBienSo.map((b, i) => [i + 1, b.plate, b.soChuyen, b.khoiLuong]), ['', 'Cộng', tongBienSo.soChuyen, tongBienSo.khoiLuong]] }, `chi-tiet-${mayDangXem.excavatorName}-${tuThang}_${denThang}`)} className="flex items-center gap-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /></button>
+                <button onClick={() => inTrucTiep(chiTietMayHTML(), `Chi tiết ${mayDangXem.excavatorName}`)} className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️</button>
+              </div>
+            </div>
+            {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : (
+              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Biển số</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th></tr></thead>
+                <tbody>{dsBienSo.map((b) => (<tr key={b.plate} className="border-t border-slate-700"><td className="py-1.5 text-white font-bold">{b.plate}</td><td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td><td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td></tr>))}</tbody>
+              </table>
+            )}
+            <button onClick={() => setXemChiTietMay(null)} className="w-full mt-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm">Đóng</button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1803,7 +1942,7 @@ const NHAN_LOAI_SU_KIEN = {
   missing_plate_resolved: 'Xử lý cảnh báo xe', ky_thuat_khai_bao: 'Kỹ thuật khai báo', bien_ban: 'Lập biên bản',
   bien_ban_khong_ra: 'Biên bản xe không ra', bao_coi_noi: 'Báo cơi nới thùng', shift_start: 'Nhận ca',
   shift_end: 'Trả ca', load_confirm: 'Xác nhận xúc đầy xe', ticket_print: 'Tự động lập phiếu',
-  phieu_ky_ketoan: 'Kế toán ký phiếu', phieu_hoan_tra: 'Hoàn trả liên phiếu', customer_deposit: 'Khách hàng nộp tiền',
+  phieu_lai_xe_ky: 'Lái xe ký nhận phiếu', customer_deposit: 'Khách hàng thanh toán',
   dang_ky_xe_khach_hang: 'Đăng ký/điều chuyển biển số',
 };
 function NhatKyHoatDong({ events }) {
@@ -1857,6 +1996,90 @@ function NhatKyHoatDong({ events }) {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Quản lý tài khoản — CHỈ Ban lãnh đạo (TGĐ/Giám đốc điều hành) truy cập.
+// Theo Bảng hiệu chỉnh V7.0 mục I.1: mỗi người 1 tài khoản riêng, việc thêm
+// mới/khoá tài khoản phải do Ban lãnh đạo thực hiện — vì màn này chỉ Ban
+// lãnh đạo vào được nên mọi thao tác ở đây MẶC NHIÊN đã qua phê duyệt.
+// ---------------------------------------------------------------------------
+const NHAN_PHAN_HE = {
+  baove: 'Bảo vệ', kythuat: 'Kỹ thuật', laixuc: 'Lái xúc', ketoan: 'Kế toán mỏ',
+  giamdoc: 'Giám đốc mỏ', ketoancongty: 'Kế toán công ty', banlanhdao: 'Ban lãnh đạo',
+};
+function QuanLyTaiKhoan() {
+  const [users, setUsers] = useState(null);
+  const [dangTai, setDangTai] = useState(true);
+  const [toast, notify] = useToast();
+
+  const taiLai = async () => {
+    setDangTai(true);
+    const ds = await seedUsersIfNeeded();
+    setUsers(ds);
+    setDangTai(false);
+  };
+  useEffect(() => { taiLai(); }, []);
+
+  const themTaiKhoan = async () => {
+    const hoTen = prompt('Họ và tên đầy đủ:'); if (!hoTen || !hoTen.trim()) return;
+    const chucDanh = prompt('Chức danh (VD: Bảo vệ, Kế toán, Lái máy xúc...):'); if (!chucDanh) return;
+    const phanHeOptions = Object.entries(NHAN_PHAN_HE).map(([k, v]) => `${k} = ${v}`).join('\n');
+    const phanHe = prompt(`Phân hệ (gõ đúng mã):\n${phanHeOptions}`); if (!phanHe || !NHAN_PHAN_HE[phanHe.trim()]) return notify('Phân hệ không hợp lệ — nhập đúng mã như gợi ý', true);
+    let username = taoUsernameTuHoTen(hoTen);
+    const trung = users.some((u) => u.username === username);
+    if (trung) username = username + Math.floor(10 + Math.random() * 89);
+    const { salt, hash } = await hashPassword('ThongNhat@123');
+    const moi = { id: username, username, name: hoTen.trim(), chucDanh: chucDanh.trim(), role: phanHe.trim(), salt, hash, mustChangePassword: true, active: true };
+    const next = [...users, moi];
+    await storageSet('users', next, true);
+    setUsers(next);
+    notify(`Đã thêm tài khoản "${username}" cho ${hoTen} — mật khẩu mặc định ThongNhat@123`);
+  };
+
+  const doiTrangThai = async (u) => {
+    if (u.role === 'banlanhdao' && u.active) {
+      if (!confirm(`Khoá tài khoản Ban lãnh đạo "${u.name}"? Hãy chắc chắn còn ít nhất 1 tài khoản Ban lãnh đạo khác đang hoạt động.`)) return;
+    }
+    const next = users.map((x) => (x.id === u.id ? { ...x, active: !x.active } : x));
+    await storageSet('users', next, true);
+    setUsers(next);
+    notify(u.active ? `Đã khoá tài khoản ${u.name}` : `Đã mở khoá tài khoản ${u.name}`);
+  };
+
+  if (dangTai || !users) return <Card><div className="text-slate-500 text-sm text-center py-6">Đang tải danh sách tài khoản...</div></Card>;
+
+  const theoNhom = {};
+  users.forEach((u) => { (theoNhom[u.role] = theoNhom[u.role] || []).push(u); });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-slate-400 text-sm">Chỉ Ban lãnh đạo mới thêm/khoá được tài khoản. Mật khẩu mặc định cho tài khoản mới: <code className="text-emerald-400">ThongNhat@123</code>.</p>
+      </div>
+      <button onClick={themTaiKhoan} className="w-full mb-4 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm"><Plus className="w-4 h-4" /> Thêm tài khoản mới</button>
+
+      {Object.entries(NHAN_PHAN_HE).map(([role, nhan]) => (
+        theoNhom[role] && (
+          <Card key={role} className="mb-3">
+            <div className="font-bold text-white text-sm mb-2">{nhan} ({theoNhom[role].length})</div>
+            <div className="divide-y divide-slate-700">
+              {theoNhom[role].map((u) => (
+                <div key={u.id} className="flex items-center justify-between py-2">
+                  <div>
+                    <div className={`text-sm font-semibold ${u.active ? 'text-white' : 'text-slate-500 line-through'}`}>{u.name} <span className="text-slate-500 font-normal">— {u.chucDanh}</span></div>
+                    <div className="text-slate-500 text-[11px]">tài khoản: <code>{u.username}</code>{!u.active && <span className="text-red-400 ml-2">ĐÃ KHOÁ</span>}</div>
+                  </div>
+                  <button onClick={() => doiTrangThai(u)} className={`text-[11px] px-2.5 py-1.5 rounded-full font-semibold ${u.active ? 'bg-red-900/40 text-red-300 hover:bg-red-900/60' : 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60'}`}>{u.active ? 'Khoá' : 'Mở khoá'}</button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )
+      ))}
+      <Toast msg={toast?.msg} err={toast?.err} />
     </div>
   );
 }
@@ -1922,8 +2145,9 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
       {vaiTro === 'banlanhdao' && <p className="text-slate-400 text-xs mb-2">Chỉ xem báo cáo tổng quan — không có quyền chỉnh sửa dữ liệu.</p>}
 
       <div className="flex gap-2 mb-4 flex-wrap">
-        {[['tongquan','Tổng quan'],['khachhang','Khách hàng / tra soát'],['nhatky','Nhật ký hoạt động'],['cauhinh','Cấu hình']].map(([id, label]) => {
+        {[['tongquan','Tổng quan'],['khachhang','Khách hàng / tra soát'],['nhatky','Nhật ký hoạt động'],['taikhoan','Quản lý tài khoản'],['cauhinh','Cấu hình']].map(([id, label]) => {
           if (id === 'cauhinh' && !dcCauHinh && !dcSuaKhachHang) return null;
+          if (id === 'taikhoan' && vaiTro !== 'banlanhdao') return null;
           return <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === id ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{id === 'cauhinh' ? (dcCauHinh ? 'Cấu hình' : 'Khách hàng & điều chuyển xe') : label}</button>;
         })}
       </div>
@@ -1989,6 +2213,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
 
       {tab === 'khachhang' && <BaoCaoKhachHangVaTraSoat events={events} config={config} />}
       {tab === 'nhatky' && <NhatKyHoatDong events={events} />}
+      {tab === 'taikhoan' && vaiTro === 'banlanhdao' && <QuanLyTaiKhoan />}
 
       {tab === 'cauhinh' && (
         <>
@@ -2031,6 +2256,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const mySessionId = useRef(genId('sess'));
   const ticketCounterRef = useRef(0);
+  const persistEventsRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -2049,7 +2275,20 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     setSyncing(true);
-    const evs = await storageGet('events', true, []); setEvents(evs || []);
+    const evs = await storageGet('events', true, []);
+    // GỘP thay vì ghi đè: nếu lần đọc định kỳ này (server) chưa kịp thấy
+    // sự kiện vừa tạo cục bộ (do lan truyền dữ liệu có độ trễ), vẫn giữ lại
+    // sự kiện đó — không để biến mất khỏi màn hình. Đây là nguyên nhân lỗi
+    // "lượt xúc của tôi hôm nay tự mất" theo Bảng hiệu chỉnh V7.0 mục III.3.
+    setEvents((prev) => {
+      const idsServer = new Set((evs || []).map((e) => e.id));
+      const thieuOLocal = prev.filter((e) => !idsServer.has(e.id));
+      if (thieuOLocal.length === 0) return evs || [];
+      // Có sự kiện cục bộ chưa thấy trên server -> gộp lại, ghi bù lên server luôn
+      const gop = [...(evs || []), ...thieuOLocal];
+      persistEventsRef.current?.(gop);
+      return gop;
+    });
     const cfg = await storageGet('config', true, null);
     if (cfg) setConfigState({ ...DEFAULT_CONFIG, ...cfg, thietKe: { ...DEFAULT_CONFIG.thietKe, ...(cfg.thietKe || {}) } });
     const cl = await storageGet('claims', true, {}); setClaims(cl || {});
@@ -2085,6 +2324,7 @@ export default function App() {
     writeChainRef.current = writeChainRef.current.then(() => storageSet('events', next, true));
     return writeChainRef.current;
   }, []);
+  persistEventsRef.current = persistEvents;
   // Thêm NHIỀU sự kiện liên quan trong 1 lần ghi duy nhất (atomic) — dùng khi 1
   // thao tác của người dùng phải tạo ra hơn 1 sự kiện cùng lúc (VD: xác nhận
   // xúc đầy xe -> tạo cả "lượt xúc" lẫn "phiếu" trong đúng 1 lần ghi).
