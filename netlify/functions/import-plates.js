@@ -1,12 +1,12 @@
-// netlify/functions/kv.js
-// Kho lưu trữ dùng chung, thay thế đúng vai trò của window.storage trong bản
-// xem trước Claude Artifact — dùng Netlify Blobs (không cần cấu hình database
-// ngoài, Netlify tự cấp phát khi deploy).
+// netlify/functions/import-plates.js
+// API riêng cho chương trình nền (Windows agent) đẩy biển số xe lên — tách
+// khỏi kv.js để xử lý atomically ngay tại máy chủ (đọc-thêm mới-ghi trong
+// đúng 1 lần gọi hàm), giảm tối đa rủi ro ghi đè mất dữ liệu so với việc để
+// agent tự đọc/ghi toàn bộ mảng events qua kv.js.
 //
 // Viết theo chuẩn Netlify Functions V2 (export default, dùng Request/Response
-// chuẩn web) thay vì chuẩn V1 cũ (exports.handler) — vì V2 được Netlify tự
-// động cấp context cho Netlify Blobs đáng tin cậy hơn, tránh lỗi
-// "MissingBlobsEnvironmentError" từng gặp với hàm viết theo chuẩn V1.
+// chuẩn web) thay vì chuẩn V1 cũ (exports.handler) — cùng lý do với kv.js:
+// tránh lỗi "MissingBlobsEnvironmentError" khi gọi Netlify Blobs.
 import { getStore } from '@netlify/blobs';
 
 function json(statusCode, body) {
@@ -16,31 +16,44 @@ function json(statusCode, body) {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Methods': 'POST,OPTIONS',
     },
   });
 }
 
 export default async (req) => {
   if (req.method === 'OPTIONS') return json(200, {});
+  if (req.method !== 'POST') return json(405, { error: 'Chỉ hỗ trợ POST' });
+
+  let body;
+  try { body = await req.json(); } catch { return json(400, { error: 'Body không hợp lệ' }); }
+  const rows = Array.isArray(body.plates) ? body.plates : [];
+  if (rows.length === 0) return json(200, { added: 0 });
+
   const store = getStore('mo-khuon-gian-v6');
+  const events = (await store.get('events', { type: 'json' })) || [];
+  const existingKeys = new Set(events.filter((e) => e.type === 'gate_in' && e.excelRowKey).map((e) => e.excelRowKey));
 
-  if (req.method === 'GET') {
-    const url = new URL(req.url);
-    const key = url.searchParams.get('key');
-    if (!key) return json(400, { error: 'Thiếu tham số key' });
-    const value = await store.get(key, { type: 'json' });
-    return json(200, { value: value === null ? undefined : value });
+  const nowIso = new Date().toISOString();
+  const newEvents = [];
+  for (const r of rows) {
+    if (!r || !r.plate || !r.excelRowKey) continue;
+    if (existingKeys.has(r.excelRowKey)) continue;
+    existingKeys.add(r.excelRowKey);
+    newEvents.push({
+      id: `GI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'gate_in',
+      plate: String(r.plate).trim().toUpperCase(),
+      source: 'excel_agent',
+      loaiXe: r.loaiXe || '25m3',
+      photo: null,
+      excelRowKey: r.excelRowKey,
+      time: nowIso,
+    });
   }
 
-  if (req.method === 'POST') {
-    let body;
-    try { body = await req.json(); } catch { return json(400, { error: 'Body không hợp lệ' }); }
-    const { key, value } = body || {};
-    if (!key) return json(400, { error: 'Thiếu tham số key' });
-    await store.setJSON(key, value);
-    return json(200, { ok: true });
+  if (newEvents.length > 0) {
+    await store.setJSON('events', [...events, ...newEvents]);
   }
-
-  return json(405, { error: 'Phương thức không được hỗ trợ' });
+  return json(200, { added: newEvents.length });
 };
