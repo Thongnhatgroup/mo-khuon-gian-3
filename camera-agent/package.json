@@ -1,0 +1,13 @@
+{
+  "name": "camera-agent-mo-khuon-gian-3",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chuong trinh cau noi chay tren may tinh trong mo, doc bien so xe tu HikCentral Professional va day len phan mem quan ly mo tren Netlify.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

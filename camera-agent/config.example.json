@@ -1,0 +1,16 @@
+{
+  "_huongDan": "Sao chép file này thành 'config.json' (cùng thư mục) rồi điền thông tin thật vào bên dưới. KHÔNG đưa file config.json thật lên GitHub / chia sẻ cho ai — vì nó chứa AppKey/AppSecret.",
+
+  "hikcentralBaseUrl": "https://113.175.129.251",
+  "appKey": "DIEN_APPKEY_LAY_TU_HIKCENTRAL_O_DAY",
+  "appSecret": "DIEN_APPSECRET_LAY_TU_HIKCENTRAL_O_DAY",
+  "boQuaLoiChungChiTLS": true,
+
+  "netlifyImportUrl": "https://mo-khuon-gian-3.netlify.app/api/import-plates",
+
+  "khoangCachKiemTraGiay": 5,
+  "soPhutQuetLaiMoiLan": 3,
+
+  "_ghiChu_boQuaLoiChungChiTLS": "Đặt true nếu trang camera dùng chứng chỉ tự ký (browser báo 'Không bảo mật') như hiện tại — nếu sau này đổi sang chứng chỉ hợp lệ thì đặt false.",
+  "_ghiChu_appKeyAppSecret": "Đây KHÔNG PHẢI là tài khoản admin/mật khẩu đăng nhập trang web — đây là 1 cặp khóa API riêng, phải bật tính năng 'Open Platform' / 'Nền tảng mở' trong HikCentral Professional rồi lấy từ đó (thường cần liên hệ đơn vị lắp đặt/kỹ thuật Hikvision hỗ trợ bật lần đầu)."
+}
