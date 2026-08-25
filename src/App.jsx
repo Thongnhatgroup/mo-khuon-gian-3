@@ -366,6 +366,28 @@ function fileToThumbnail(file, maxW = 220) {
   });
 }
 
+// Logo nhận diện thương hiệu Thống Nhất (khối biểu tượng 2 hình cách điệu chữ
+// N + T) — vẽ lại chính xác theo tọa độ trong "Tài liệu Quy chuẩn & Hướng dẫn
+// Sử dụng Logo Thống Nhất", giữ đúng 2 màu quy chuẩn (xanh #005495 / đỏ
+// #be3736). withWordmark=true hiển thị thêm chữ "THỐNG NHẤT" + khẩu hiệu.
+function LogoThongNhat({ size = 36, withWordmark = false, className = '' }) {
+  const bieuTuong = (
+    <svg viewBox="560 195 671 485" width={size} height={size} style={{ flexShrink: 0 }}>
+      <path d="M900,210 L1216,210 L1058,570 L924,570 L1033,321 L851,321 Z" fill="#be3736" />
+      <path d="M715,346 L995,346 L855,665 L575,665 Z" fill="#005495" />
+    </svg>
+  );
+  if (!withWordmark) return <div className={className}>{bieuTuong}</div>;
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      {bieuTuong}
+      <div className="leading-none">
+        <div className="font-black tracking-tight" style={{ color: '#005495', fontSize: size * 0.5 }}>THỐNG NHẤT</div>
+        <div className="italic font-semibold" style={{ color: '#be3736', fontSize: size * 0.24 }}>Hướng tới tương lai</div>
+      </div>
+    </div>
+  );
+}
 function PseudoQR({ seed, size = 80 }) {
   const cells = 10;
   const rnd = (i) => { let h = 0; const s = seed + '-' + i; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) >>> 0; return h % 2 === 0; };
@@ -414,9 +436,9 @@ function TopBar({ session, onLogout, onChangePassword, onlineCount, syncing }) {
   const info = ROLES_INFO[session.role];
   const Icon = info?.icon || Users;
   return (
-    <div className="sticky top-0 z-20 bg-slate-900/95 backdrop-blur border-b-2 border-orange-600 px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+    <div className="sticky top-0 z-20 bg-slate-900/95 backdrop-blur border-b-2 border-brand-600 px-4 py-3 flex items-center justify-between flex-wrap gap-2">
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-orange-800 flex items-center justify-center font-black text-white text-sm">TN</div>
+        <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center p-1"><LogoThongNhat size={28} /></div>
         <div>
           <div className="font-bold text-white text-sm leading-tight">MỎ ĐẤT KHUÔN GIÀN — BẢN XEM TRƯỚC V3</div>
           <div className="text-slate-400 text-xs leading-tight">Công ty CP Dịch vụ và Thương mại Thống Nhất</div>
@@ -430,7 +452,7 @@ function TopBar({ session, onLogout, onChangePassword, onlineCount, syncing }) {
           <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /><span>{syncing ? 'Đang đồng bộ...' : 'Đã đồng bộ'}</span>
         </div>
         <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-full px-3 py-1.5">
-          <Icon className="w-3.5 h-3.5 text-orange-500" /><span className="text-slate-200">{session.name}{session.chucDanh ? ` — ${session.chucDanh}` : ''}</span>
+          <Icon className="w-3.5 h-3.5 text-brand-500" /><span className="text-slate-200">{session.name}{session.chucDanh ? ` — ${session.chucDanh}` : ''}</span>
         </div>
         <button onClick={onChangePassword} className="flex items-center gap-1 text-slate-400 hover:text-white"><KeyRound className="w-3.5 h-3.5" /> Đổi MK</button>
         <button onClick={onLogout} className="flex items-center gap-1 text-slate-400 hover:text-white"><LogOut className="w-3.5 h-3.5" /> Đăng xuất</button>
@@ -445,14 +467,14 @@ function Toast({ msg, err }) {
 function Card({ children, className = '' }) { return <div className={`bg-slate-800 border border-slate-700 rounded-xl p-4 ${className}`}>{children}</div>; }
 function StatBox({ label, value, sub }) {
   return (
-    <div className="bg-slate-800 border border-slate-700 border-l-4 border-l-orange-600 rounded-xl px-4 py-3">
+    <div className="bg-slate-800 border border-slate-700 border-l-4 border-l-brand-600 rounded-xl px-4 py-3">
       <div className="text-2xl font-extrabold text-white tabular-nums">{value}</div>
       <div className="text-slate-400 text-xs mt-0.5">{label}</div>
       {sub && <div className="text-slate-500 text-[11px] mt-0.5">{sub}</div>}
     </div>
   );
 }
-function SectionTitle({ children }) { return <h2 className="text-amber-400 font-bold border-l-4 border-orange-600 pl-3 mt-6 mb-3">{children}</h2>; }
+function SectionTitle({ children }) { return <h2 className="text-amber-400 font-bold border-l-4 border-brand-600 pl-3 mt-6 mb-3">{children}</h2>; }
 function useToast() {
   const [toast, setToast] = useState(null);
   const notify = (msg, err) => { setToast({ msg, err }); setTimeout(() => setToast(null), 2600); };
@@ -496,7 +518,7 @@ function useHopThoai() {
         ))}
         <div className="grid grid-cols-2 gap-2 mt-3">
           <button onClick={() => dong(hopThoai.xacNhan ? false : null)} className="bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg text-sm font-semibold">Hủy</button>
-          <button onClick={() => dong(hopThoai.xacNhan ? true : giaTriNhap)} className="bg-orange-600 hover:bg-orange-700 text-white py-2 rounded-lg text-sm font-bold">Đồng ý</button>
+          <button onClick={() => dong(hopThoai.xacNhan ? true : giaTriNhap)} className="bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-sm font-bold">Đồng ý</button>
         </div>
       </div>
     </div>
@@ -514,7 +536,7 @@ function PasswordInput({ value, onChange, onKeyDown, placeholder, className }) {
   return (
     <div className="relative">
       <input type={hien ? 'text' : 'password'} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
-        className={className || 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 pr-10 text-white outline-none focus:border-orange-500'} />
+        className={className || 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 pr-10 text-white outline-none focus:border-brand-500'} />
       <button type="button" tabIndex={-1} onClick={() => setHien(!hien)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
         {hien ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
       </button>
@@ -581,7 +603,7 @@ function LoginScreen({ onLogin }) {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-5">
       <div className="w-full max-w-sm">
         <div className="text-center mb-7">
-          <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-800 flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-orange-900/40">TN</div>
+          <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-white flex items-center justify-center shadow-lg shadow-brand-900/40 p-2"><LogoThongNhat size={48} /></div>
           <div className="text-white font-extrabold tracking-wide">CÔNG TY CP DỊCH VỤ VÀ THƯƠNG MẠI THỐNG NHẤT</div>
           <div className="text-slate-400 text-sm mt-1">Đăng nhập bản xem trước — Mỏ đất Khuôn Giàn 3</div>
         </div>
@@ -591,30 +613,30 @@ function LoginScreen({ onLogin }) {
             <div className="text-slate-400 text-xs mb-2">Tài khoản đã dùng trên máy này — bấm chọn rồi nhập mật khẩu:</div>
             <div className="space-y-1.5 mb-3">
               {ganDay.map((g) => (
-                <button key={g.username} onClick={() => setUsername(g.username)} className="w-full flex items-center justify-between bg-slate-950 border border-slate-700 hover:border-orange-500 rounded-lg px-3 py-2.5 text-left">
+                <button key={g.username} onClick={() => setUsername(g.username)} className="w-full flex items-center justify-between bg-slate-950 border border-slate-700 hover:border-brand-500 rounded-lg px-3 py-2.5 text-left">
                   <span className="text-white text-sm font-semibold">{g.name} <span className="text-slate-500 font-normal">— {g.chucDanh}</span></span>
-                  <span className="text-orange-400 text-xs">Chọn</span>
+                  <span className="text-brand-400 text-xs">Chọn</span>
                 </button>
               ))}
             </div>
-            <button onClick={() => setChonThuCong(true)} className="w-full text-orange-400 text-xs underline">Đăng nhập tài khoản khác</button>
+            <button onClick={() => setChonThuCong(true)} className="w-full text-brand-400 text-xs underline">Đăng nhập tài khoản khác</button>
           </Card>
         ) : (
           <Card>
             <label className="block text-slate-400 text-xs mb-1.5">Tài khoản cá nhân</label>
             <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Tài khoản do Ban lãnh đạo cấp"
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white outline-none focus:border-orange-500 mb-3" />
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white outline-none focus:border-brand-500 mb-3" />
             <label className="block text-slate-400 text-xs mb-1.5">Mật khẩu</label>
             <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && dangNhap()} />
             {loi && <div className="text-red-400 text-xs mt-2">{loi}</div>}
-            <button disabled={dangXuLy} onClick={() => dangNhap()} className="w-full mt-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2">
+            <button disabled={dangXuLy} onClick={() => dangNhap()} className="w-full mt-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2">
               <LogIn className="w-4 h-4" /> {dangXuLy ? 'Đang kiểm tra...' : 'Đăng nhập'}
             </button>
             {ganDay && ganDay.length > 0 && <button onClick={() => { setChonThuCong(false); setUsername(''); }} className="w-full mt-2 text-slate-500 text-xs underline">← Quay lại danh sách đã dùng</button>}
           </Card>
         )}
 
-        <button onClick={() => setMoYeuCau(!moYeuCau)} className="w-full mt-3 text-orange-400 text-xs underline">{moYeuCau ? 'Đóng' : 'Chưa có tài khoản? Yêu cầu tài khoản mới'}</button>
+        <button onClick={() => setMoYeuCau(!moYeuCau)} className="w-full mt-3 text-brand-400 text-xs underline">{moYeuCau ? 'Đóng' : 'Chưa có tài khoản? Yêu cầu tài khoản mới'}</button>
         {moYeuCau && (
           <Card className="mt-2">
             <label className="block text-slate-400 text-xs mb-1">Họ và tên</label>
@@ -625,7 +647,7 @@ function LoginScreen({ onLogin }) {
             <select value={ycPhanHe} onChange={(e) => setYcPhanHe(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm mb-3">
               {Object.entries(NHAN_PHAN_HE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <button onClick={guiYeuCau} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm">Gửi yêu cầu — chờ Ban lãnh đạo duyệt</button>
+            <button onClick={guiYeuCau} className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-lg text-sm">Gửi yêu cầu — chờ Ban lãnh đạo duyệt</button>
           </Card>
         )}
 
@@ -700,7 +722,7 @@ function ChangePasswordScreen({ session, onDone, batBuoc }) {
           <PasswordInput value={newPass} onChange={(e) => setNewPass(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 pr-10 text-white mb-3" />
           <label className="block text-slate-400 text-xs mb-1.5">Nhập lại mật khẩu mới</label>
           <PasswordInput value={newPass2} onChange={(e) => setNewPass2(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 pr-10 text-white" />
-          <button disabled={dangThuLai} onClick={doiMatKhau} className="w-full mt-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white font-bold py-3 rounded-lg">{dangThuLai ? 'Đang kiểm tra...' : 'Cập nhật mật khẩu'}</button>
+          <button disabled={dangThuLai} onClick={doiMatKhau} className="w-full mt-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-bold py-3 rounded-lg">{dangThuLai ? 'Đang kiểm tra...' : 'Cập nhật mật khẩu'}</button>
           {!batBuoc && <button onClick={onDone} className="w-full mt-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 rounded-lg text-sm">Hủy, quay lại</button>}
         </Card>
         <Toast msg={toast?.msg} err={toast?.err} />
@@ -922,7 +944,7 @@ function GateScreen({ events, addEvent, addEvents }) {
           <button onClick={() => fileHandleRef.current && dongBoTuHandle(fileHandleRef.current)} disabled={!hoTroFSA || !excelStatus.ten} className="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2"><RotateCw className="w-4 h-4" /> Làm mới ngay</button>
         </div>
         <input ref={inputFileRef} type="file" accept=".xlsx" onChange={chonFileThuong} className="hidden" />
-        <button onClick={() => setXemCauHinhCam(!xemCauHinhCam)} className="text-orange-400 text-xs underline mt-3">{xemCauHinhCam ? 'Ẩn' : 'Xem'} hướng dẫn kết nối chi tiết</button>
+        <button onClick={() => setXemCauHinhCam(!xemCauHinhCam)} className="text-brand-400 text-xs underline mt-3">{xemCauHinhCam ? 'Ẩn' : 'Xem'} hướng dẫn kết nối chi tiết</button>
         {xemCauHinhCam && (
           <div className="text-slate-300 text-xs leading-relaxed mt-2 bg-slate-950 border border-slate-700 rounded-lg p-3">
             <b>1)</b> Đặt file Excel đúng đường dẫn <code>D:\Mo khuon gian 3\Quan ly xe mo khuon gian 3.xlsx</code>, sheet đầu tiên có cột tiêu đề chứa chữ "Biển số" ở hàng 1 (VD: "Biển số xe"), có thể thêm cột "Loại xe" tùy chọn.<br />
@@ -936,8 +958,8 @@ function GateScreen({ events, addEvent, addEvents }) {
 
       <p className="text-slate-400 text-sm mb-1">Camera đọc biển số tự động gửi dữ liệu về đây. Bảo vệ nhập tay + chụp ảnh khi cần.</p>
       <div className="flex gap-3 mb-4">
-        <button onClick={() => setXemCauHinhCam(!xemCauHinhCam)} className="text-orange-400 text-xs underline">{xemCauHinhCam ? 'Ẩn' : 'Xem'} hướng dẫn kết nối Camera thật</button>
-        <button onClick={() => setXemLogCam(!xemLogCam)} className="text-orange-400 text-xs underline">{xemLogCam ? 'Ẩn' : 'Xem'} log camera gần đây (chẩn đoán)</button>
+        <button onClick={() => setXemCauHinhCam(!xemCauHinhCam)} className="text-brand-400 text-xs underline">{xemCauHinhCam ? 'Ẩn' : 'Xem'} hướng dẫn kết nối Camera thật</button>
+        <button onClick={() => setXemLogCam(!xemLogCam)} className="text-brand-400 text-xs underline">{xemLogCam ? 'Ẩn' : 'Xem'} log camera gần đây (chẩn đoán)</button>
       </div>
       {xemCauHinhCam && (
         <Card className="mb-4">
@@ -1020,7 +1042,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         <label className="block text-slate-400 text-xs mb-1.5 flex items-center gap-1.5"><Camera className="w-3.5 h-3.5" /> Ảnh xe (không bắt buộc)</label>
         <input type="file" accept="image/*" capture="environment" onChange={onChonAnh} className="text-xs text-slate-400 w-full mb-2" />
         {photo && <img src={photo} alt="ảnh xe" className="rounded-lg mb-2 max-h-32" />}
-        <button onClick={() => ghiNhan()} className="w-full mt-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 rounded-lg">✅ Xác nhận xe vào cổng</button>
+        <button onClick={() => ghiNhan()} className="w-full mt-1 bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg">✅ Xác nhận xe vào cổng</button>
       </Card>
 
       <Card className="mt-4">
@@ -1046,7 +1068,7 @@ function GateScreen({ events, addEvent, addEvents }) {
           )
         )}
 
-        <button onClick={xeRaCong} className="w-full mt-2 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm">Ghi nhận xe ra cổng</button>
+        <button onClick={xeRaCong} className="w-full mt-2 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-lg text-sm">Ghi nhận xe ra cổng</button>
         {xeRaHomNay.length > 0 && <div className="text-slate-500 text-xs mt-2">{xeRaHomNay.length} xe đã ra cổng hôm nay</div>}
       </Card>
 
@@ -1124,7 +1146,7 @@ function BienBanModal({ khaiBao, onClose }) {
       <div className="fixed bottom-6 flex gap-2" onClick={(e) => e.stopPropagation()}>
         <button onClick={() => xuatWord(html, `bien-ban-${khaiBao.plate}-${todayStr()}`)} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xuất Word</button>
         <button onClick={() => inTrucTiep(html, `Biên bản ${khaiBao.plate}`)} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg">🖨️ In (A4)</button>
-        <button onClick={onClose} className="bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold px-4 py-2.5 rounded-lg">Đóng</button>
+        <button onClick={onClose} className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2.5 rounded-lg">Đóng</button>
       </div>
     </div>
   );
@@ -1233,7 +1255,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
 
   return (
     <div className="max-w-2xl mx-auto p-4">
-      <h1 className="text-xl font-bold text-white mt-2 flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-orange-500" /> Khai báo kích thước, khối lượng &amp; khách hàng</h1>
+      <h1 className="text-xl font-bold text-white mt-2 flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-brand-500" /> Khai báo kích thước, khối lượng &amp; khách hàng</h1>
       <p className="text-slate-400 text-sm mb-4">
         <b>Bắt buộc</b> khai báo tại đây trước khi lái máy xúc được phép xúc. Xe đã khai báo trong {HAN_KIEM_TRA_NGAY} ngày làm việc gần nhất được <b>miễn</b> khai báo lại. Quá hạn hoặc có báo cơi nới thùng thì phải khai báo lại.
       </p>
@@ -1336,7 +1358,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                 <input value={form[g.id]?.ghiChuViPham || ''} onChange={(e) => capNhatForm(g.id, 'ghiChuViPham', e.target.value)} placeholder="Ghi chú vi phạm (VD: cơi nới thêm 0.3m thành thùng)"
                   className="w-full mt-2 bg-slate-950 border border-amber-600 rounded-lg px-2 py-2 text-white text-sm" />
               )}
-              <button onClick={() => khaiBao(g)} className={`w-full mt-2 font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 text-white ${form[g.id]?.viPham ? 'bg-amber-600 hover:bg-amber-700' : 'bg-orange-600 hover:bg-orange-700'}`}>
+              <button onClick={() => khaiBao(g)} className={`w-full mt-2 font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 text-white ${form[g.id]?.viPham ? 'bg-amber-600 hover:bg-amber-700' : 'bg-brand-600 hover:bg-brand-700'}`}>
                 <CheckCircle2 className="w-4 h-4" /> {form[g.id]?.viPham ? 'Lập biên bản vi phạm & xác nhận lại' : 'Xác nhận khai báo'}
               </button>
             </>
@@ -1377,7 +1399,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
       {xemLichSuPlate && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemLichSuPlate(null)}>
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 w-full max-w-sm max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 text-white font-bold mb-3"><History className="w-4 h-4 text-orange-500" /> Lịch sử kiểm tra xe {xemLichSuPlate}</div>
+            <div className="flex items-center gap-2 text-white font-bold mb-3"><History className="w-4 h-4 text-brand-500" /> Lịch sử kiểm tra xe {xemLichSuPlate}</div>
             <div className="divide-y divide-slate-700 text-sm">
               {lichSuCuaPlate.map((k) => (
                 <div key={k.id} className="py-2">
@@ -1486,13 +1508,13 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, claims, set
         <Card>
           <label className="block text-slate-400 text-xs mb-1.5">Họ tên lái máy xúc — có thể sửa lại cho đúng tên chuẩn</label>
           <input value={operatorName} onChange={(e) => setOperatorName(e.target.value)} list="ds-ten-lai-xuc" placeholder="Nhập họ tên"
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white outline-none focus:border-orange-500" />
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white outline-none focus:border-brand-500" />
           <datalist id="ds-ten-lai-xuc">{config.operators.map((o) => <option key={o.id} value={o.name} />)}</datalist>
           <label className="block text-slate-400 text-xs mb-1.5 mt-3">Máy xúc đảm nhận</label>
           <select value={excavatorId} onChange={(e) => setExcavatorId(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white">{config.excavators.map((x) => <option key={x.id} value={x.id}>{x.name}{x.chuSoHuu ? ` — ${x.chuSoHuu}` : ''}</option>)}</select>
           <label className="block text-slate-400 text-xs mb-1.5 mt-3">Ca làm việc</label>
           <select value={shift} onChange={(e) => setShift(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white"><option value="sáng">Ca sáng</option><option value="chiều">Ca chiều</option></select>
-          <button onClick={nhanCa} className="w-full mt-3 bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 rounded-lg">✅ Nhận ca / Nhận máy</button>
+          <button onClick={nhanCa} className="w-full mt-3 bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg">✅ Nhận ca / Nhận máy</button>
         </Card>
       </div>
     );
@@ -1521,13 +1543,13 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, claims, set
             const chonBoiToi = selectedPlate === e.plate;
             const kb = khaiBaoHopLe(e.plate, events);
             return (
-              <button key={e.id} onClick={() => chonXe(e.plate)} className={`w-full flex items-center gap-3 px-3 py-2.5 text-left ${chonBoiToi ? 'bg-orange-600/20' : 'hover:bg-slate-700/50'}`}>
+              <button key={e.id} onClick={() => chonXe(e.plate)} className={`w-full flex items-center gap-3 px-3 py-2.5 text-left ${chonBoiToi ? 'bg-brand-600/20' : 'hover:bg-slate-700/50'}`}>
                 {e.photo ? <img src={e.photo} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" /> : <div className="w-10 h-10 rounded bg-slate-700 flex-shrink-0 flex items-center justify-center text-slate-500"><Truck className="w-4 h-4" /></div>}
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-white tabular-nums">{e.plate}</div>
                   <div className="text-slate-500 text-[11px] truncate">{kb ? <span className="text-emerald-400">{kb.khoiLuong} m³ · KH: {kb.customerName}</span> : <span className="text-red-400">⛔ Chưa được Kỹ thuật xác nhận</span>}</div>
                 </div>
-                {chonBoiToi && <CheckCircle2 className="w-5 h-5 text-orange-400 flex-shrink-0" />}
+                {chonBoiToi && <CheckCircle2 className="w-5 h-5 text-brand-400 flex-shrink-0" />}
                 {!chonBoiToi && dangDuocChon && <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full flex-shrink-0">{claims[e.plate].operatorName} đang chọn</span>}
               </button>
             );
@@ -1535,7 +1557,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, claims, set
         </div>
 
         {xeDangChon && (
-          <div className="mt-3 bg-slate-950 border border-orange-600/50 rounded-lg p-3">
+          <div className="mt-3 bg-slate-950 border border-brand-600/50 rounded-lg p-3">
             <div className="text-white font-bold text-sm mb-1">Thông tin xe {xeDangChon.plate}</div>
             {xeDangChon.photo && <img src={xeDangChon.photo} alt="" className="rounded-lg mb-2 max-h-32 w-full object-cover" />}
             {khaiBaoCuaXeDangChon ? (
@@ -1551,7 +1573,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, claims, set
 
         <label className="block text-slate-400 text-xs mb-1.5 mt-3">Khối lượng (m³ nở rời / xe) {khaiBaoCuaXeDangChon && <span className="text-emerald-400">— tự động theo khai báo kỹ thuật</span>}</label>
         <input type="number" value={vol} onChange={(e) => setVol(e.target.value)} disabled={!khaiBaoCuaXeDangChon} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white disabled:opacity-50" />
-        <button onClick={xacNhan} disabled={!selectedPlate || !khaiBaoCuaXeDangChon} className="w-full mt-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg">✅ Xác nhận đã xúc đầy xe (tự động in phiếu)</button>
+        <button onClick={xacNhan} disabled={!selectedPlate || !khaiBaoCuaXeDangChon} className="w-full mt-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg">✅ Xác nhận đã xúc đầy xe (tự động in phiếu)</button>
       </Card>
 
       <Card className="mt-4 border-red-500/50">
@@ -1739,7 +1761,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
     <div>
       <div className="flex gap-2 mb-3 flex-wrap">
         {[['day','Ngày'],['week','Tuần'],['month','Tháng'],['year','Năm'],['all','Từ đầu'],['tuychinh','Tùy chọn']].map(([id,label]) => (
-          <button key={id} onClick={() => setRange(id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${range === id ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{label}</button>
+          <button key={id} onClick={() => setRange(id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${range === id ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{label}</button>
         ))}
       </div>
       {range === 'tuychinh' && (
@@ -1752,7 +1774,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
       )}
 
       <div className="flex items-center justify-between flex-wrap gap-2 mt-6 mb-3">
-        <h2 className="text-amber-400 font-bold border-l-4 border-orange-600 pl-3">Báo cáo công nợ khách hàng ({ngayVN(tuNgay)} → {ngayVN(denNgay)})</h2>
+        <h2 className="text-amber-400 font-bold border-l-4 border-brand-600 pl-3">Báo cáo công nợ khách hàng ({ngayVN(tuNgay)} → {ngayVN(denNgay)})</h2>
         <div className="flex gap-2">
           <button onClick={xuatCongNoExcel} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
           <button onClick={xuatCongNoWord} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileText className="w-3.5 h-3.5" /> Word</button>
@@ -1777,12 +1799,12 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
                     <td className="py-2 text-right text-slate-300">{tienVN(r.duDauKy)}</td>
                     <td className="py-2 text-right text-white font-bold">{soVN(r.khoiLuong)}</td>
                     <td className="py-2 text-right text-slate-300">
-                      {choSuaDonGia ? <button onClick={() => suaDonGia(r)} className="underline decoration-dotted hover:text-orange-400">{tienVN(r.donGia)}</button> : tienVN(r.donGia)}
+                      {choSuaDonGia ? <button onClick={() => suaDonGia(r)} className="underline decoration-dotted hover:text-brand-400">{tienVN(r.donGia)}</button> : tienVN(r.donGia)}
                     </td>
                     <td className="py-2 text-right text-slate-300">{tienVN(r.thanhTien)}</td>
                     <td className="py-2 text-right text-slate-300">{tienVN(r.daThanhToan)}</td>
                     <td className="py-2 text-right"><span className={`px-2 py-0.5 rounded-full text-xs font-bold ${mucCanhBao === 'do' ? 'bg-red-500/20 text-red-400' : mucCanhBao === 'vang' ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{tienVN(r.duCuoiKy)}</span></td>
-                    <td className="py-2 text-right"><button onClick={() => setXemChiTiet(r.id)} className="text-orange-400 text-xs underline">Chi tiết</button></td>
+                    <td className="py-2 text-right"><button onClick={() => setXemChiTiet(r.id)} className="text-brand-400 text-xs underline">Chi tiết</button></td>
                   </tr>
                 );
               })}
@@ -1925,7 +1947,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
 
       <div className="flex gap-2 mb-4 flex-wrap">
         {[['phieu','Phiếu hôm nay'],['bcao','Theo khách hàng / tra soát'],['maysuc','Báo cáo máy xúc'],['quanlymay','Quản lý máy xúc'],['khachhang','Khách hàng & biển số mới']].map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === id ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{label}</button>
+          <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === id ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{label}</button>
         ))}
       </div>
 
@@ -1933,7 +1955,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
         <>
           <Card className={`mb-4 ${tuDongIn ? 'border-emerald-600' : ''}`}>
             <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={tuDongIn} onChange={doiTuDongIn} className="w-4 h-4 accent-orange-600" />
+              <input type="checkbox" checked={tuDongIn} onChange={doiTuDongIn} className="w-4 h-4 accent-brand-600" />
               <div>
                 <div className="text-white text-sm font-bold flex items-center gap-1.5">🖨️ Tự động in phiếu ra máy in nhiệt {tuDongIn ? <span className="text-emerald-400 text-[11px] font-normal">· đang bật</span> : <span className="text-slate-500 text-[11px] font-normal">· đang tắt</span>}</div>
                 <div className="text-slate-400 text-[11px] mt-0.5">Chỉ bật ĐÚNG trên máy tính đang nối với máy in iTP86 tại bàn Kế toán mỏ — máy khác mở màn hình này để tắt, tránh in nhầm. Khi có xe xúc đầy, phiếu sẽ tự mở cửa sổ in (bấm "In" trên hộp thoại trình duyệt để in ra giấy).</div>
@@ -1991,7 +2013,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
           <SectionTitle>📊 Báo cáo cuối ca</SectionTitle>
           <Card>
             <p className="text-slate-400 text-xs mb-3">Xuất toàn bộ phiếu hôm nay ra file Excel để in, đối chiếu và trình ký với Kỹ thuật và Bảo vệ trước khi kết ca.</p>
-            <button onClick={xuatBaoCaoCuoiCa} className="w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất báo cáo cuối ca — Excel ({tickets.length} phiếu)</button>
+            <button onClick={xuatBaoCaoCuoiCa} className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất báo cáo cuối ca — Excel ({tickets.length} phiếu)</button>
           </Card>
           <BaoCaoKhachHangVaTraSoat events={events} config={config} setConfig={setConfig} choSuaDonGia={true} />
         </>
@@ -2014,14 +2036,14 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
         return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemLai(null)}>
           <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-3">
-          <button onClick={() => inTrucTiep(phieuGiaoNhanHTML(xemLai, events), `Phiếu ${xemLai.ticketNo}`, '80mm')} className="flex items-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold px-4 py-2 rounded-lg"><Printer className="w-4 h-4" /> In phiếu (khổ 80mm)</button>
+          <button onClick={() => inTrucTiep(phieuGiaoNhanHTML(xemLai, events), `Phiếu ${xemLai.ticketNo}`, '80mm')} className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2 rounded-lg"><Printer className="w-4 h-4" /> In phiếu (khổ 80mm)</button>
           <div className="flex gap-3 flex-wrap justify-center">
             {['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'].map((tieuDe) => (
               <div key={tieuDe} className="bg-white text-slate-900 rounded-lg p-4 w-full max-w-[300px] font-mono text-xs" style={{ width: '80mm' }}>
                 <div className="text-center font-bold text-[13px]">CÔNG TY CP DV VÀ TM THỐNG NHẤT</div>
                 <div className="text-center text-[11px] mb-2">Mỏ Khuôn Giàn 3</div>
                 <div className="text-center font-bold text-sm mb-1">PHIẾU XUẤT KHO BÁN HÀNG</div>
-                <div className="text-center text-[10px] font-bold text-orange-700 mb-2">({tieuDe})</div>
+                <div className="text-center text-[10px] font-bold text-brand-700 mb-2">({tieuDe})</div>
                 <div className="border-t border-dashed border-slate-400 my-2" />
                 <div>Số phiếu: <b>{xemLai.ticketNo}</b></div>
                 <div className="flex justify-between"><span>Ngày vào: {gateIn ? ngayVN(dayStrOf(gateIn.time)) : '.........'}</span><span>Giờ vào: {gateIn ? gioVN(gateIn.time).split(' ')[0] : '......'}</span></div>
@@ -2181,8 +2203,8 @@ function BaoCaoMayXuc({ events }) {
   return (
     <div>
       <div className="flex gap-2 mb-4">
-        <button onClick={() => setTab('ngay')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'ngay' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>Theo ngày</button>
-        <button onClick={() => setTab('thang')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'thang' ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>Theo kỳ / tháng</button>
+        <button onClick={() => setTab('ngay')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'ngay' ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>Theo ngày</button>
+        <button onClick={() => setTab('thang')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'thang' ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>Theo kỳ / tháng</button>
       </div>
 
       {tab === 'ngay' && (
@@ -2238,7 +2260,7 @@ function BaoCaoMayXuc({ events }) {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button onClick={() => xuatExcelChiTietMay(m)} className="flex items-center gap-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel chi tiết theo xe</button>
-                      <button onClick={() => setXemChiTietMay(m.excavatorId)} className="text-orange-400 text-xs underline">Xem chi tiết</button>
+                      <button onClick={() => setXemChiTietMay(m.excavatorId)} className="text-brand-400 text-xs underline">Xem chi tiết</button>
                     </div>
                   </div>
                 ))}
@@ -2383,7 +2405,7 @@ function DangKyBienSoKhachHang({ config, events, addEvent }) {
           {config.customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
-      <button onClick={dangKy} className="w-full mt-2 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 rounded-lg text-sm">Đăng ký</button>
+      <button onClick={dangKy} className="w-full mt-2 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 rounded-lg text-sm">Đăng ký</button>
       {daDangKy.length > 0 && (
         <div className="mt-3 divide-y divide-slate-700 text-sm">
           {daDangKy.map((d) => <div key={d.id} className="py-1.5 flex justify-between"><span className="text-white font-bold tabular-nums">{d.plate}</span><span className="text-slate-400">{d.customerName}</span></div>)}
@@ -2560,7 +2582,7 @@ function QuanLyTaiKhoan() {
   if (!users) return (
     <Card>
       <div className="text-red-400 text-sm text-center py-4">Không tải được danh sách tài khoản do lỗi kết nối tạm thời.</div>
-      <button onClick={taiLai} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm">Thử lại</button>
+      <button onClick={taiLai} className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-lg text-sm">Thử lại</button>
     </Card>
   );
 
@@ -2593,7 +2615,7 @@ function QuanLyTaiKhoan() {
         </Card>
       )}
 
-      <button onClick={themTaiKhoan} className="w-full mb-2 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 rounded-lg text-sm"><Plus className="w-4 h-4" /> Thêm tài khoản mới</button>
+      <button onClick={themTaiKhoan} className="w-full mb-2 flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-lg text-sm"><Plus className="w-4 h-4" /> Thêm tài khoản mới</button>
       {users.some((u) => u.role !== 'banlanhdao') && (
         <button onClick={async () => {
           const soLuong = users.filter((u) => u.role !== 'banlanhdao').length;
@@ -2703,7 +2725,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
   return (
     <div className="max-w-5xl mx-auto p-4">
       <h1 className="text-xl font-bold text-white mt-2 flex items-center gap-2">
-        {isHeadOffice ? <Building2 className="w-5 h-5 text-orange-500" /> : <LayoutDashboard className="w-5 h-5 text-orange-500" />} {TIEU_DE[vaiTro]}
+        {isHeadOffice ? <Building2 className="w-5 h-5 text-brand-500" /> : <LayoutDashboard className="w-5 h-5 text-brand-500" />} {TIEU_DE[vaiTro]}
       </h1>
       {vaiTro === 'banlanhdao' && <p className="text-slate-400 text-xs mb-2">Chỉ xem báo cáo tổng quan — không có quyền chỉnh sửa dữ liệu.</p>}
 
@@ -2711,7 +2733,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
         {[['tongquan','Tổng quan'],['khachhang','Khách hàng / tra soát'],['nhatky','Nhật ký hoạt động'],['taikhoan','Quản lý tài khoản'],['cauhinh','Cấu hình']].map(([id, label]) => {
           if (id === 'cauhinh' && !dcCauHinh && !dcSuaKhachHang) return null;
           if (id === 'taikhoan' && vaiTro !== 'banlanhdao') return null;
-          return <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === id ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{id === 'cauhinh' ? (dcCauHinh ? 'Cấu hình' : 'Khách hàng & điều chuyển xe') : label}</button>;
+          return <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === id ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{id === 'cauhinh' ? (dcCauHinh ? 'Cấu hình' : 'Khách hàng & điều chuyển xe') : label}</button>;
         })}
       </div>
 
@@ -2719,7 +2741,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
         <>
           <div className="flex gap-2 mb-4 flex-wrap">
             {[['day','Hôm nay'],['week','Tuần này'],['month','Tháng này'],['year','Năm nay'],['all','📌 Từ đầu dự án']].map(([id,label]) => (
-              <button key={id} onClick={() => setRange(id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${range === id ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{label}</button>
+              <button key={id} onClick={() => setRange(id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${range === id ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{label}</button>
             ))}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -2749,8 +2771,8 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
           <SectionTitle>Tiến độ khai thác so với thiết kế mỏ</SectionTitle>
           <Card>
             <div className="flex justify-between items-baseline mb-2"><div><span className="text-2xl font-extrabold text-white">{phanTram}</span><span className="text-slate-400"> % trữ lượng thiết kế</span></div><div className="text-slate-400 text-xs">{soVN(Math.round(tongLuyKeNguyenKhoi))} / {soVN(thietKe.tongTruLuongNguyenKhoi)} m³</div></div>
-            <div className="bg-slate-950 border border-slate-700 rounded-full h-4 overflow-hidden"><div className="h-full bg-gradient-to-r from-orange-600 to-amber-400" style={{ width: `${phanTram}%` }} /></div>
-            <div className="flex flex-wrap gap-2 mt-3">{thietKe.theoNam.map((n) => (<div key={n.nam} className="text-xs bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 flex items-center gap-2"><span className="text-slate-400">Năm {n.nam}:</span><span className="text-white font-semibold">{soVN(n.nguyenKhoi)} m³</span>{dcCauHinh && <button onClick={() => suaSanLuongNam(n.nam)} className="text-orange-400 hover:text-orange-300">Sửa</button>}</div>))}</div>
+            <div className="bg-slate-950 border border-slate-700 rounded-full h-4 overflow-hidden"><div className="h-full bg-gradient-to-r from-brand-600 to-amber-400" style={{ width: `${phanTram}%` }} /></div>
+            <div className="flex flex-wrap gap-2 mt-3">{thietKe.theoNam.map((n) => (<div key={n.nam} className="text-xs bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 flex items-center gap-2"><span className="text-slate-400">Năm {n.nam}:</span><span className="text-white font-semibold">{soVN(n.nguyenKhoi)} m³</span>{dcCauHinh && <button onClick={() => suaSanLuongNam(n.nam)} className="text-brand-400 hover:text-brand-300">Sửa</button>}</div>))}</div>
           </Card>
 
           <SectionTitle>Sản lượng theo ngày</SectionTitle>
@@ -2761,7 +2783,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
           </Card>
 
           <div className="flex items-center justify-between mt-6 mb-3 flex-wrap gap-2">
-            <h2 className="text-amber-400 font-bold border-l-4 border-orange-600 pl-3">Chi tiết phiếu xuất ({tickets.length})</h2>
+            <h2 className="text-amber-400 font-bold border-l-4 border-brand-600 pl-3">Chi tiết phiếu xuất ({tickets.length})</h2>
             <button onClick={xuatCSV} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất Excel</button>
           </div>
           <Card>
