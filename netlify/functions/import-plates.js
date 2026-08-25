@@ -44,7 +44,11 @@ export default async (req) => {
       id: `GI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type: 'gate_in',
       plate: String(r.plate).trim().toUpperCase(),
-      source: 'excel_agent',
+      // Cho phép chương trình cầu nối tự khai báo nguồn dữ liệu (VD:
+      // 'camera_hikcentral' từ camera-agent/) để phần mềm hiển thị đúng trạng
+      // thái kết nối theo từng loại — mặc định 'excel_agent' để tương thích
+      // ngược với các phiên bản trước.
+      source: r.source || body.source || 'excel_agent',
       loaiXe: r.loaiXe || '25m3',
       photo: null,
       excelRowKey: r.excelRowKey,
