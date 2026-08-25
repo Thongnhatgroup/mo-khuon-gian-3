@@ -1938,11 +1938,6 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
 // thoại...) mở màn hình này không bị tự bật cửa sổ in theo.
 const KHOA_TUDONG_IN = 'ktMo_tuDongIn_v1';
 const KHOA_PHIEU_DA_XU_LY = 'ktMo_phieuDaXuLy_v1';
-// (Bảng hiệu chỉnh 25/08) — khi lập phiếu lúc xác nhận xúc đầy xe, xe CHƯA ra
-// cổng nên phiếu chưa thể có ngày ra/giờ ra. Ghi nhớ riêng phiếu nào ĐÃ được
-// tự in lại lần 2 (khi Bảo vệ xác nhận xe ra cổng) để không in lặp lại nhiều
-// lần cho cùng 1 phiếu.
-const KHOA_PHIEU_DA_IN_KHI_RA_CONG = 'ktMo_phieuDaInKhiRaCong_v1';
 function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
   const [tab, setTab] = useState('phieu');
   const [xemLai, setXemLai] = useState(null);
@@ -1966,22 +1961,6 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
     phieuDaXuLyRef.current = seen;
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(seen) })); } catch {}
   }
-  // Xem xe nào của phiếu t đã có ghi nhận ra cổng (gate_out) SAU thời điểm lập
-  // phiếu — dùng chung cho cả việc quyết định có cần tự in lại hay không.
-  const coXeRaCong = (t) => events.some((e) => e.type === 'gate_out' && e.plate === t.plate && e.time > t.time);
-  const daInKhiRaCongRef = useRef(null);
-  if (daInKhiRaCongRef.current === null) {
-    let seen = new Set();
-    try {
-      const luu = JSON.parse(localStorage.getItem(KHOA_PHIEU_DA_IN_KHI_RA_CONG) || 'null');
-      if (luu && luu.ngay === today) seen = new Set(luu.ids);
-    } catch {}
-    // Cũng coi các phiếu ĐÃ CÓ SẴN xe ra cổng lúc mới mở màn hình là đã xử lý
-    // — chỉ tự in lại khi CÓ THÊM xe ra cổng MỚI sau thời điểm này.
-    tickets.forEach((t) => { if (coXeRaCong(t)) seen.add(t.id); });
-    daInKhiRaCongRef.current = seen;
-    try { localStorage.setItem(KHOA_PHIEU_DA_IN_KHI_RA_CONG, JSON.stringify({ ngay: today, ids: Array.from(seen) })); } catch {}
-  }
   const doiTuDongIn = () => {
     const bat = !tuDongIn;
     setTuDongIn(bat);
@@ -2001,20 +1980,6 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(phieuDaXuLyRef.current) })); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickets.length, tuDongIn]);
-  // (Bảng hiệu chỉnh 25/08) — khi Bảo vệ xác nhận xe ra cổng, tự in lại ĐÚNG 1
-  // LẦN phiếu tương ứng để có đủ ngày ra/giờ ra (lúc lập phiếu ban đầu xe chưa
-  // ra nên chưa thể có 2 mục này).
-  useEffect(() => {
-    if (!tuDongIn) return;
-    const canInLai = tickets.filter((t) => !daInKhiRaCongRef.current.has(t.id) && coXeRaCong(t));
-    if (canInLai.length === 0) return;
-    canInLai.slice().reverse().forEach((t, idx) => {
-      daInKhiRaCongRef.current.add(t.id);
-      setTimeout(() => inTrucTiep(phieuGiaoNhanHTML(t, events), `Phiếu ${t.ticketNo} (đã ra cổng)`, '80mm'), idx * 1200);
-    });
-    try { localStorage.setItem(KHOA_PHIEU_DA_IN_KHI_RA_CONG, JSON.stringify({ ngay: today, ids: Array.from(daInKhiRaCongRef.current) })); } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events.length, tuDongIn]);
   const xuatBaoCaoCuoiCa = () => {
     const rows = [
       ['Số phiếu', 'Biển số', 'Khối lượng (m3)', 'Máy xúc', 'Lái máy xúc', 'Khách hàng', 'Thời gian', 'Lái xe đã ký'],
