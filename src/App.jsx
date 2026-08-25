@@ -414,22 +414,25 @@ function phieuGiaoNhanHTML(t, events) {
   const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === t.plate && dayStrOf(e.time) === dayStrOf(t.time)).sort((a, b) => a.time.localeCompare(b.time))[0];
   const gateOut = events.filter((e) => e.type === 'gate_out' && e.plate === t.plate && e.time > t.time).sort((a, b) => a.time.localeCompare(b.time))[0];
   const lienList = ['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'];
+  // (Bảng hiệu chỉnh 25/08) — bỏ mã QR giả trên phiếu, cỡ chữ đồng nhất 12pt
+  // (như Word/Excel) thay vì 9–13pt lẫn lộn trước đây, TẤT CẢ chữ in đậm,
+  // giãn dòng rộng hơn cho dễ nhìn — khổ giấy 80mm tự giãn dài theo nội dung
+  // (đã cấu hình @page{size:80mm auto} ở inTrucTiep, không cần chỉnh thêm).
   return lienList.map((tieuDe, i) => `
-    <div style="font-family:'Courier New',monospace;font-size:10pt;${i > 0 ? 'page-break-before:always;' : ''}">
-      <div style="text-align:center;font-weight:bold;font-size:12pt">CÔNG TY CP DV VÀ TM THỐNG NHẤT</div>
-      <div style="text-align:center;font-size:9pt;margin-bottom:6px">Mỏ Khuôn Giàn 3</div>
-      <div style="text-align:center;font-weight:bold;font-size:12pt">PHIẾU XUẤT KHO BÁN HÀNG</div>
-      <div style="text-align:center;font-size:9pt;font-weight:bold;color:#a15c00;margin-bottom:6px">(${tieuDe})</div>
-      <div style="border-top:1px dashed #333;margin:6px 0"></div>
-      <div>Số phiếu: <b>${t.ticketNo}</b></div>
+    <div style="font-family:'Courier New',monospace;font-size:12pt;font-weight:bold;line-height:1.7;${i > 0 ? 'page-break-before:always;' : ''}">
+      <div style="text-align:center">CÔNG TY CP DV VÀ TM THỐNG NHẤT</div>
+      <div style="text-align:center;margin-bottom:8px">Mỏ Khuôn Giàn 3</div>
+      <div style="text-align:center">PHIẾU XUẤT ĐẤT</div>
+      <div style="text-align:center;color:#a15c00;margin-bottom:8px">(${tieuDe})</div>
+      <div style="border-top:2px dashed #333;margin:8px 0"></div>
+      <div>Số phiếu: ${t.ticketNo}</div>
       <div style="display:flex;justify-content:space-between"><span>Ngày vào: ${gateIn ? ngayVN(dayStrOf(gateIn.time)) : '.........'}</span><span>Giờ vào: ${gateIn ? gioVN(gateIn.time).split(' ')[0] : '......'}</span></div>
       <div style="display:flex;justify-content:space-between"><span>Ngày ra: ${gateOut ? ngayVN(dayStrOf(gateOut.time)) : '.........'}</span><span>Giờ ra: ${gateOut ? gioVN(gateOut.time).split(' ')[0] : '......'}</span></div>
-      <div>Bên mua: <b>${t.customerName || '—'}</b></div>
-      <div>Biển số xe: <b style="font-size:13pt">${t.plate}</b></div>
-      <div style="font-weight:bold;font-size:11pt;margin-top:4px">Khối lượng: ${soVN(t.volume)} m3</div>
-      <div style="border-top:1px dashed #333;margin:6px 0"></div>
-      <div style="display:flex;justify-content:center;margin:8px 0">${pseudoQRHTML(t.ticketNo + tieuDe)}</div>
-      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:9pt"><b>Kế toán mỏ</b><b>Lái xe ký nhận</b></div>
+      <div>Bên mua: ${t.customerName || '—'}</div>
+      <div>Biển số xe: ${t.plate}</div>
+      <div style="margin-top:6px">Khối lượng: ${soVN(t.volume)} m3</div>
+      <div style="border-top:2px dashed #333;margin:8px 0"></div>
+      <div style="display:flex;justify-content:space-between;margin-top:14px"><span>Kế toán mỏ</span><span>Lái xe ký nhận</span></div>
     </div>`).join('');
 }
 
@@ -1152,7 +1155,18 @@ function GateScreen({ events, addEvent, addEvents }) {
 // Mẫu "BIÊN BẢN KIỂM TRA KHỐI LƯỢNG" đúng khuôn công ty (theo Bảng hiệu chỉnh
 // V5.0, khổ A4) — dùng chung cho xem trên màn hình lẫn xuất file Word.
 // ---------------------------------------------------------------------------
-function bienBanHTML(khaiBao) {
+// Tìm khai báo GẦN NHẤT TRƯỚC ĐÓ của cùng biển số xe (khác với khaiBao hiện
+// tại) — dùng làm "kích thước, khối lượng ban đầu" trên biên bản khi phát
+// hiện cơi thùng (khaiBao hiện tại lúc đó là lần "kiểm tra lại"). Trả về null
+// nếu đây là lần khai báo đầu tiên của xe (không có gì để so sánh).
+function banDauKhaiBao(khaiBao, events) {
+  const cungPlate = events
+    .filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === khaiBao.plate)
+    .sort((a, b) => a.time.localeCompare(b.time));
+  const banDau = cungPlate[0];
+  return banDau && banDau.id !== khaiBao.id ? banDau : null;
+}
+function bienBanHTML(khaiBao, banDau) {
   const t = new Date(khaiBao.time);
   const vn = new Date(t.getTime() + 7 * 3600 * 1000);
   return `
@@ -1160,17 +1174,21 @@ function bienBanHTML(khaiBao) {
       <td class="khonvien" style="width:50%"><b>CÔNG TY CP DV VÀ TM<br/>THỐNG NHẤT<br/>MỎ KHUÔN GIÀN 3</b></td>
       <td class="khonvien ct" style="width:50%"><b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br/><b>Độc lập – Tự do – Hạnh phúc</b></td>
     </tr></table>
-    <h2 class="ct">BIÊN BẢN XÁC NHẬN KHỐI LƯỢNG</h2>
+    <h2 class="ct">BIÊN BẢN KIỂM TRA KHỐI LƯỢNG</h2>
     <p>Ngày ...... tháng ...... năm ${vn.getUTCFullYear()} vào khoảng ${vn.getUTCHours()} giờ ${vn.getUTCMinutes()} phút, chúng tôi cùng nhau kiểm tra khối lượng cụ thể như sau:</p>
     <p><b>Biển số xe:</b> ${khaiBao.plate || '................................'}</p>
     <p><b>Tên lái xe:</b> ${khaiBao.tenLaiXe || '................................'}</p>
     <p><b>Tên khách hàng:</b> ${khaiBao.customerName || '................................'}</p>
-    <p><b>Kích thước thùng xe:</b></p>
+    <p><b>Kích thước thùng xe ban đầu:</b></p>
+    <p>Rộng:${banDau?.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${banDau?.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${banDau?.cao ?? '........'}</p>
+    <p><b>Khối lượng ban đầu:</b> ${banDau ? soVN(banDau.khoiLuong) : '................'} m3</p>
+    <p><b>Kích thước thùng xe kiểm tra lại:</b></p>
     <p>Rộng:${khaiBao.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${khaiBao.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${khaiBao.cao ?? '........'}</p>
-    <p><b>Khối lượng:</b> ${khaiBao.khoiLuong} m3</p>
-    ${khaiBao.viPham ? `<p><b>Lý do kiểm tra lại:</b> Vi phạm vượt khối lượng kích thước thành thùng${khaiBao.ghiChuViPham ? ' — ' + khaiBao.ghiChuViPham : ''}</p>` : ''}
-    <p>Hai bên xác nhận khối lượng trên là chính xác và để thực hiện trong việc tính khối lượng xúc lên xe, đưa vào công nợ.</p>
-    <p>Nếu sau có thay đổi về khối lượng thì bên mua sẽ thông báo. Hai bên cùng nhau lập biên bản và xác nhận lại khối lượng, khối lượng đó sẽ được tính từ thời điểm kiểm tra.</p>
+    <p><b>Khối lượng kiểm tra:</b> ${soVN(khaiBao.khoiLuong)} m3</p>
+    ${khaiBao.viPham ? `<p><b>Lý do kiểm tra lại:</b> Vi phạm vượt khối lượng kích thước thành thùng</p>` : ''}
+    <p><b>Ghi chú:</b> ${khaiBao.ghiChuViPham || '..........................................................'}</p>
+    <p>..........................................................</p>
+    <p>..........................................................</p>
     <br/>
     <table class="khonvien"><tr>
       <td class="khonvien ct"><b>NGƯỜI KIỂM TRA</b></td><td class="khonvien ct"><b>KẾ TOÁN MỎ</b></td>
@@ -1178,9 +1196,9 @@ function bienBanHTML(khaiBao) {
     </tr><tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>
   `;
 }
-function BienBanModal({ khaiBao, onClose }) {
+function BienBanModal({ khaiBao, events, onClose }) {
   if (!khaiBao) return null;
-  const html = bienBanHTML(khaiBao);
+  const html = bienBanHTML(khaiBao, banDauKhaiBao(khaiBao, events));
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white text-black rounded-lg p-6 w-full max-w-md max-h-[85vh] overflow-y-auto text-sm" onClick={(e) => e.stopPropagation()} dangerouslySetInnerHTML={{ __html: html }} />
@@ -1453,7 +1471,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
           </div>
         </div>
       )}
-      <BienBanModal khaiBao={xemBienBanViPham} onClose={() => setXemBienBanViPham(null)} />
+      <BienBanModal khaiBao={xemBienBanViPham} events={events} onClose={() => setXemBienBanViPham(null)} />
     </div>
   );
 }
@@ -1920,6 +1938,11 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
 // thoại...) mở màn hình này không bị tự bật cửa sổ in theo.
 const KHOA_TUDONG_IN = 'ktMo_tuDongIn_v1';
 const KHOA_PHIEU_DA_XU_LY = 'ktMo_phieuDaXuLy_v1';
+// (Bảng hiệu chỉnh 25/08) — khi lập phiếu lúc xác nhận xúc đầy xe, xe CHƯA ra
+// cổng nên phiếu chưa thể có ngày ra/giờ ra. Ghi nhớ riêng phiếu nào ĐÃ được
+// tự in lại lần 2 (khi Bảo vệ xác nhận xe ra cổng) để không in lặp lại nhiều
+// lần cho cùng 1 phiếu.
+const KHOA_PHIEU_DA_IN_KHI_RA_CONG = 'ktMo_phieuDaInKhiRaCong_v1';
 function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
   const [tab, setTab] = useState('phieu');
   const [xemLai, setXemLai] = useState(null);
@@ -1943,6 +1966,22 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
     phieuDaXuLyRef.current = seen;
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(seen) })); } catch {}
   }
+  // Xem xe nào của phiếu t đã có ghi nhận ra cổng (gate_out) SAU thời điểm lập
+  // phiếu — dùng chung cho cả việc quyết định có cần tự in lại hay không.
+  const coXeRaCong = (t) => events.some((e) => e.type === 'gate_out' && e.plate === t.plate && e.time > t.time);
+  const daInKhiRaCongRef = useRef(null);
+  if (daInKhiRaCongRef.current === null) {
+    let seen = new Set();
+    try {
+      const luu = JSON.parse(localStorage.getItem(KHOA_PHIEU_DA_IN_KHI_RA_CONG) || 'null');
+      if (luu && luu.ngay === today) seen = new Set(luu.ids);
+    } catch {}
+    // Cũng coi các phiếu ĐÃ CÓ SẴN xe ra cổng lúc mới mở màn hình là đã xử lý
+    // — chỉ tự in lại khi CÓ THÊM xe ra cổng MỚI sau thời điểm này.
+    tickets.forEach((t) => { if (coXeRaCong(t)) seen.add(t.id); });
+    daInKhiRaCongRef.current = seen;
+    try { localStorage.setItem(KHOA_PHIEU_DA_IN_KHI_RA_CONG, JSON.stringify({ ngay: today, ids: Array.from(seen) })); } catch {}
+  }
   const doiTuDongIn = () => {
     const bat = !tuDongIn;
     setTuDongIn(bat);
@@ -1962,6 +2001,20 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(phieuDaXuLyRef.current) })); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickets.length, tuDongIn]);
+  // (Bảng hiệu chỉnh 25/08) — khi Bảo vệ xác nhận xe ra cổng, tự in lại ĐÚNG 1
+  // LẦN phiếu tương ứng để có đủ ngày ra/giờ ra (lúc lập phiếu ban đầu xe chưa
+  // ra nên chưa thể có 2 mục này).
+  useEffect(() => {
+    if (!tuDongIn) return;
+    const canInLai = tickets.filter((t) => !daInKhiRaCongRef.current.has(t.id) && coXeRaCong(t));
+    if (canInLai.length === 0) return;
+    canInLai.slice().reverse().forEach((t, idx) => {
+      daInKhiRaCongRef.current.add(t.id);
+      setTimeout(() => inTrucTiep(phieuGiaoNhanHTML(t, events), `Phiếu ${t.ticketNo} (đã ra cổng)`, '80mm'), idx * 1200);
+    });
+    try { localStorage.setItem(KHOA_PHIEU_DA_IN_KHI_RA_CONG, JSON.stringify({ ngay: today, ids: Array.from(daInKhiRaCongRef.current) })); } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events.length, tuDongIn]);
   const xuatBaoCaoCuoiCa = () => {
     const rows = [
       ['Số phiếu', 'Biển số', 'Khối lượng (m3)', 'Máy xúc', 'Lái máy xúc', 'Khách hàng', 'Thời gian', 'Lái xe đã ký'],
@@ -2080,21 +2133,20 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
           <button onClick={() => inTrucTiep(phieuGiaoNhanHTML(xemLai, events), `Phiếu ${xemLai.ticketNo}`, '80mm')} className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2 rounded-lg"><Printer className="w-4 h-4" /> In phiếu (khổ 80mm)</button>
           <div className="flex gap-3 flex-wrap justify-center">
             {['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'].map((tieuDe) => (
-              <div key={tieuDe} className="bg-white text-slate-900 rounded-lg p-4 w-full max-w-[300px] font-mono text-xs" style={{ width: '80mm' }}>
-                <div className="text-center font-bold text-[13px]">CÔNG TY CP DV VÀ TM THỐNG NHẤT</div>
-                <div className="text-center text-[11px] mb-2">Mỏ Khuôn Giàn 3</div>
-                <div className="text-center font-bold text-sm mb-1">PHIẾU XUẤT KHO BÁN HÀNG</div>
-                <div className="text-center text-[10px] font-bold text-brand-700 mb-2">({tieuDe})</div>
-                <div className="border-t border-dashed border-slate-400 my-2" />
-                <div>Số phiếu: <b>{xemLai.ticketNo}</b></div>
+              <div key={tieuDe} className="bg-white text-slate-900 rounded-lg p-4 w-full max-w-[300px] font-mono text-sm font-bold leading-relaxed" style={{ width: '80mm' }}>
+                <div className="text-center">CÔNG TY CP DV VÀ TM THỐNG NHẤT</div>
+                <div className="text-center mb-2">Mỏ Khuôn Giàn 3</div>
+                <div className="text-center">PHIẾU XUẤT ĐẤT</div>
+                <div className="text-center text-brand-700 mb-2">({tieuDe})</div>
+                <div className="border-t-2 border-dashed border-slate-400 my-2" />
+                <div>Số phiếu: {xemLai.ticketNo}</div>
                 <div className="flex justify-between"><span>Ngày vào: {gateIn ? ngayVN(dayStrOf(gateIn.time)) : '.........'}</span><span>Giờ vào: {gateIn ? gioVN(gateIn.time).split(' ')[0] : '......'}</span></div>
                 <div className="flex justify-between"><span>Ngày ra: {gateOut ? ngayVN(dayStrOf(gateOut.time)) : '.........'}</span><span>Giờ ra: {gateOut ? gioVN(gateOut.time).split(' ')[0] : '......'}</span></div>
-                <div>Bên mua: <b>{xemLai.customerName || '—'}</b></div>
-                <div>Biển số xe: <b className="text-base">{xemLai.plate}</b></div>
-                <div className="font-bold text-sm mt-1">Khối lượng: {soVN(xemLai.volume)} m3</div>
-                <div className="border-t border-dashed border-slate-400 my-2" />
-                <div className="flex justify-center my-2"><PseudoQR seed={xemLai.ticketNo + tieuDe} /></div>
-                <div className="flex justify-between mt-3 text-[11px]"><b>Kế toán mỏ</b><b>Lái xe ký nhận</b></div>
+                <div>Bên mua: {xemLai.customerName || '—'}</div>
+                <div>Biển số xe: {xemLai.plate}</div>
+                <div className="mt-1">Khối lượng: {soVN(xemLai.volume)} m3</div>
+                <div className="border-t-2 border-dashed border-slate-400 my-2" />
+                <div className="flex justify-between mt-3"><span>Kế toán mỏ</span><span>Lái xe ký nhận</span></div>
               </div>
             ))}
           </div>
@@ -2102,7 +2154,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
         </div>
         );
       })()}
-      <BienBanModal khaiBao={xemBienBan} onClose={() => setXemBienBan(null)} />
+      <BienBanModal khaiBao={xemBienBan} events={events} onClose={() => setXemBienBan(null)} />
     </div>
   );
 }
