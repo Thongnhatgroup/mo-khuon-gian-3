@@ -150,6 +150,9 @@ async function dayLenPhanMem(danhSachBienSo) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      // Khai báo rõ nguồn dữ liệu là Camera HikCentral — để phần mềm hiển thị
+      // đúng trạng thái "Đã kết nối Camera" (khác với luồng đọc file Excel).
+      source: 'camera_hikcentral',
       plates: danhSachBienSo.map((r) => ({
         plate: r.plate,
         loaiXe: '25m3',
