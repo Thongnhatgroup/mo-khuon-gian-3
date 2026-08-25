@@ -438,10 +438,9 @@ function TopBar({ session, onLogout, onChangePassword, onlineCount, syncing }) {
   return (
     <div className="sticky top-0 z-20 bg-slate-900/95 backdrop-blur border-b-2 border-brand-600 px-4 py-3 flex items-center justify-between flex-wrap gap-2">
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center p-1"><LogoThongNhat size={28} /></div>
-        <div>
+        <div className="bg-white rounded-lg px-2.5 py-1.5"><LogoThongNhat size={30} withWordmark /></div>
+        <div className="hidden sm:block">
           <div className="font-bold text-white text-sm leading-tight">MỎ ĐẤT KHUÔN GIÀN — BẢN XEM TRƯỚC V3</div>
-          <div className="text-slate-400 text-xs leading-tight">Công ty CP Dịch vụ và Thương mại Thống Nhất</div>
         </div>
       </div>
       <div className="flex items-center gap-2.5 text-xs flex-wrap">
@@ -603,8 +602,7 @@ function LoginScreen({ onLogin }) {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-5">
       <div className="w-full max-w-sm">
         <div className="text-center mb-7">
-          <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-white flex items-center justify-center shadow-lg shadow-brand-900/40 p-2"><LogoThongNhat size={48} /></div>
-          <div className="text-white font-extrabold tracking-wide">CÔNG TY CP DỊCH VỤ VÀ THƯƠNG MẠI THỐNG NHẤT</div>
+          <div className="inline-block mx-auto mb-3 rounded-2xl bg-white shadow-lg shadow-brand-900/40 px-5 py-4"><LogoThongNhat size={56} withWordmark /></div>
           <div className="text-slate-400 text-sm mt-1">Đăng nhập bản xem trước — Mỏ đất Khuôn Giàn 3</div>
         </div>
 
