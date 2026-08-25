@@ -6,7 +6,7 @@ import {
   Download, Plus, CheckCircle2, AlertTriangle, Users, Printer, Radio,
   ClipboardCheck, Camera, Search, Clock, ImageOff, FileWarning, KeyRound,
   MapPin, Wallet, ArrowRightLeft, LogIn, Ban, Bell, Eye, EyeOff, Ruler, History,
-  FileSpreadsheet, FileText, Link2, RotateCw,
+  FileSpreadsheet, FileText, Link2, RotateCw, Globe,
 } from 'lucide-react';
 
 // ============================================================================
@@ -742,6 +742,12 @@ function GateScreen({ events, addEvent, addEvents }) {
   const [photo, setPhoto] = useState(null);
   const [plateRa, setPlateRa] = useState('');
   const [xemCauHinhCam, setXemCauHinhCam] = useState(false);
+  // (I.2) Kết nối trang Web — camera nhận diện biển số HikCentral Professional
+  // qua AppKey/AppSecret (chương trình cầu nối camera-agent) — khác với mục
+  // "Xem hướng dẫn kết nối Camera thật" ở dưới (đó là cách camera tự gửi thẳng
+  // webhook, chỉ dùng được nếu đúng model/firmware hỗ trợ). Đây là cách ĐÃ CÀI
+  // ĐẶT SẴN và khuyến nghị dùng trước.
+  const [xemHuongDanCamHik, setXemHuongDanCamHik] = useState(false);
   const [xemLogCam, setXemLogCam] = useState(false);
   const [logCamera, setLogCamera] = useState(null);
   const taiLogCamera = async () => { setLogCamera(await storageGet('camera_log', true, [])); };
@@ -882,6 +888,11 @@ function GateScreen({ events, addEvent, addEvents }) {
   };
 
   const today = todayStr();
+  // (I.2) Trạng thái kết nối Camera HikCentral (đẩy dữ liệu lên qua API
+  // /api/import-plates, tag source: 'camera_hikcentral' — xem camera-agent/).
+  const evsCamHik = events.filter((e) => e.type === 'gate_in' && e.source === 'camera_hikcentral');
+  const camHikGanNhat = evsCamHik.length ? evsCamHik.reduce((a, b) => (a.time > b.time ? a : b)) : null;
+  const camHikStats = { last: camHikGanNhat, homNayCount: evsCamHik.filter((e) => dayStrOf(e.time) === today).length };
   const homNay = events.filter((e) => e.type === 'gate_in' && dayStrOf(e.time) === today);
   const canBoSung = homNay.filter((e) => e.needsManualPlate).slice().reverse();
   const daXacDinh = homNay.filter((e) => !e.needsManualPlate).slice().reverse();
@@ -954,6 +965,34 @@ function GateScreen({ events, addEvent, addEvents }) {
             <b>3)</b> Mỗi dòng mới thêm vào Excel (biển số ở cột đã nhận diện) sẽ tự động thành 1 lượt xe vào cổng — không nhập trùng dòng đã đọc.<br />
             <b>4)</b> Nếu dùng trình duyệt không hỗ trợ (Firefox/Safari), bấm "Chọn lại file" mỗi khi cần cập nhật.<br />
             <b>Lưu ý quan trọng:</b> đây là kết nối qua trình duyệt (cần mở phần mềm trên đúng máy có ổ D: chứa file). Nếu muốn hoàn toàn tự động kể cả khi không mở trình duyệt, cần bổ sung 1 agent nhỏ chạy nền (Power Automate Desktop hoặc script Python) để tự đẩy dữ liệu lên — có thể trao đổi thêm nếu cần.
+          </div>
+        )}
+      </Card>
+
+      <Card className="mb-4 border-brand-600/50">
+        <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Kết nối trang Web — Camera nhận diện biển số (HikCentral)</div>
+        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe tự động từ hệ thống camera HikCentral Professional của mỏ, đẩy thẳng vào đây làm nguồn ghi nhận xe vào cổng — không cần bảo vệ nhập tay.</p>
+        {camHikStats.last ? (
+          <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
+            <div className="text-brand-400 text-xs font-bold">✅ Đã kết nối — đang nhận dữ liệu từ Camera</div>
+            <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} lượt hôm nay</div>
+          </div>
+        ) : (
+          <div className="text-slate-500 text-xs mb-2">Chưa nhận được dữ liệu nào từ Camera — làm theo các bước bên dưới để kết nối lần đầu.</div>
+        )}
+        <button onClick={() => setXemHuongDanCamHik(!xemHuongDanCamHik)} className="bg-brand-700 hover:bg-brand-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanCamHik ? 'Ẩn các bước kết nối' : 'Xem các bước kết nối (5 bước)'}</button>
+        {xemHuongDanCamHik && (
+          <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
+            <div><b className="text-white">Bước 1 — Lấy khóa kết nối (AppKey/AppSecret) từ HikCentral:</b><br />
+              Đăng nhập trang quản trị HikCentral Professional (địa chỉ nội bộ của mỏ) → vào mục cấu hình hệ thống → bật <b>"Open Platform" / "Nền tảng mở"</b> → tạo 1 application để lấy cặp <b>AppKey + AppSecret</b>. Đây KHÔNG PHẢI tài khoản admin đăng nhập trang web thường — nếu không tự bật được, nhờ đơn vị lắp camera / kỹ thuật Hikvision hỗ trợ bật lần đầu.</div>
+            <div><b className="text-white">Bước 2 — Tải chương trình cầu nối về 1 máy tính trong mạng nội bộ mỏ:</b><br />
+              Chương trình nhỏ (đã viết sẵn, chạy bằng Node.js, không cần cài thêm gì khác) tải tại: <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">github.com/Thongnhatgroup/mo-khuon-gian-3/camera-agent</a> — bấm nút xanh <b>"Code" → "Download ZIP"</b> trên trang đó rồi giải nén.</div>
+            <div><b className="text-white">Bước 3 — Điền khóa kết nối vào file cấu hình:</b><br />
+              Trong thư mục vừa giải nén, sao chép file <code>config.example.json</code> thành <code>config.json</code>, mở bằng Notepad, dán đúng AppKey/AppSecret vừa lấy ở Bước 1 vào (giữ nguyên các dòng còn lại, đặc biệt dòng địa chỉ nhận dữ liệu <code>netlifyImportUrl</code>). File này chỉ lưu trên đúng máy tính này — KHÔNG chia sẻ hay đưa lên mạng vì chứa khóa bí mật.</div>
+            <div><b className="text-white">Bước 4 — Chạy chương trình:</b><br />
+              Mở Command Prompt tại đúng thư mục đó, gõ <code>node index.js</code> (cần cài Node.js bản 18 trở lên trước, tải tại nodejs.org nếu máy chưa có). Chương trình sẽ tự động kiểm tra camera mỗi vài giây và đẩy biển số mới lên đây. Để chạy nền liên tục mỗi khi bật máy, đặt lệnh này vào Task Scheduler của Windows (xem chi tiết trong file <code>README.md</code> đi kèm trong thư mục, hoặc nhờ tôi hướng dẫn thêm khi cần).</div>
+            <div className="text-amber-400"><b>Bước 5 — Kiểm tra kết nối:</b> quay lại màn hình này, khung trạng thái phía trên sẽ tự chuyển sang "✅ Đã kết nối" ngay khi biển số đầu tiên được camera gửi lên — không cần bấm gì thêm.</div>
+            <div className="text-slate-500">Nếu chạy lần đầu bị báo lỗi (401/403 hoặc không kết nối được), chụp lại đúng nội dung lỗi hiện trên màn hình Command Prompt rồi gửi cho tôi để chỉnh lại cho khớp đúng phiên bản HikCentral đang dùng tại mỏ.</div>
           </div>
         )}
       </Card>
