@@ -371,6 +371,8 @@ function fileToThumbnail(file, maxW = 220) {
 // Sử dụng Logo Thống Nhất", giữ đúng 2 màu quy chuẩn (xanh #005495 / đỏ
 // #be3736). withWordmark=true hiển thị thêm chữ "THỐNG NHẤT" + khẩu hiệu.
 function LogoThongNhat({ size = 36, withWordmark = false, className = '' }) {
+  // Chỉ biểu tượng (2 khối xanh/đỏ) — vẽ lại bằng SVG để dùng ở kích thước nhỏ,
+  // không có phần chữ.
   const bieuTuong = (
     <svg viewBox="560 195 671 485" width={size} height={size} style={{ flexShrink: 0 }}>
       <path d="M900,210 L1216,210 L1058,570 L924,570 L1033,321 L851,321 Z" fill="#be3736" />
@@ -378,14 +380,16 @@ function LogoThongNhat({ size = 36, withWordmark = false, className = '' }) {
     </svg>
   );
   if (!withWordmark) return <div className={className}>{bieuTuong}</div>;
+  // Logo đầy đủ (biểu tượng + chữ THONGNHAT + khẩu hiệu) — dùng ĐÚNG NGUYÊN file
+  // ảnh logo chính thức công ty cung cấp (không tự dựng lại bằng chữ/CSS để
+  // tránh sai lệch phông chữ, dấu, hay vị trí khẩu hiệu so với bản gốc).
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      {bieuTuong}
-      <div className="leading-none">
-        <div className="font-black tracking-tight" style={{ color: '#005495', fontSize: size * 0.5 }}>THỐNG NHẤT</div>
-        <div className="italic font-semibold" style={{ color: '#be3736', fontSize: size * 0.24 }}>Hướng tới tương lai</div>
-      </div>
-    </div>
+    <img
+      src="/logo-thongnhat.jpg"
+      alt="Thongnhat — Hướng tới tương lai"
+      className={className}
+      style={{ height: size, width: 'auto', display: 'block' }}
+    />
   );
 }
 function PseudoQR({ seed, size = 80 }) {
