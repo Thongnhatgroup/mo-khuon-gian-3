@@ -987,10 +987,14 @@ function GateScreen({ events, addEvent, addEvents }) {
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
-        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng. Có 3 cách bên dưới — <b className="text-white">Cách 1 chỉ cần thao tác chuột, không cần biết máy tính chuyên sâu, nên làm trước</b>; Cách 2 và Cách 3 tự động hơn nhưng cần biết dùng dòng lệnh (Command Prompt), phù hợp khi có người rành kỹ thuật hỗ trợ.</p>
+        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng.</p>
+        <div className="bg-emerald-900/20 border border-emerald-600/40 rounded-lg p-3 mb-3 text-xs text-slate-300 leading-relaxed">
+          <b className="text-emerald-400">Nên thử trước tiên (nếu dùng được — không cần cài gì, không ai phải thao tác mỗi ca):</b> kiểm tra xem chính phần mềm HikCentral có tính năng tự gửi dữ liệu ra ngoài mỗi khi nhận diện được xe không (mục <b>"Xem hướng dẫn kết nối Camera thật"</b> ở cuối trang này) — nếu có, chỉ cần cấu hình 1 lần trong HikCentral (thường cần nhờ đơn vị lắp đặt/kỹ thuật Hikvision xác nhận đúng mục), sau đó camera tự động gửi thẳng vào đây, không cần chạy chương trình nào, không cần ai bấm gì cả. Chưa chắc bản HikCentral đang dùng có tính năng này — cần thử mới biết chắc. Nếu không có, dùng 1 trong 3 cách bên dưới.
+        </div>
+        <p className="text-slate-400 text-xs mb-2">3 cách bên dưới — <b className="text-white">Cách 1 chỉ cần thao tác chuột, không cần biết máy tính chuyên sâu, nên làm trước</b>; Cách 2 và Cách 3 tự động hơn nhưng cần biết dùng máy tính cơ bản (Cách 2 giờ chỉ cần bấm đúp 1 file, không cần gõ lệnh), phù hợp khi có người rành kỹ thuật hỗ trợ.</p>
         {camHikStats.last ? (
           <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
-            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2 hoặc Cách 3)</div>
+            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2, Cách 3, hoặc HikCentral tự gửi)</div>
             <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} lượt hôm nay</div>
           </div>
         ) : null}
@@ -1017,19 +1021,19 @@ function GateScreen({ events, addEvent, addEvents }) {
         </div>
 
         <div className="border-t border-slate-700 pt-3 mt-3">
-          <div className="text-white text-sm font-bold mb-1">Cách 2 — Đọc tự động trên màn hình đang mở (cần biết dùng Command Prompt cơ bản)</div>
-          <p className="text-slate-500 text-[11px] mb-2">Máy tính đang mở sẵn phần mềm HikCentral Control Client, khung "Vehicle" tự cập nhật biển số — chương trình sẽ tự "đọc" lại đúng khung đó (giống người đọc màn hình chép lại), không cần Export tay, không cần AppKey/AppSecret. <b className="text-white">Cần biết:</b> cài Node.js, gõ vài dòng lệnh trong Command Prompt — nếu chưa quen máy tính, nên dùng Cách 1 ở trên hoặc nhờ người rành kỹ thuật cài giúp. Đọc bằng máy nên thỉnh thoảng có thể nhầm 1 ký tự.</p>
+          <div className="text-white text-sm font-bold mb-1">Cách 2 — Đọc tự động trên màn hình đang mở (giờ chỉ cần bấm đúp 1 file)</div>
+          <p className="text-slate-500 text-[11px] mb-2">Máy tính đang mở sẵn phần mềm HikCentral Control Client, khung "Vehicle" tự cập nhật biển số — chương trình sẽ tự "đọc" lại đúng khung đó (giống người đọc màn hình chép lại), không cần Export tay, không cần AppKey/AppSecret, và giờ <b className="text-white">không cần gõ lệnh</b> — chỉ cần bấm đúp vào 1 file. <b className="text-white">Vẫn cần:</b> tự cài Node.js (như cài 1 phần mềm bình thường, bấm Next-Next-Finish). Đọc bằng máy nên thỉnh thoảng có thể nhầm 1 ký tự.</p>
           <button onClick={() => setXemHuongDanDocManHinh(!xemHuongDanDocManHinh)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanDocManHinh ? 'Ẩn các bước' : 'Xem các bước (4 bước)'}</button>
           {xemHuongDanDocManHinh && (
             <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
               <div><b className="text-white">Bước 1 — Tải chương trình về đúng máy tính đang mở HikCentral Control Client:</b><br />
-                Tải tại: <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">github.com/Thongnhatgroup/mo-khuon-gian-3/camera-agent</a> — bấm nút xanh <b>"Code" → "Download ZIP"</b> rồi giải nén. Cần cài sẵn <b>Node.js bản 18 trở lên</b> (tải tại nodejs.org) nếu máy chưa có.</div>
+                Tải tại: <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">github.com/Thongnhatgroup/mo-khuon-gian-3/camera-agent</a> — bấm nút xanh <b>"Code" → "Download ZIP"</b> rồi giải nén. Nếu máy chưa có <b>Node.js</b>, tải và cài bản "LTS" tại <a className="text-brand-400 underline" href="https://nodejs.org" target="_blank" rel="noreferrer">nodejs.org</a> trước (cài như phần mềm bình thường, bấm Next-Next-Finish, không cần biết gì thêm).</div>
               <div><b className="text-white">Bước 2 — Chuẩn bị file cấu hình:</b><br />
-                Trong thư mục vừa giải nén, sao chép file <code>config.example.json</code> thành <code>config.json</code> — <b>không cần điền AppKey/AppSecret</b> cho cách này, chỉ cần giữ nguyên dòng <code>netlifyImportUrl</code>.</div>
-              <div><b className="text-white">Bước 3 — Chạy chương trình:</b><br />
-                Mở sẵn phần mềm HikCentral Control Client, để nguyên khung "Vehicle" hiển thị trên màn hình (không thu nhỏ cửa sổ) → mở Command Prompt tại đúng thư mục vừa giải nén, gõ lần lượt <code>npm install</code> (chỉ 1 lần đầu, cần có mạng) rồi <code>node doc-man-hinh.js</code>. Để chạy nền tự động mỗi khi bật máy, đặt lệnh này vào Task Scheduler của Windows (xem file <code>README.md</code> đi kèm, hoặc nhờ tôi hướng dẫn thêm).</div>
+                Trong thư mục vừa giải nén, sao chép file <code>config.example.json</code> thành <code>config.json</code> (bấm chuột phải vào file → Copy, rồi Paste, rồi đổi tên bản sao) — <b>không cần điền AppKey/AppSecret</b> cho cách này, chỉ cần giữ nguyên dòng <code>netlifyImportUrl</code>.</div>
+              <div><b className="text-white">Bước 3 — Chạy chương trình (chỉ cần bấm đúp chuột):</b><br />
+                Mở sẵn phần mềm HikCentral Control Client, để nguyên khung "Vehicle" hiển thị trên màn hình (không thu nhỏ cửa sổ) → trong thư mục vừa giải nén, <b>bấm đúp chuột vào file "Chay-doc-man-hinh.bat"</b>. Lần đầu chạy sẽ tự cài thêm vài thứ cần thiết (mất vài phút, cần có mạng), các lần sau bấm đúp là chạy ngay. Muốn dừng, đóng cửa sổ đen hiện ra là được. Để tự chạy mỗi khi bật máy (không cần bấm tay mỗi ngày), tạo 1 shortcut của file này rồi đặt vào thư mục Startup của Windows, hoặc nhờ tôi hướng dẫn dùng Task Scheduler (xem thêm trong <code>README.md</code> đi kèm).</div>
               <div className="text-amber-400"><b>Bước 4 — Kiểm tra kết nối:</b> quay lại màn hình này, khung trạng thái phía trên sẽ hiện "✅ Đã từng nhận dữ liệu" trong vòng khoảng 10-20 giây sau khi chạy — không cần bấm gì thêm.</div>
-              <div className="text-slate-500">Lưu ý: đây là cách đọc màn hình bằng OCR, <b>chưa được kiểm thử với đúng giao diện thật trên máy tính tại mỏ</b> — nên thử chạy 1 lúc rồi đối chiếu vài lượt xe với đúng ảnh camera để yên tâm; nếu thấy đọc sai nhiều hoặc báo lỗi, gửi lại nội dung lỗi hoặc ảnh màn hình cho tôi để chỉnh cho khớp đúng font chữ/độ phân giải máy đang dùng.</div>
+              <div className="text-slate-500">Lưu ý: đây là cách đọc màn hình bằng OCR, <b>chưa được kiểm thử với đúng giao diện thật trên máy tính tại mỏ</b> — nên thử chạy 1 lúc rồi đối chiếu vài lượt xe với đúng ảnh camera để yên tâm; nếu thấy đọc sai nhiều hoặc cửa sổ đen báo dòng chữ đỏ/lỗi, chụp lại màn hình đó gửi cho tôi để chỉnh cho khớp đúng máy đang dùng.</div>
             </div>
           )}
         </div>
