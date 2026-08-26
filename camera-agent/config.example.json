@@ -1,5 +1,6 @@
 {
-  "_huongDan": "Sao chép file này thành 'config.json' (cùng thư mục) rồi điền thông tin thật vào bên dưới. KHÔNG đưa file config.json thật lên GitHub / chia sẻ cho ai — vì nó chứa AppKey/AppSecret.",
+  "_huongDan": "Sao chép file này thành 'config.json' (cùng thư mục) rồi điền thông tin thật vào bên dưới. KHÔNG đưa file config.json thật lên GitHub / chia sẻ cho ai — vì nó có thể chứa AppKey/AppSecret.",
+  "_huongDan_2Cach": "File cấu hình này dùng chung cho 2 chương trình khác nhau trong thư mục này — chỉ cần điền đúng phần mình dùng: (1) index.js — cần AppKey/AppSecret (mục 'Open Platform'), (2) doc-man-hinh.js — KHÔNG cần AppKey/AppSecret, chỉ cần máy tính đang mở sẵn màn hình HikCentral Professional Control Client hiện danh sách xe.",
 
   "hikcentralBaseUrl": "https://113.175.129.251",
   "appKey": "DIEN_APPKEY_LAY_TU_HIKCENTRAL_O_DAY",
@@ -11,6 +12,12 @@
   "khoangCachKiemTraGiay": 5,
   "soPhutQuetLaiMoiLan": 3,
 
-  "_ghiChu_boQuaLoiChungChiTLS": "Đặt true nếu trang camera dùng chứng chỉ tự ký (browser báo 'Không bảo mật') như hiện tại — nếu sau này đổi sang chứng chỉ hợp lệ thì đặt false.",
-  "_ghiChu_appKeyAppSecret": "Đây KHÔNG PHẢI là tài khoản admin/mật khẩu đăng nhập trang web — đây là 1 cặp khóa API riêng, phải bật tính năng 'Open Platform' / 'Nền tảng mở' trong HikCentral Professional rồi lấy từ đó (thường cần liên hệ đơn vị lắp đặt/kỹ thuật Hikvision hỗ trợ bật lần đầu)."
+  "manHinhSo": 0,
+  "khoangCachDocManHinhGiay": 10,
+  "vungManHinh": null,
+
+  "_ghiChu_boQuaLoiChungChiTLS": "Đặt true nếu trang camera dùng chứng chỉ tự ký (browser báo 'Không bảo mật') như hiện tại — nếu sau này đổi sang chứng chỉ hợp lệ thì đặt false. (Chỉ dùng cho index.js.)",
+  "_ghiChu_appKeyAppSecret": "Đây KHÔNG PHẢI là tài khoản admin/mật khẩu đăng nhập trang web — đây là 1 cặp khóa API riêng, phải bật tính năng 'Open Platform' / 'Nền tảng mở' trong HikCentral Professional rồi lấy từ đó (thường cần liên hệ đơn vị lắp đặt/kỹ thuật Hikvision hỗ trợ bật lần đầu). (Chỉ dùng cho index.js — bỏ trống nếu chỉ dùng doc-man-hinh.js.)",
+  "_ghiChu_manHinhSo": "Số thứ tự màn hình cần đọc nếu máy tính dùng NHIỀU màn hình (0 = màn hình chính/đầu tiên). Nếu phần mềm HikCentral Control Client mở trên màn hình thứ 2, đổi thành 1. (Chỉ dùng cho doc-man-hinh.js.)",
+  "_ghiChu_vungManHinh": "Để trống (null) = quét toàn bộ màn hình (dễ cài đặt, không cần đo tọa độ). Nếu muốn đọc nhanh và chính xác hơn, có thể khoanh đúng vùng khung 'Vehicle' bên phải màn hình bằng cách điền: {\"x\": 900, \"y\": 100, \"rong\": 400, \"cao\": 600} (x,y = góc trên-trái tính bằng pixel; rong/cao = chiều rộng/cao vùng cần đọc). (Chỉ dùng cho doc-man-hinh.js.)"
 }
