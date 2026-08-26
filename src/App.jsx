@@ -748,14 +748,19 @@ function GateScreen({ events, addEvent, addEvents }) {
   // (I.2) Kết nối trang Web — camera nhận diện biển số HikCentral Professional.
   // Có 3 cách, người dùng chọn 1 (khác với mục "Xem hướng dẫn kết nối Camera
   // thật" ở dưới — đó là cách camera tự gửi thẳng webhook, chỉ dùng được nếu
-  // đúng model/firmware hỗ trợ):
-  //  - Cách 1 (khuyến nghị — tự động, không cần thao tác tay mỗi ca): chương
+  // đúng model/firmware hỗ trợ). ĐẶT LÊN ĐẦU cách nào chỉ cần thao tác chuột
+  // (không cần biết dòng lệnh/Command Prompt), vì đội ngũ tại mỏ không rành
+  // kỹ thuật — các cách cần chạy chương trình dòng lệnh đặt sau, dành cho khi
+  // có người rành kỹ thuật hỗ trợ cài đặt:
+  //  - Cách 1 (khuyến nghị mặc định — chỉ thao tác chuột, không cài gì cả):
+  //    xuất (Export) từ Control Client rồi nạp qua chức năng "Kết nối file
+  //    Excel" đã có sẵn.
+  //  - Cách 2 (tự động hơn nhưng cần biết dùng Command Prompt cơ bản): chương
   //    trình đọc lại màn hình máy tính đang mở sẵn HikCentral Control Client
   //    bằng OCR (nhận dạng chữ trong ảnh) — không cần AppKey/AppSecret.
-  //  - Cách 2 (chính xác hơn nhưng cần thao tác tay mỗi ca): xuất (Export) từ
-  //    Control Client rồi nạp qua chức năng "Kết nối file Excel" đã có sẵn.
-  //  - Cách 3 (nâng cao, tự động hoàn toàn, CHƯA kiểm thử với máy chủ thật):
-  //    chương trình cầu nối camera-agent qua AppKey/AppSecret.
+  //  - Cách 3 (nâng cao nhất, tự động hoàn toàn, CHƯA kiểm thử với máy chủ
+  //    thật, cần người rành kỹ thuật cài đặt): chương trình cầu nối
+  //    camera-agent qua AppKey/AppSecret.
   const [xemHuongDanDocManHinh, setXemHuongDanDocManHinh] = useState(false);
   const [xemHuongDanCamHik, setXemHuongDanCamHik] = useState(false);
   const [xemHuongDanCamHikNangCao, setXemHuongDanCamHikNangCao] = useState(false);
@@ -982,34 +987,16 @@ function GateScreen({ events, addEvent, addEvents }) {
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
-        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng. Có 3 cách bên dưới, từ tự động nhất đến chính xác nhất — chọn 1 cách phù hợp, không cần làm cả 3.</p>
+        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng. Có 3 cách bên dưới — <b className="text-white">Cách 1 chỉ cần thao tác chuột, không cần biết máy tính chuyên sâu, nên làm trước</b>; Cách 2 và Cách 3 tự động hơn nhưng cần biết dùng dòng lệnh (Command Prompt), phù hợp khi có người rành kỹ thuật hỗ trợ.</p>
         {camHikStats.last ? (
           <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
-            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 1 hoặc Cách 3)</div>
+            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2 hoặc Cách 3)</div>
             <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} lượt hôm nay</div>
           </div>
         ) : null}
 
         <div className="pt-1">
-          <div className="text-white text-sm font-bold mb-1">Cách 1 — Đọc tự động trên màn hình đang mở (khuyến nghị)</div>
-          <p className="text-slate-500 text-[11px] mb-2">Máy tính đang mở sẵn phần mềm HikCentral Control Client, khung "Vehicle" tự cập nhật biển số — chương trình sẽ tự "đọc" lại đúng khung đó (giống người đọc màn hình chép lại), không cần Export tay, không cần AppKey/AppSecret. <b className="text-white">Nhược điểm:</b> đọc bằng máy nên thỉnh thoảng có thể nhầm 1 ký tự, cửa sổ HikCentral phải luôn mở, không được thu nhỏ.</p>
-          <button onClick={() => setXemHuongDanDocManHinh(!xemHuongDanDocManHinh)} className="bg-brand-700 hover:bg-brand-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanDocManHinh ? 'Ẩn các bước' : 'Xem các bước (4 bước)'}</button>
-          {xemHuongDanDocManHinh && (
-            <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
-              <div><b className="text-white">Bước 1 — Tải chương trình về đúng máy tính đang mở HikCentral Control Client:</b><br />
-                Tải tại: <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">github.com/Thongnhatgroup/mo-khuon-gian-3/camera-agent</a> — bấm nút xanh <b>"Code" → "Download ZIP"</b> rồi giải nén. Cần cài sẵn <b>Node.js bản 18 trở lên</b> (tải tại nodejs.org) nếu máy chưa có.</div>
-              <div><b className="text-white">Bước 2 — Chuẩn bị file cấu hình:</b><br />
-                Trong thư mục vừa giải nén, sao chép file <code>config.example.json</code> thành <code>config.json</code> — <b>không cần điền AppKey/AppSecret</b> cho cách này, chỉ cần giữ nguyên dòng <code>netlifyImportUrl</code>.</div>
-              <div><b className="text-white">Bước 3 — Chạy chương trình:</b><br />
-                Mở sẵn phần mềm HikCentral Control Client, để nguyên khung "Vehicle" hiển thị trên màn hình (không thu nhỏ cửa sổ) → mở Command Prompt tại đúng thư mục vừa giải nén, gõ lần lượt <code>npm install</code> (chỉ 1 lần đầu, cần có mạng) rồi <code>node doc-man-hinh.js</code>. Để chạy nền tự động mỗi khi bật máy, đặt lệnh này vào Task Scheduler của Windows (xem file <code>README.md</code> đi kèm, hoặc nhờ tôi hướng dẫn thêm).</div>
-              <div className="text-amber-400"><b>Bước 4 — Kiểm tra kết nối:</b> quay lại màn hình này, khung trạng thái phía trên sẽ hiện "✅ Đã từng nhận dữ liệu" trong vòng khoảng 10-20 giây sau khi chạy — không cần bấm gì thêm.</div>
-              <div className="text-slate-500">Lưu ý: đây là cách đọc màn hình bằng OCR, <b>chưa được kiểm thử với đúng giao diện thật trên máy tính tại mỏ</b> — nên thử chạy 1 lúc rồi đối chiếu vài lượt xe với đúng ảnh camera để yên tâm; nếu thấy đọc sai nhiều hoặc báo lỗi, gửi lại nội dung lỗi hoặc ảnh màn hình cho tôi để chỉnh cho khớp đúng font chữ/độ phân giải máy đang dùng.</div>
-            </div>
-          )}
-        </div>
-
-        <div className="border-t border-slate-700 pt-3 mt-3">
-          <div className="text-white text-sm font-bold mb-1">Cách 2 — Xuất từ phần mềm Control Client, nạp qua Excel (chính xác hơn, cần thao tác tay)</div>
+          <div className="text-white text-sm font-bold mb-1">Cách 1 — Xuất từ phần mềm Control Client, nạp qua Excel (khuyến nghị — chỉ thao tác chuột, không cần cài đặt gì)</div>
           <button onClick={() => setXemHuongDanCamHik(!xemHuongDanCamHik)} className="bg-brand-700 hover:bg-brand-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanCamHik ? 'Ẩn các bước' : 'Xem các bước (6 bước)'}</button>
           {xemHuongDanCamHik && (
             <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
@@ -1025,6 +1012,24 @@ function GateScreen({ events, addEvent, addEvents }) {
                 Bấm nút <b>"Export"</b> trên danh sách kết quả để xuất ra file Excel, lưu vào đúng đường dẫn máy tính phần mềm quản lý mỏ đang theo dõi: <code className="text-emerald-400 break-all">D:\Mo khuon gian 3\Quan ly xe mo khuon gian 3.xlsx</code> (đè lên file cũ, hoặc xuất xong rồi đổi tên/di chuyển file vào đúng đường dẫn này).</div>
               <div className="text-amber-400"><b>Bước 6 — Nạp vào phần mềm:</b> quay lại đây, bấm nút "Kết nối file Excel" phía trên (mục "Kết nối file Excel danh sách xe") — phần mềm sẽ tự đọc file vừa xuất và thêm các lượt xe mới vào cổng, không cần nhập tay.</div>
               <div className="text-slate-500">Lưu ý: file Excel do Control Client xuất ra cần có 1 cột chứa chữ "Biển số" ở hàng tiêu đề để phần mềm nhận đúng cột — nếu tên cột xuất ra khác (ví dụ "License Plate"), có thể cần đổi lại tên cột đó trong file trước khi nạp, hoặc báo lại cho tôi để chỉnh phần mềm nhận diện thêm tên cột đó luôn.</div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-700 pt-3 mt-3">
+          <div className="text-white text-sm font-bold mb-1">Cách 2 — Đọc tự động trên màn hình đang mở (cần biết dùng Command Prompt cơ bản)</div>
+          <p className="text-slate-500 text-[11px] mb-2">Máy tính đang mở sẵn phần mềm HikCentral Control Client, khung "Vehicle" tự cập nhật biển số — chương trình sẽ tự "đọc" lại đúng khung đó (giống người đọc màn hình chép lại), không cần Export tay, không cần AppKey/AppSecret. <b className="text-white">Cần biết:</b> cài Node.js, gõ vài dòng lệnh trong Command Prompt — nếu chưa quen máy tính, nên dùng Cách 1 ở trên hoặc nhờ người rành kỹ thuật cài giúp. Đọc bằng máy nên thỉnh thoảng có thể nhầm 1 ký tự.</p>
+          <button onClick={() => setXemHuongDanDocManHinh(!xemHuongDanDocManHinh)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanDocManHinh ? 'Ẩn các bước' : 'Xem các bước (4 bước)'}</button>
+          {xemHuongDanDocManHinh && (
+            <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
+              <div><b className="text-white">Bước 1 — Tải chương trình về đúng máy tính đang mở HikCentral Control Client:</b><br />
+                Tải tại: <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">github.com/Thongnhatgroup/mo-khuon-gian-3/camera-agent</a> — bấm nút xanh <b>"Code" → "Download ZIP"</b> rồi giải nén. Cần cài sẵn <b>Node.js bản 18 trở lên</b> (tải tại nodejs.org) nếu máy chưa có.</div>
+              <div><b className="text-white">Bước 2 — Chuẩn bị file cấu hình:</b><br />
+                Trong thư mục vừa giải nén, sao chép file <code>config.example.json</code> thành <code>config.json</code> — <b>không cần điền AppKey/AppSecret</b> cho cách này, chỉ cần giữ nguyên dòng <code>netlifyImportUrl</code>.</div>
+              <div><b className="text-white">Bước 3 — Chạy chương trình:</b><br />
+                Mở sẵn phần mềm HikCentral Control Client, để nguyên khung "Vehicle" hiển thị trên màn hình (không thu nhỏ cửa sổ) → mở Command Prompt tại đúng thư mục vừa giải nén, gõ lần lượt <code>npm install</code> (chỉ 1 lần đầu, cần có mạng) rồi <code>node doc-man-hinh.js</code>. Để chạy nền tự động mỗi khi bật máy, đặt lệnh này vào Task Scheduler của Windows (xem file <code>README.md</code> đi kèm, hoặc nhờ tôi hướng dẫn thêm).</div>
+              <div className="text-amber-400"><b>Bước 4 — Kiểm tra kết nối:</b> quay lại màn hình này, khung trạng thái phía trên sẽ hiện "✅ Đã từng nhận dữ liệu" trong vòng khoảng 10-20 giây sau khi chạy — không cần bấm gì thêm.</div>
+              <div className="text-slate-500">Lưu ý: đây là cách đọc màn hình bằng OCR, <b>chưa được kiểm thử với đúng giao diện thật trên máy tính tại mỏ</b> — nên thử chạy 1 lúc rồi đối chiếu vài lượt xe với đúng ảnh camera để yên tâm; nếu thấy đọc sai nhiều hoặc báo lỗi, gửi lại nội dung lỗi hoặc ảnh màn hình cho tôi để chỉnh cho khớp đúng font chữ/độ phân giải máy đang dùng.</div>
             </div>
           )}
         </div>
