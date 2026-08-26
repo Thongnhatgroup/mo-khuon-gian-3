@@ -746,15 +746,17 @@ function GateScreen({ events, addEvent, addEvents }) {
   const [plateRa, setPlateRa] = useState('');
   const [xemCauHinhCam, setXemCauHinhCam] = useState(false);
   // (I.2) Kết nối trang Web — camera nhận diện biển số HikCentral Professional.
-  // Có 2 cách, người dùng chọn 1 trong 2 (khác với mục "Xem hướng dẫn kết nối
-  // Camera thật" ở dưới — đó là cách camera tự gửi thẳng webhook, chỉ dùng
-  // được nếu đúng model/firmware hỗ trợ):
-  //  - Cách 1 (khuyến nghị, làm ngay được, không cần cài đặt gì thêm): dùng
-  //    phần mềm HikCentral Professional Control Client có sẵn trên máy tính
-  //    mỏ, xuất (Export) danh sách biển số rồi nạp vào bằng chức năng "Kết
-  //    nối file Excel" đã có sẵn.
-  //  - Cách 2 (nâng cao, tự động hoàn toàn, CHƯA kiểm thử với máy chủ thật):
+  // Có 3 cách, người dùng chọn 1 (khác với mục "Xem hướng dẫn kết nối Camera
+  // thật" ở dưới — đó là cách camera tự gửi thẳng webhook, chỉ dùng được nếu
+  // đúng model/firmware hỗ trợ):
+  //  - Cách 1 (khuyến nghị — tự động, không cần thao tác tay mỗi ca): chương
+  //    trình đọc lại màn hình máy tính đang mở sẵn HikCentral Control Client
+  //    bằng OCR (nhận dạng chữ trong ảnh) — không cần AppKey/AppSecret.
+  //  - Cách 2 (chính xác hơn nhưng cần thao tác tay mỗi ca): xuất (Export) từ
+  //    Control Client rồi nạp qua chức năng "Kết nối file Excel" đã có sẵn.
+  //  - Cách 3 (nâng cao, tự động hoàn toàn, CHƯA kiểm thử với máy chủ thật):
   //    chương trình cầu nối camera-agent qua AppKey/AppSecret.
+  const [xemHuongDanDocManHinh, setXemHuongDanDocManHinh] = useState(false);
   const [xemHuongDanCamHik, setXemHuongDanCamHik] = useState(false);
   const [xemHuongDanCamHikNangCao, setXemHuongDanCamHikNangCao] = useState(false);
   const [xemLogCam, setXemLogCam] = useState(false);
@@ -980,16 +982,34 @@ function GateScreen({ events, addEvent, addEvents }) {
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
-        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng. Có 2 cách bên dưới — <b className="text-white">Cách 1 làm ngay được, khuyến nghị dùng trước</b>; Cách 2 là phương án nâng cao, tự động hoàn toàn nhưng cần thời gian cài đặt và kiểm tra kỹ hơn.</p>
+        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng. Có 3 cách bên dưới, từ tự động nhất đến chính xác nhất — chọn 1 cách phù hợp, không cần làm cả 3.</p>
         {camHikStats.last ? (
           <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
-            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2 — chương trình cầu nối)</div>
+            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 1 hoặc Cách 3)</div>
             <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} lượt hôm nay</div>
           </div>
         ) : null}
 
-        <div className="border-t border-slate-700 pt-3 mt-1">
-          <div className="text-white text-sm font-bold mb-1">Cách 1 — Xuất từ phần mềm Control Client, nạp qua Excel (khuyến nghị)</div>
+        <div className="pt-1">
+          <div className="text-white text-sm font-bold mb-1">Cách 1 — Đọc tự động trên màn hình đang mở (khuyến nghị)</div>
+          <p className="text-slate-500 text-[11px] mb-2">Máy tính đang mở sẵn phần mềm HikCentral Control Client, khung "Vehicle" tự cập nhật biển số — chương trình sẽ tự "đọc" lại đúng khung đó (giống người đọc màn hình chép lại), không cần Export tay, không cần AppKey/AppSecret. <b className="text-white">Nhược điểm:</b> đọc bằng máy nên thỉnh thoảng có thể nhầm 1 ký tự, cửa sổ HikCentral phải luôn mở, không được thu nhỏ.</p>
+          <button onClick={() => setXemHuongDanDocManHinh(!xemHuongDanDocManHinh)} className="bg-brand-700 hover:bg-brand-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanDocManHinh ? 'Ẩn các bước' : 'Xem các bước (4 bước)'}</button>
+          {xemHuongDanDocManHinh && (
+            <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
+              <div><b className="text-white">Bước 1 — Tải chương trình về đúng máy tính đang mở HikCentral Control Client:</b><br />
+                Tải tại: <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">github.com/Thongnhatgroup/mo-khuon-gian-3/camera-agent</a> — bấm nút xanh <b>"Code" → "Download ZIP"</b> rồi giải nén. Cần cài sẵn <b>Node.js bản 18 trở lên</b> (tải tại nodejs.org) nếu máy chưa có.</div>
+              <div><b className="text-white">Bước 2 — Chuẩn bị file cấu hình:</b><br />
+                Trong thư mục vừa giải nén, sao chép file <code>config.example.json</code> thành <code>config.json</code> — <b>không cần điền AppKey/AppSecret</b> cho cách này, chỉ cần giữ nguyên dòng <code>netlifyImportUrl</code>.</div>
+              <div><b className="text-white">Bước 3 — Chạy chương trình:</b><br />
+                Mở sẵn phần mềm HikCentral Control Client, để nguyên khung "Vehicle" hiển thị trên màn hình (không thu nhỏ cửa sổ) → mở Command Prompt tại đúng thư mục vừa giải nén, gõ lần lượt <code>npm install</code> (chỉ 1 lần đầu, cần có mạng) rồi <code>node doc-man-hinh.js</code>. Để chạy nền tự động mỗi khi bật máy, đặt lệnh này vào Task Scheduler của Windows (xem file <code>README.md</code> đi kèm, hoặc nhờ tôi hướng dẫn thêm).</div>
+              <div className="text-amber-400"><b>Bước 4 — Kiểm tra kết nối:</b> quay lại màn hình này, khung trạng thái phía trên sẽ hiện "✅ Đã từng nhận dữ liệu" trong vòng khoảng 10-20 giây sau khi chạy — không cần bấm gì thêm.</div>
+              <div className="text-slate-500">Lưu ý: đây là cách đọc màn hình bằng OCR, <b>chưa được kiểm thử với đúng giao diện thật trên máy tính tại mỏ</b> — nên thử chạy 1 lúc rồi đối chiếu vài lượt xe với đúng ảnh camera để yên tâm; nếu thấy đọc sai nhiều hoặc báo lỗi, gửi lại nội dung lỗi hoặc ảnh màn hình cho tôi để chỉnh cho khớp đúng font chữ/độ phân giải máy đang dùng.</div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-700 pt-3 mt-3">
+          <div className="text-white text-sm font-bold mb-1">Cách 2 — Xuất từ phần mềm Control Client, nạp qua Excel (chính xác hơn, cần thao tác tay)</div>
           <button onClick={() => setXemHuongDanCamHik(!xemHuongDanCamHik)} className="bg-brand-700 hover:bg-brand-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanCamHik ? 'Ẩn các bước' : 'Xem các bước (6 bước)'}</button>
           {xemHuongDanCamHik && (
             <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
@@ -1010,7 +1030,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         </div>
 
         <div className="border-t border-slate-700 pt-3 mt-3">
-          <div className="text-white text-sm font-bold mb-1">Cách 2 — Tự động hoàn toàn qua chương trình cầu nối (nâng cao)</div>
+          <div className="text-white text-sm font-bold mb-1">Cách 3 — Tự động hoàn toàn qua chương trình cầu nối AppKey/AppSecret (nâng cao)</div>
           <p className="text-slate-500 text-[11px] mb-2">Không cần thao tác thủ công mỗi ca, nhưng cần cài đặt 1 lần trên máy tính tại mỏ và lấy khóa kết nối riêng từ HikCentral. Phần ký gọi API đã viết theo đúng chuẩn Hikvision nhưng <b>chưa được kiểm thử với máy chủ thật của mỏ</b>.</p>
           <button onClick={() => setXemHuongDanCamHikNangCao(!xemHuongDanCamHikNangCao)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanCamHikNangCao ? 'Ẩn các bước' : 'Xem các bước (5 bước)'}</button>
           {xemHuongDanCamHikNangCao && (
