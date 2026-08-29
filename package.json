@@ -1,6 +1,6 @@
 {
   "name": "quan-ly-khai-thac-mo-khuon-gian",
-  "version": "6.0.0",
+  "version": "6.0.1",
   "private": true,
   "description": "Phần mềm quản lý khai thác mỏ đất Khuôn Giàn 3 - Công ty CP Dịch vụ và Thương mại Thống Nhất",
   "scripts": {
