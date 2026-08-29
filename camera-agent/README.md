@@ -13,25 +13,43 @@ lên phần mềm quản lý mỏ — y hệt như khi Bảo vệ quét/nhập t
 | Đã kiểm thử với máy chủ thật của mỏ? | Chưa — mới viết theo đúng định dạng chữ thấy trong ảnh mẫu | Chưa — mới viết theo đúng tài liệu chuẩn Hikvision |
 | Yêu cầu khác | Máy tính phải luôn mở sẵn, hiển thị đúng khung "Vehicle", không thu nhỏ cửa sổ | Không cần mở phần mềm, chạy ngầm được |
 
-## Nên thử trước tiên — để HikCentral tự gửi thẳng, không cần chạy chương trình nào ở đây
+## Nên thử trước tiên — để camera tự gửi thẳng, không cần chạy chương trình nào ở đây
 
-Trước khi dùng 1 trong 2 chương trình bên dưới, hãy kiểm tra xem chính phần mềm HikCentral
-Professional có sẵn tính năng "gửi sự kiện ra URL ngoài" (Event Notification / Linkage →
-HTTP(S) Post/Notify Surveillance Center, trong mục Cấu hình hệ thống → Sự kiện/Event → Liên
-kết/Linkage) hay không. Nếu có, đây là cách đơn giản nhất — không cần chạy chương trình nào,
-không cần máy tính nào luôn bật — chỉ cần cấu hình 1 lần NGAY TRONG HikCentral, trỏ tới:
+Theo đúng tài liệu kỹ thuật chính hãng Hikvision cho camera ANPR (ISAPI Traffic Cameras —
+Urban Road/ANPR Cameras), **mỗi camera đọc biển số có thể tự động gửi kết quả ra 1 địa chỉ
+máy chủ ngoài** mỗi khi nhận diện được xe — không cần chạy chương trình nào, không cần máy
+tính nào luôn bật. Việc này cấu hình **trực tiếp trên từng camera** (qua địa chỉ IP riêng
+của camera, KHÔNG phải qua trang quản trị HikCentral Professional chung), và cần tài khoản
+quản trị của chính camera đó — nên nhờ đơn vị đã lắp đặt hệ thống hoặc kỹ thuật Hikvision
+thực hiện. Các bước kỹ thuật (gọi bằng công cụ như Postman, hoặc qua đúng mục cấu hình nếu
+giao diện web của camera có sẵn):
 
-```
-https://mo-khuon-gian-3.netlify.app/api/camera-webhook
-```
+1. Kiểm tra camera có hỗ trợ: `GET /ISAPI/Event/notification/httpHosts/capabilities` — nếu
+   kết quả trả về có mục `ANPR` thì camera hỗ trợ.
+2. Khai báo địa chỉ nhận dữ liệu: `PUT /ISAPI/Event/notification/httpHosts`, trỏ tới:
+   ```
+   https://mo-khuon-gian-3.netlify.app/api/camera-webhook
+   ```
+   (cổng 443, giao thức HTTPS — tên trường cụ thể trong nội dung PUT có thể khác chút theo
+   từng model, cần xem đúng kết quả trả về ở bước 1 để biết tên trường chính xác).
+3. Bật tính năng gửi cảnh báo biển số theo giao thức chuẩn: `PUT /ISAPI/Traffic/ANPR/alarmHttpPushProtocol`
+   với nội dung:
+   ```xml
+   <AlarmHttpPushProtocol version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
+     <baseLineProtocolEnabled>true</baseLineProtocolEnabled>
+   </AlarmHttpPushProtocol>
+   ```
 
-Thường cần nhờ đơn vị đã lắp đặt hệ thống hoặc kỹ thuật Hikvision hỗ trợ tìm đúng mục (không
-phải bản/gói HikCentral nào cũng có tính năng này — cần thử mới biết chắc). Hàm
-`netlify/functions/camera-webhook.js` đã được viết để cố gắng đọc nhiều định dạng dữ liệu
-khác nhau (JSON hoặc XML) và LUÔN LƯU LẠI NGUYÊN VĂN dữ liệu nhận được vào mục "Xem log
-camera gần đây" trong phần mềm quản lý mỏ — nếu cấu hình xong mà chưa thấy nhận diện được
-biển số, xem đúng log đó gửi lại để chỉnh cho khớp định dạng thật. Nếu không tìm thấy tính
-năng này trong HikCentral, dùng 1 trong 2 chương trình bên dưới.
+Hàm `netlify/functions/camera-webhook.js` đã được viết lại theo đúng định dạng dữ liệu thật
+mà camera Hikvision gửi lên (xác nhận theo tài liệu chính hãng): gói tin dạng
+`multipart/form-data` gồm 1 phần `anpr.xml` chứa dữ liệu XML (biển số nằm ở thẻ
+`<ANPR><licensePlate>`) kèm theo các ảnh JPEG liên quan — hàm chỉ đọc đúng phần XML, không
+cố đọc phần ảnh. Hàm cũng vẫn hỗ trợ đọc JSON nếu có cấu hình trung gian nào gửi định dạng
+khác. LUÔN LƯU LẠI dữ liệu nhận được vào mục "Xem log camera gần đây" trong phần mềm quản lý
+mỏ — nếu cấu hình xong mà chưa thấy nhận diện được biển số, xem đúng log đó gửi lại để chỉnh
+cho khớp đúng model/firmware. Các bước trên **chưa được thử trực tiếp trên camera thật tại
+mỏ** (chưa xác nhận được với chính phiên bản/model camera đang dùng) — nếu chưa nhờ được kỹ
+thuật hỗ trợ ngay, dùng 1 trong 2 chương trình bên dưới.
 
 ## Vì sao cần chương trình riêng này, không nối thẳng từ Netlify?
 
