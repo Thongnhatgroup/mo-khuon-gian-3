@@ -6,7 +6,7 @@ import {
   Download, Plus, CheckCircle2, AlertTriangle, Users, Printer, Radio,
   ClipboardCheck, Camera, Search, Clock, ImageOff, FileWarning, KeyRound,
   MapPin, Wallet, ArrowRightLeft, LogIn, Ban, Bell, Eye, EyeOff, Ruler, History,
-  FileSpreadsheet, FileText, Link2, RotateCw, Globe,
+  FileSpreadsheet, FileText, Link2, RotateCw, Globe, Calendar,
 } from 'lucide-react';
 
 // ============================================================================
@@ -90,25 +90,58 @@ function ngayVN(yyyyMmDd) {
   if (p.length !== 3) return yyyyMmDd;
   return `${p[2]}/${p[1]}/${p[0]}`;
 }
-// Ô chọn ngày LUÔN hiển thị đúng định dạng Việt Nam (DD/MM/YYYY) — không phụ
-// thuộc vào ngôn ngữ/khu vực máy tính hay trình duyệt của người dùng (nguyên
-// nhân khiến ô <input type="date"> gốc có lúc hiện MM/DD/YYYY kiểu Mỹ). Vẫn
-// dùng lịch chọn ngày gốc của trình duyệt (bấm vào biểu tượng lịch), chỉ ẩn
-// chữ số gốc đi và phủ lên trên đúng định dạng VN — giá trị lưu bên trong vẫn
-// là YYYY-MM-DD như cũ nên không ảnh hưởng gì tới phần còn lại của phần mềm.
+// Ô chọn ngày LUÔN hiển thị và GÕ ĐƯỢC đúng định dạng Việt Nam (dd/mm/yyyy).
+// (Bảng hiệu chỉnh 08/09) SỬA LẠI CÁCH LÀM CŨ: trước đây dùng 1 ô <input
+// type="date"> gốc của trình duyệt rồi ẩn số đi (color:transparent), phủ chữ
+// "dd/mm/yyyy" đè lên trên — cách này bị lỗi khi máy/trình duyệt người dùng ở
+// định dạng khác (VD: mm/dd/yyyy kiểu Mỹ): số THẬT đang gõ (ẩn, đúng thứ tự
+// tháng/ngày của máy) không khớp với số HIỂN THỊ đè lên trên (luôn ngày/tháng),
+// khiến bấm/gõ vào ô thấy "ngày bị ngược", đặc biệt ô "đến ngày" không chọn
+// được đúng ngày muốn. Nay ô nhập là 1 ô CHỮ THẬT (không ẩn số), tự thêm dấu
+// "/" khi gõ số — không còn phụ thuộc định dạng máy/trình duyệt nữa. Vẫn có
+// nút lịch bên cạnh để bấm chọn trực quan (dùng lại lịch gốc của trình duyệt,
+// đặt ẩn ngoài màn hình, chỉ dùng để mở khung chọn ngày).
 function InputNgayVN({ value, onChange, className = '' }) {
+  const [text, setText] = useState(value ? ngayVN(value) : '');
+  const hiddenRef = useRef(null);
+  useEffect(() => { setText(value ? ngayVN(value) : ''); }, [value]);
+
+  const baoGiaTri = (yyyyMmDd) => onChange({ target: { value: yyyyMmDd } });
+
+  const xuLyGoTay = (e) => {
+    const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 8); // ddmmyyyy, tối đa 8 số
+    let hienThi = raw;
+    if (raw.length > 4) hienThi = `${raw.slice(0, 2)}/${raw.slice(2, 4)}/${raw.slice(4)}`;
+    else if (raw.length > 2) hienThi = `${raw.slice(0, 2)}/${raw.slice(2)}`;
+    setText(hienThi);
+    if (raw.length === 8) {
+      const dd = raw.slice(0, 2), mm = raw.slice(2, 4), yyyy = raw.slice(4, 8);
+      const d = Number(dd), m = Number(mm), y = Number(yyyy);
+      if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y >= 1970 && y <= 2100) baoGiaTri(`${yyyy}-${mm}-${dd}`);
+    }
+  };
+  const moLichChon = () => {
+    const el = hiddenRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === 'function') { try { el.showPicker(); return; } catch { /* rơi xuống cách click bên dưới */ } }
+    el.click();
+  };
+
   return (
-    <div className={`relative inline-block ${className}`}>
+    <div className={`relative inline-flex items-stretch gap-1.5 ${className}`}>
       <input
-        type="date"
-        value={value || ''}
-        onChange={onChange}
-        style={{ color: 'transparent', caretColor: 'transparent' }}
-        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm w-full"
+        type="text" inputMode="numeric" placeholder="dd/mm/yyyy" value={text} onChange={xuLyGoTay}
+        onBlur={() => setText(value ? ngayVN(value) : '')}
+        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white w-full"
       />
-      <div className="absolute inset-0 flex items-center px-3 text-white text-sm pointer-events-none">
-        {value ? ngayVN(value) : 'dd/mm/yyyy'}
-      </div>
+      <button type="button" onClick={moLichChon} title="Chọn ngày trên lịch" className="flex-shrink-0 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-2.5 text-slate-300">
+        <Calendar className="w-4 h-4" />
+      </button>
+      <input
+        ref={hiddenRef} type="date" value={value || ''} tabIndex={-1} aria-hidden="true"
+        onChange={(e) => baoGiaTri(e.target.value)}
+        style={{ position: 'absolute', opacity: 0, width: 0, height: 0, border: 0, padding: 0, pointerEvents: 'none' }}
+      />
     </div>
   );
 }
@@ -412,7 +445,6 @@ function pseudoQRHTML(seed, size = 64) {
 // khổ 80mm) — giữ đúng bố cục như bản xem trước trên màn hình Kế toán mỏ.
 function phieuGiaoNhanHTML(t, events) {
   const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === t.plate && dayStrOf(e.time) === dayStrOf(t.time)).sort((a, b) => a.time.localeCompare(b.time))[0];
-  const gateOut = events.filter((e) => e.type === 'gate_out' && e.plate === t.plate && e.time > t.time).sort((a, b) => a.time.localeCompare(b.time))[0];
   const lienList = ['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'];
   // (Bảng hiệu chỉnh 25/08) — bỏ mã QR giả trên phiếu, cỡ chữ đồng nhất 12pt
   // (như Word/Excel) thay vì 9–13pt lẫn lộn trước đây, TẤT CẢ chữ in đậm,
@@ -427,7 +459,11 @@ function phieuGiaoNhanHTML(t, events) {
       <div style="border-top:2px dashed #333;margin:8px 0"></div>
       <div>Số phiếu: ${t.ticketNo}</div>
       <div style="display:flex;justify-content:space-between"><span>Ngày vào: ${gateIn ? ngayVN(dayStrOf(gateIn.time)) : '.........'}</span><span>Giờ vào: ${gateIn ? gioVN(gateIn.time).split(' ')[0] : '......'}</span></div>
-      <div style="display:flex;justify-content:space-between"><span>Ngày ra: ${gateOut ? ngayVN(dayStrOf(gateOut.time)) : '.........'}</span><span>Giờ ra: ${gateOut ? gioVN(gateOut.time).split(' ')[0] : '......'}</span></div>
+      <!-- (Bảng hiệu chỉnh 08/09) Ngày ra/Giờ ra lấy theo ĐÚNG thời điểm lái máy
+        xúc xác nhận xúc đầy xe (t.time = thời điểm phiếu được tự động lập) —
+        KHÔNG chờ bảo vệ xác nhận xe ra cổng nữa, vì phiếu in TRƯỚC khi xe thực
+        sự ra khỏi cổng. -->
+      <div style="display:flex;justify-content:space-between"><span>Ngày ra: ${ngayVN(dayStrOf(t.time))}</span><span>Giờ ra: ${gioVN(t.time).split(' ')[0]}</span></div>
       <div>Bên mua: ${t.customerName || '—'}</div>
       <div>Biển số xe: ${t.plate}</div>
       <div style="margin-top:6px">Khối lượng: ${soVN(t.volume)} m3</div>
@@ -744,6 +780,8 @@ function GateScreen({ events, addEvent, addEvents }) {
   const [loaiXe, setLoaiXe] = useState(LOAI_XE[0].id);
   const [photo, setPhoto] = useState(null);
   const [plateRa, setPlateRa] = useState('');
+  const [ghiChuKhongHang, setGhiChuKhongHang] = useState({}); // {gateInId: "ghi chú"} — mục "xe ra không hàng"
+  const [nhapTayKhac, setNhapTayKhac] = useState(false); // mở rộng ô nhập tay biển số cho trường hợp đặc biệt
   const [xemCauHinhCam, setXemCauHinhCam] = useState(false);
   // (I.2) Kết nối trang Web — camera nhận diện biển số HikCentral Professional.
   // Có 3 cách, người dùng chọn 1 (khác với mục "Xem hướng dẫn kết nối Camera
@@ -818,21 +856,33 @@ function GateScreen({ events, addEvent, addEvents }) {
       return { soHang: aoa.length - 1, soMoi: 0, loi: 'Không tìm thấy cột "Biển số xe" trong file — kiểm tra lại tiêu đề cột ở hàng 1 (VD: "Biển số xe", "BSX") hoặc dữ liệu cột có đúng định dạng biển số không.' };
     }
     let colLoai = header.findIndex((h) => h.includes('loai xe'));
+    // (Bảng hiệu chỉnh 08/09) Nếu file Excel xuất từ Control Client có cột
+    // "Driving Direction" (mỏ chủ yếu tiếp nhận xe đầu kéo — biển số đầu xe và
+    // đuôi xe khác nhau), CHỈ nhập các dòng có chiều "Reverse" (đuôi xe) làm xe
+    // vào cổng — bỏ qua dòng "Forward"/khác. Nếu file không có cột này thì nhập
+    // tất cả như trước (không lọc), để không ảnh hưởng các file đã dùng trước đây.
+    let colHuong = header.findIndex((h) => h.includes('driving direction') || h === 'direction' || h.includes('chieu'));
 
     const daNhapKeys = new Set(events.filter((e) => e.type === 'gate_in' && e.excelRowKey).map((e) => e.excelRowKey));
     const evsMoi = [];
+    let soDongSaiChieu = 0;
     for (let r = 1; r < aoa.length; r++) {
       const row = aoa[r];
       const plateRaw = (row[colPlate] || '').toString().trim().toUpperCase();
       if (!plateRaw) continue;
       const key = `${sheetName}-${r}`;
       if (daNhapKeys.has(key)) continue;
+      if (colHuong > -1) {
+        const huong = boDauTV((row[colHuong] || '').toString()).trim();
+        if (huong && huong !== 'reverse') { soDongSaiChieu++; continue; }
+      }
       const loaiRaw = colLoai > -1 ? boDauTV(row[colLoai]) : '';
       const loaiXeId = LOAI_XE.find((x) => loaiRaw.includes(x.id.replace('m3', '')))?.id || LOAI_XE[0].id;
       evsMoi.push({ id: genId('GI'), type: 'gate_in', plate: plateRaw, source: 'excel', loaiXe: loaiXeId, photo: null, excelRowKey: key, time: new Date().toISOString() });
     }
     if (evsMoi.length > 0) addEvents(evsMoi);
-    return { soHang: aoa.length - 1, soMoi: evsMoi.length };
+    const ghiChuChieu = soDongSaiChieu > 0 ? ` (đã bỏ qua ${soDongSaiChieu} dòng khác chiều "Reverse")` : '';
+    return { soHang: aoa.length - 1, soMoi: evsMoi.length, ghiChuChieu };
   }, [events, addEvents]);
 
   const dongBoTuHandle = useCallback(async (handle) => {
@@ -841,9 +891,9 @@ function GateScreen({ events, addEvent, addEvents }) {
       const file = await handle.getFile();
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
-      const { soHang, soMoi, loi } = nhapDuLieuTuSheet(wb);
+      const { soHang, soMoi, loi, ghiChuChieu } = nhapDuLieuTuSheet(wb);
       setExcelStatus({ ten: file.name, dongBoLuc: new Date().toISOString(), soHangMoiNhat: soHang, loi: loi || null, dangDongBo: false });
-      if (soMoi > 0) notify(`Đã nhập ${soMoi} biển số xe mới từ file Excel`);
+      if (soMoi > 0) notify(`Đã nhập ${soMoi} biển số xe mới từ file Excel${ghiChuChieu || ''}`);
       if (loi) notify(loi, true);
     } catch (err) {
       setExcelStatus((s) => ({ ...s, dangDongBo: false, loi: 'Không đọc được file — kiểm tra lại file có đang mở/đúng định dạng .xlsx không.' }));
@@ -867,9 +917,9 @@ function GateScreen({ events, addEvent, addEvents }) {
     try {
       const buf = await f.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
-      const { soHang, soMoi, loi } = nhapDuLieuTuSheet(wb);
+      const { soHang, soMoi, loi, ghiChuChieu } = nhapDuLieuTuSheet(wb);
       setExcelStatus({ ten: f.name, dongBoLuc: new Date().toISOString(), soHangMoiNhat: soHang, loi: loi || null, dangDongBo: false });
-      if (soMoi > 0) notify(`Đã nhập ${soMoi} biển số xe mới từ file Excel`);
+      if (soMoi > 0) notify(`Đã nhập ${soMoi} biển số xe mới từ file Excel${ghiChuChieu || ''}`);
       if (loi) notify(loi, true);
     } catch { setExcelStatus((s) => ({ ...s, dangDongBo: false, loi: 'Không đọc được file — kiểm tra định dạng .xlsx.' })); }
   };
@@ -930,14 +980,38 @@ function GateScreen({ events, addEvent, addEvents }) {
   // (I.1) Camera tự động đối chiếu: xe vào cổng từ NGÀY TRƯỚC mà vẫn chưa ra -> cảnh báo ĐỎ
   const xeQuaHanChuaRa = dangTrongMo.filter((g) => dayStrOf(g.time) !== today);
 
-  // (II.1) Đối chiếu phiếu khi cho xe ra cổng — chỉ để BẢO VỆ XEM tham khảo,
-  // không cần thao tác ký gì thêm. Theo Bảng hiệu chỉnh V7.0: bỏ bước bảo vệ
-  // ký/xác nhận, chỉ còn lái xe ký khi nhận phiếu từ Kế toán mỏ.
+  // (Bảng hiệu chỉnh 08/09, mục Bảo vệ) Tách "Ghi nhận xe ra cổng" thành 2 danh
+  // sách riêng: (1) xe ĐÃ ĐƯỢC lái máy xúc xác nhận xúc đầy (đã có phiếu) — bảo
+  // vệ chỉ cần tích chọn để xác nhận, cấp phiếu cứng; (2) xe CHƯA xúc hàng mà ra
+  // cổng — có ghi chú, tích chọn là tự lưu giờ ra ngay, chỉ hiện trong Báo cáo
+  // hết ca (không ảnh hưởng các báo cáo khác).
+  const veTheoXeDaXuc = (plate, tuThoiDiem) => events
+    .filter((e) => e.type === 'ticket_print' && e.plate === plate && e.time > tuThoiDiem)
+    .sort((a, b) => a.time.localeCompare(b.time))[0];
+  const xeDaXucHang = dangTrongMo
+    .map((g) => ({ gateIn: g, ticket: veTheoXeDaXuc(g.plate, g.time) }))
+    .filter((x) => x.ticket)
+    .sort((a, b) => a.ticket.time.localeCompare(b.ticket.time));
+  const xeChuaXucHang = dangTrongMo
+    .filter((g) => !xeDaXucHang.some((x) => x.gateIn.id === g.id))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  const xacNhanRaCongCoHang = ({ gateIn, ticket }) => {
+    addEvent({ id: genId('GO'), type: 'gate_out', plate: gateIn.plate, coHang: true, ticketId: ticket.id, ticketNo: ticket.ticketNo, time: new Date().toISOString() });
+    notify(`Đã xác nhận xe ${gateIn.plate} ra cổng — đã cấp phiếu ${ticket.ticketNo}`);
+  };
+  const xacNhanRaCongKhongHang = (gateIn) => {
+    addEvent({ id: genId('GO'), type: 'gate_out', plate: gateIn.plate, coHang: false, ghiChu: (ghiChuKhongHang[gateIn.id] || '').trim(), time: new Date().toISOString() });
+    notify(`Đã ghi nhận xe ${gateIn.plate} ra cổng (không có hàng)`);
+  };
+
+  // Nhập tay biển số khác — dùng cho trường hợp đặc biệt (xe không có trong 2
+  // danh sách trên, VD: dữ liệu vào cổng bị thiếu). Giữ lại cơ chế đối chiếu +
+  // cảnh báo "xe lạ" như trước.
+  const daKyNhanPhieu = (ticketId) => events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === ticketId);
   const phieuDoiChieu = plateRa.trim()
     ? events.filter((e) => e.type === 'ticket_print' && e.plate === plateRa.trim().toUpperCase()).sort((a, b) => b.time.localeCompare(a.time))[0]
     : null;
-  const daKyNhanPhieu = (ticketId) => events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === ticketId);
-
   const xeRaCong = () => {
     const p = plateRa.trim().toUpperCase();
     if (!p) return notify('Nhập biển số xe ra cổng', true);
@@ -989,7 +1063,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
         <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng.</p>
         <div className="bg-emerald-900/20 border border-emerald-600/40 rounded-lg p-3 mb-3 text-xs text-slate-300 leading-relaxed">
-          <b className="text-emerald-400">Nên thử trước tiên (nếu dùng được — không cần cài gì, không ai phải thao tác mỗi ca):</b> kiểm tra xem chính phần mềm HikCentral có tính năng tự gửi dữ liệu ra ngoài mỗi khi nhận diện được xe không (mục <b>"Xem hướng dẫn kết nối Camera thật"</b> ở cuối trang này) — nếu có, chỉ cần cấu hình 1 lần trong HikCentral (thường cần nhờ đơn vị lắp đặt/kỹ thuật Hikvision xác nhận đúng mục), sau đó camera tự động gửi thẳng vào đây, không cần chạy chương trình nào, không cần ai bấm gì cả. Chưa chắc bản HikCentral đang dùng có tính năng này — cần thử mới biết chắc. Nếu không có, dùng 1 trong 3 cách bên dưới.
+          <b className="text-emerald-400">Nên thử trước tiên (không cần cài gì, không ai phải thao tác mỗi ca):</b> theo đúng tài liệu kỹ thuật chính hãng Hikvision (ISAPI cho camera ANPR), camera đọc biển số có thể tự động gửi thẳng kết quả ra 1 địa chỉ máy chủ ngoài mỗi khi nhận diện được xe — xem đúng các bước kỹ thuật (địa chỉ cần gọi, nội dung cần gửi) ở mục <b>"Xem hướng dẫn kết nối Camera thật"</b> ở cuối trang này. Việc này cần thực hiện <b>trực tiếp trên từng camera</b> (qua địa chỉ IP riêng của camera, không phải qua trang quản trị HikCentral chung) và cần người có quyền quản trị thiết bị camera — nên nhờ đơn vị đã lắp đặt hệ thống hoặc kỹ thuật Hikvision thực hiện giúp. Nếu model/firmware camera đang dùng không hỗ trợ, hoặc chưa nhờ được kỹ thuật hỗ trợ ngay, dùng 1 trong 3 cách bên dưới.
         </div>
         <p className="text-slate-400 text-xs mb-2">3 cách bên dưới — <b className="text-white">Cách 1 chỉ cần thao tác chuột, không cần biết máy tính chuyên sâu, nên làm trước</b>; Cách 2 và Cách 3 tự động hơn nhưng cần biết dùng máy tính cơ bản (Cách 2 giờ chỉ cần bấm đúp 1 file, không cần gõ lệnh), phù hợp khi có người rành kỹ thuật hỗ trợ.</p>
         {camHikStats.last ? (
@@ -1069,12 +1143,16 @@ function GateScreen({ events, addEvent, addEvents }) {
           <div className="text-slate-300 text-xs leading-relaxed space-y-2">
             <p><b className="text-white">Địa chỉ camera cần gửi dữ liệu tới (khi đã triển khai trên Netlify):</b><br/>
               <code className="text-emerald-400 break-all">{(typeof window !== 'undefined' ? window.location.origin : '[địa-chỉ-web-cua-anh]')}/api/camera-webhook</code></p>
-            <p><b className="text-white">Cách cấu hình trên đầu ghi/camera Hikvision:</b></p>
-            <p>1) Đăng nhập trang quản trị camera/đầu ghi (thường qua trình duyệt, địa chỉ IP nội bộ của thiết bị).<br/>
-              2) Vào <b>Configuration → Network → Advanced Settings → HTTP(S) Listening</b> (hoặc <b>Event → Basic Event/Smart Event → ANPR → Linkage Method → Notify Surveillance Center / HTTP(S) Post</b> tuỳ dòng máy).<br/>
-              3) Dán đúng địa chỉ ở trên vào ô "Destination IP/URL", chọn phương thức <b>POST</b>, định dạng <b>JSON</b> nếu có tuỳ chọn.<br/>
-              4) Lưu lại — mỗi lần camera đọc được biển số sẽ tự động gửi thẳng vào phần mềm, không cần bảo vệ thao tác.</p>
-            <p><b className="text-amber-400">Nếu không tìm thấy đúng mục trên (tuỳ model/firmware), hoặc camera nằm trong mạng nội bộ không gửi thẳng ra internet được:</b> dùng bấm "Xem log camera gần đây" bên cạnh sau khi thử gửi 1 lần để xem dữ liệu thật camera gửi lên là gì — gửi ảnh log đó cho tôi để tôi chỉnh lại đúng, hoặc dùng phương án chương trình cầu nối chạy trên máy tính (giống chương trình đồng bộ Excel đã có).</p>
+            <p className="text-amber-400"><b>Việc này cần làm trên đúng địa chỉ IP riêng của camera (không phải trang quản trị HikCentral chung), và cần tài khoản quản trị của chính camera đó</b> — nên để đơn vị lắp đặt hệ thống hoặc kỹ thuật Hikvision thực hiện các bước dưới đây; đây là thao tác kỹ thuật, không phù hợp để tự làm nếu chưa quen.</p>
+            <p><b className="text-white">Cách 1 — Nếu giao diện web của camera có mục cấu hình sẵn (tuỳ model/firmware):</b><br/>
+              Đăng nhập trang quản trị camera (qua trình duyệt, địa chỉ IP nội bộ của thiết bị) → vào mục <b>Configuration → Network → Advanced Settings → Notification / HTTP(S) Listening</b> → điền đúng địa chỉ ở trên vào ô "Destination"/"URL", cổng 443, chọn HTTPS → lưu lại.</p>
+            <p><b className="text-white">Cách 2 — Gọi thẳng lệnh kỹ thuật ISAPI (dùng khi camera không có sẵn mục cấu hình trên, cần kỹ thuật dùng công cụ như Postman, đăng nhập bằng tài khoản quản trị camera):</b></p>
+            <p>1) Kiểm tra camera có hỗ trợ tính năng này không: gọi <code className="text-emerald-400">GET /ISAPI/Event/notification/httpHosts/capabilities</code> — nếu kết quả trả về có mục <code>ANPR</code> thì camera hỗ trợ.<br/>
+              2) Khai báo địa chỉ nhận dữ liệu: gọi <code className="text-emerald-400">PUT /ISAPI/Event/notification/httpHosts</code> với nội dung khai báo đúng địa chỉ ở trên (tên miền <code className="break-all">{(typeof window !== 'undefined' ? window.location.hostname : 'mo-khuon-gian-3.netlify.app')}</code>, đường dẫn <code>/api/camera-webhook</code>, cổng 443, giao thức HTTPS) — tên các trường cụ thể có thể khác chút theo từng model, nên xem đúng kết quả trả về ở bước 1 để biết tên trường chính xác camera đang dùng.<br/>
+              3) Bật tính năng gửi cảnh báo biển số qua giao thức chuẩn: gọi <code className="text-emerald-400">PUT /ISAPI/Traffic/ANPR/alarmHttpPushProtocol</code> với nội dung:</p>
+            <pre className="bg-slate-950 border border-slate-700 rounded-lg p-2 overflow-x-auto text-[10px] text-slate-300">{'<AlarmHttpPushProtocol version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">\n  <baseLineProtocolEnabled>true</baseLineProtocolEnabled>\n</AlarmHttpPushProtocol>'}</pre>
+            <p>4) Sau khi cấu hình xong, mỗi lần camera đọc được biển số sẽ tự động gửi thẳng vào phần mềm — không cần bảo vệ thao tác gì thêm.</p>
+            <p className="text-slate-500">Các bước trên dựa theo đúng tài liệu kỹ thuật ISAPI chính hãng của Hikvision cho dòng camera ANPR — nhưng <b>chưa được thử trực tiếp trên camera thật tại mỏ</b>, vì cần quyền quản trị thiết bị mà tôi không có và không nên có. Nếu cấu hình xong mà chưa thấy nhận được dữ liệu (hoặc nhận được nhưng chưa đúng biển số), bấm "Xem log camera gần đây" bên cạnh sau khi thử gửi 1 lần để xem đúng dữ liệu camera gửi lên là gì — gửi lại log đó cho tôi để chỉnh khớp đúng model/firmware đang dùng. Nếu không thể nhờ kỹ thuật hỗ trợ ngay, dùng tạm 1 trong 3 cách còn lại ở trên (Excel/đọc màn hình/AppKey).</p>
           </div>
         </Card>
       )}
@@ -1091,7 +1169,8 @@ function GateScreen({ events, addEvent, addEvents }) {
               {logCamera.map((l, i) => (
                 <div key={i} className="bg-slate-950 border border-slate-700 rounded-lg p-2 text-[11px]">
                   <div className="text-slate-400">{gioVN(l.time)} · {l.contentType || '(không rõ content-type)'}</div>
-                  <div className={l.nhanDangDuoc ? 'text-emerald-400 font-bold' : 'text-red-400'}>{l.nhanDangDuoc ? 'Đã nhận diện được biển số' : 'KHÔNG nhận diện được biển số'}</div>
+                  <div className={l.nhanDangDuoc ? 'text-emerald-400 font-bold' : 'text-red-400'}>{l.nhanDangDuoc ? `Đã nhận diện được biển số: ${l.plate || ''}` : 'KHÔNG nhận diện được biển số'}</div>
+                  {l.direction && <div className={l.boQuaDoSaiChieu ? 'text-amber-400' : 'text-slate-400'}>Chiều (Driving Direction): {l.direction}{l.boQuaDoSaiChieu ? ' — KHÔNG phải "reverse" nên đã BỎ QUA, không ghi xe vào cổng' : ''}</div>}
                   <div className="text-slate-500 mt-1 break-all">{l.raw?.slice(0, 300)}</div>
                 </div>
               ))}
@@ -1148,30 +1227,68 @@ function GateScreen({ events, addEvent, addEvents }) {
         <button onClick={() => ghiNhan()} className="w-full mt-1 bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg">✅ Xác nhận xe vào cổng</button>
       </Card>
 
-      <Card className="mt-4">
-        <div className="font-bold text-white text-sm mb-1">🚪 Ghi nhận xe RA cổng — đối chiếu phiếu</div>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {dangTrongMo.slice(0, 8).map((g) => (
-            <button key={g.id} onClick={() => setPlateRa(g.plate)} className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs font-bold text-white tabular-nums">{g.plate}</button>
-          ))}
-        </div>
-        <input value={plateRa} onChange={(e) => setPlateRa(e.target.value)} placeholder="Biển số xe ra cổng" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white" />
-
-        {plateRa.trim() && (
-          phieuDoiChieu ? (
-            <div className="mt-3 bg-slate-950 border border-emerald-600/50 rounded-lg p-3">
-              <div className="text-emerald-400 text-xs font-bold mb-1">✅ Đối chiếu: có phiếu {phieuDoiChieu.ticketNo}</div>
-              <div className="text-slate-300 text-xs">{soVN(phieuDoiChieu.volume)} m³ · KH: {phieuDoiChieu.customerName || '—'} · in lúc {gioVN(phieuDoiChieu.time)}</div>
-              <div className="text-slate-500 text-[11px] mt-1">
-                {daKyNhanPhieu(phieuDoiChieu.id) ? 'Lái xe đã ký nhận phiếu này (Kế toán mỏ đã ghi nhận).' : 'Chỉ cần lái xe ký nhận trực tiếp với Kế toán mỏ — Bảo vệ không cần xử lý gì thêm.'}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 bg-red-900/20 border border-red-600/50 rounded-lg p-3 text-red-300 text-xs">⚠ Không tìm thấy phiếu nào cho biển số này hôm nay — kiểm tra kỹ trước khi cho xe ra.</div>
-          )
+      <Card className="mt-4 border-emerald-600/50">
+        <div className="font-bold text-white text-sm mb-1">🚪 Xe ra cổng — ĐÃ XÚC HÀNG ({xeDaXucHang.length})</div>
+        <p className="text-slate-400 text-xs mb-2">Xe đã được lái máy xúc xác nhận xúc đầy — tích chọn để xác nhận xe ra cổng và cấp phiếu cứng cho lái xe.</p>
+        {xeDaXucHang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có xe nào.</div> : (
+          <div className="divide-y divide-slate-700">
+            {xeDaXucHang.map(({ gateIn, ticket }) => (
+              <label key={gateIn.id} className="flex items-center gap-3 py-2.5 cursor-pointer">
+                <input type="checkbox" onChange={() => xacNhanRaCongCoHang({ gateIn, ticket })} className="w-5 h-5 accent-emerald-600 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-bold tabular-nums">{gateIn.plate}</div>
+                  <div className="text-slate-400 text-[11px]">{ticket.ticketNo} · {soVN(ticket.volume)} m³ · KH: {ticket.customerName || '—'} · xúc đầy lúc {gioVN(ticket.time)}</div>
+                </div>
+              </label>
+            ))}
+          </div>
         )}
+      </Card>
 
-        <button onClick={xeRaCong} className="w-full mt-2 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-lg text-sm">Ghi nhận xe ra cổng</button>
+      <Card className="mt-4 border-amber-600/50">
+        <div className="font-bold text-white text-sm mb-1">🚪 Xe ra cổng — KHÔNG CÓ HÀNG ({xeChuaXucHang.length})</div>
+        <p className="text-slate-400 text-xs mb-2">Xe vào mỏ nhưng chưa được xúc hàng mà ra cổng — ghi chú lý do (không bắt buộc) rồi tích chọn xác nhận, hệ thống tự lưu giờ ra ngay. Chỉ hiển thị trong Báo cáo hết ca, không ảnh hưởng các báo cáo khác.</p>
+        {xeChuaXucHang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có xe nào.</div> : (
+          <div className="divide-y divide-slate-700">
+            {xeChuaXucHang.map((g) => (
+              <div key={g.id} className="py-2.5">
+                <div className="flex items-center gap-3">
+                  <input type="checkbox" onChange={() => xacNhanRaCongKhongHang(g)} className="w-5 h-5 accent-amber-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-white font-bold tabular-nums">{g.plate}</div>
+                    <div className="text-slate-400 text-[11px]">vào cổng lúc {gioVN(g.time)}</div>
+                  </div>
+                </div>
+                <input value={ghiChuKhongHang[g.id] || ''} onChange={(e) => setGhiChuKhongHang((s) => ({ ...s, [g.id]: e.target.value }))}
+                  placeholder="Ghi chú lý do (không bắt buộc)" className="w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs ml-8" style={{ width: 'calc(100% - 2rem)' }} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card className="mt-4">
+        <button onClick={() => setNhapTayKhac(!nhapTayKhac)} className="text-brand-400 text-xs underline">{nhapTayKhac ? 'Ẩn' : 'Nhập tay biển số khác (trường hợp đặc biệt)'}</button>
+        {nhapTayKhac && (
+          <div className="mt-3">
+            <p className="text-slate-500 text-[11px] mb-2">Chỉ dùng khi xe cần ra cổng nhưng KHÔNG có trong 2 danh sách trên (VD: thiếu dữ liệu vào cổng).</p>
+            <input value={plateRa} onChange={(e) => setPlateRa(e.target.value)} placeholder="Biển số xe ra cổng" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white" />
+            {plateRa.trim() && (
+              phieuDoiChieu ? (
+                <div className="mt-3 bg-slate-950 border border-emerald-600/50 rounded-lg p-3">
+                  <div className="text-emerald-400 text-xs font-bold mb-1">✅ Đối chiếu: có phiếu {phieuDoiChieu.ticketNo}</div>
+                  <div className="text-slate-300 text-xs">{soVN(phieuDoiChieu.volume)} m³ · KH: {phieuDoiChieu.customerName || '—'} · lập lúc {gioVN(phieuDoiChieu.time)}</div>
+                  <div className="text-slate-500 text-[11px] mt-1">
+                    {daKyNhanPhieu(phieuDoiChieu.id) ? 'Lái xe đã ký nhận phiếu này (Kế toán mỏ đã ghi nhận).' : 'Chỉ cần lái xe ký nhận trực tiếp với Kế toán mỏ — Bảo vệ không cần xử lý gì thêm.'}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 bg-red-900/20 border border-red-600/50 rounded-lg p-3 text-red-300 text-xs">⚠ Không tìm thấy phiếu nào cho biển số này hôm nay — kiểm tra kỹ trước khi cho xe ra.</div>
+              )
+            )}
+            <button onClick={xeRaCong} className="w-full mt-2 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-lg text-sm">Ghi nhận xe ra cổng</button>
+          </div>
+        )}
         {xeRaHomNay.length > 0 && <div className="text-slate-500 text-xs mt-2">{xeRaHomNay.length} xe đã ra cổng hôm nay</div>}
       </Card>
 
@@ -1534,8 +1651,27 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
     </div>
   );
 }
-function DriverScreen({ events, addEvent, addEvents, config, myName, claims, setClaim, clearClaim, buildTicket }) {
-  const [session, setSession] = useState(null);
+// (Bảng hiệu chỉnh 08/09, mục báo cáo máy xúc) Lưu "ca đang làm việc" (đã Nhận
+// ca/máy) vào localStorage THEO TỪNG TÀI KHOẢN — trước đây chỉ giữ trong bộ nhớ
+// React nên bị mất mỗi khi tải lại trang/mất kết nối phải đăng nhập lại giữa
+// ca, buộc lái máy phải "Nhận ca" lại lần nữa dù vẫn đang làm việc bình thường
+// -> sinh ra 2 lượt "shift_start" cho cùng 1 ca thật, khiến báo cáo máy xúc bị
+// TÁCH LÀM ĐÔI. Nay khôi phục lại đúng ca đang dở khi mở lại ứng dụng, chỉ mất
+// khi tự bấm "Trả máy". Khoá lưu theo username để không bị lẫn ca giữa các lái
+// máy khác nhau dùng chung 1 thiết bị.
+function khoaCaLamViec(username) { return `mkg3_ca_laixuc_v1_${username || 'khach'}`; }
+function docCaDaLuu(username) {
+  try { return JSON.parse(localStorage.getItem(khoaCaLamViec(username)) || 'null'); } catch { return null; }
+}
+function luuCaLamViec(username, ca) {
+  try {
+    if (ca) localStorage.setItem(khoaCaLamViec(username), JSON.stringify(ca));
+    else localStorage.removeItem(khoaCaLamViec(username));
+  } catch { /* bỏ qua nếu trình duyệt chặn localStorage */ }
+}
+function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername, claims, setClaim, clearClaim, buildTicket }) {
+  const [session, setSessionState] = useState(() => docCaDaLuu(myUsername));
+  const setSession = (s) => { setSessionState(s); luuCaLamViec(myUsername, s); };
   const [operatorName, setOperatorName] = useState(myName || config.operators[0]?.name || '');
   const [excavatorId, setExcavatorId] = useState(config.excavators[0]?.id);
   const [shift, setShift] = useState('sáng');
@@ -2039,6 +2175,10 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(phieuDaXuLyRef.current) })); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickets.length, tuDongIn]);
+  // (Bảng hiệu chỉnh 08/09, mục Bảo vệ) Xe ra cổng KHÔNG CÓ HÀNG hôm nay — CHỈ
+  // thể hiện trong Báo cáo hết ca (thêm 1 sheet riêng khi xuất Excel), các báo
+  // cáo khác (theo khách hàng, máy xúc...) không cần và không bị ảnh hưởng.
+  const xeRaKhongHangHomNay = events.filter((e) => e.type === 'gate_out' && e.coHang === false && dayStrOf(e.time) === today).slice().reverse();
   const xuatBaoCaoCuoiCa = () => {
     const rows = [
       ['Số phiếu', 'Biển số', 'Khối lượng (m3)', 'Máy xúc', 'Lái máy xúc', 'Khách hàng', 'Thời gian', 'Lái xe đã ký'],
@@ -2047,7 +2187,13 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
       t.ticketNo, t.plate, t.volume, t.excavatorName || '', t.operatorName || '', t.customerName || '',
       gioVN(t.time), events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === t.id) ? 'Có' : 'Chưa',
     ]));
-    xuatExcel({ 'Báo cáo cuối ca': rows }, `bao-cao-cuoi-ca-${today}`);
+    const sheets = { 'Báo cáo cuối ca': rows };
+    if (xeRaKhongHangHomNay.length > 0) {
+      const rows2 = [['Biển số', 'Giờ ra', 'Ghi chú']];
+      xeRaKhongHangHomNay.forEach((e) => rows2.push([e.plate, gioVN(e.time), e.ghiChu || '']));
+      sheets['Xe ra không hàng'] = rows2;
+    }
+    xuatExcel(sheets, `bao-cao-cuoi-ca-${today}`);
   };
   const bienBans = events.filter((e) => e.type === 'bien_ban' && dayStrOf(e.time) === today).slice().reverse();
   const canhBaoXeLa = events.filter((e) => e.type === 'missing_plate_alert' && !events.some((r) => r.type === 'missing_plate_resolved' && r.alertId === e.id));
@@ -2130,9 +2276,19 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
         <>
           <SectionTitle>📊 Báo cáo cuối ca</SectionTitle>
           <Card>
-            <p className="text-slate-400 text-xs mb-3">Xuất toàn bộ phiếu hôm nay ra file Excel để in, đối chiếu và trình ký với Kỹ thuật và Bảo vệ trước khi kết ca.</p>
+            <p className="text-slate-400 text-xs mb-3">Xuất toàn bộ phiếu hôm nay ra file Excel để in, đối chiếu và trình ký với Kỹ thuật và Bảo vệ trước khi kết ca{xeRaKhongHangHomNay.length > 0 ? ` (kèm ${xeRaKhongHangHomNay.length} xe ra cổng không hàng, ở sheet riêng)` : ''}.</p>
             <button onClick={xuatBaoCaoCuoiCa} className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất báo cáo cuối ca — Excel ({tickets.length} phiếu)</button>
           </Card>
+          {xeRaKhongHangHomNay.length > 0 && (
+            <Card className="mt-3">
+              <div className="text-white font-bold text-sm mb-2">🚪 Xe ra cổng không hàng hôm nay ({xeRaKhongHangHomNay.length})</div>
+              <div className="divide-y divide-slate-700 text-sm">
+                {xeRaKhongHangHomNay.map((e) => (
+                  <div key={e.id} className="py-2 flex justify-between"><div><span className="text-white font-bold tabular-nums">{e.plate}</span>{e.ghiChu && <span className="text-slate-500 text-xs"> · {e.ghiChu}</span>}</div><span className="text-slate-400">{gioVN(e.time)}</span></div>
+                ))}
+              </div>
+            </Card>
+          )}
           <BaoCaoKhachHangVaTraSoat events={events} config={config} setConfig={setConfig} choSuaDonGia={true} />
         </>
       )}
@@ -2150,7 +2306,6 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
 
       {xemLai && (() => {
         const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === xemLai.plate && dayStrOf(e.time) === dayStrOf(xemLai.time)).sort((a, b) => a.time.localeCompare(b.time))[0];
-        const gateOut = events.filter((e) => e.type === 'gate_out' && e.plate === xemLai.plate && e.time > xemLai.time).sort((a, b) => a.time.localeCompare(b.time))[0];
         return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemLai(null)}>
           <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-3">
@@ -2165,7 +2320,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
                 <div className="border-t-2 border-dashed border-slate-400 my-2" />
                 <div>Số phiếu: {xemLai.ticketNo}</div>
                 <div className="flex justify-between"><span>Ngày vào: {gateIn ? ngayVN(dayStrOf(gateIn.time)) : '.........'}</span><span>Giờ vào: {gateIn ? gioVN(gateIn.time).split(' ')[0] : '......'}</span></div>
-                <div className="flex justify-between"><span>Ngày ra: {gateOut ? ngayVN(dayStrOf(gateOut.time)) : '.........'}</span><span>Giờ ra: {gateOut ? gioVN(gateOut.time).split(' ')[0] : '......'}</span></div>
+                <div className="flex justify-between"><span>Ngày ra: {ngayVN(dayStrOf(xemLai.time))}</span><span>Giờ ra: {gioVN(xemLai.time).split(' ')[0]}</span></div>
                 <div>Bên mua: {xemLai.customerName || '—'}</div>
                 <div>Biển số xe: {xemLai.plate}</div>
                 <div className="mt-1">Khối lượng: {soVN(xemLai.volume)} m3</div>
@@ -2190,12 +2345,37 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
 // Báo cáo xác nhận khối lượng máy xúc — theo ngày (từng ca) & theo tháng
 // (tổng hợp theo kỳ), đúng khuôn mẫu công ty (Bảng hiệu chỉnh V5.0, khổ A5).
 // ---------------------------------------------------------------------------
+// (Bảng hiệu chỉnh 08/09, mục báo cáo máy xúc) GỘP các lượt "Nhận ca" của CÙNG
+// 1 lái máy + CÙNG 1 máy xúc + CÙNG 1 ca + CÙNG 1 ngày thành DUY NHẤT 1 báo cáo
+// nối tiếp nhau — trước đây mỗi lần bấm "Nhận ca" (kể cả khi phải nhận lại giữa
+// ca do bị đăng xuất/mất kết nối) đều tạo 1 "phiên" (sessionId) riêng, khiến 1
+// ca làm việc thật bị TÁCH thành nhiều báo cáo rời rạc. Nay dù có bao nhiêu lượt
+// "shift_start" xen giữa (đã được hạn chế nhiều nhờ lưu phiên vào localStorage
+// ở DriverScreen), báo cáo vẫn hiển thị gộp lại thành 1 dòng duy nhất, số chuyến
+// và khối lượng cộng dồn, thời gian làm việc = tổng thời gian của từng lượt.
 function phienCaLamViec(events, tuNgay, denNgay) {
   const starts = events.filter((e) => e.type === 'shift_start' && dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay);
-  return starts.map((s) => {
-    const end = events.find((e) => e.type === 'shift_end' && e.sessionId === s.id);
-    const loads = events.filter((e) => e.type === 'load_confirm' && e.sessionId === s.id);
-    const thoiGianLamViec = end ? dinhDangGio(new Date(end.time) - new Date(s.time)) : 'đang làm việc';
+  const nhom = {};
+  const thuTuNhom = [];
+  starts.forEach((s) => {
+    const key = `${s.operatorId}|${s.excavatorId}|${s.shift}|${dayStrOf(s.time)}`;
+    if (!nhom[key]) { nhom[key] = []; thuTuNhom.push(key); }
+    nhom[key].push(s);
+  });
+  return thuTuNhom.map((key) => {
+    const dsLuot = nhom[key].slice().sort((a, b) => a.time.localeCompare(b.time));
+    const s = dsLuot[0]; // đại diện nhóm — lấy đúng lượt "Nhận ca" SỚM NHẤT trong ngày
+    const sessionIds = dsLuot.map((x) => x.id);
+    const endsCuaTungLuot = dsLuot.map((x) => events.find((e) => e.type === 'shift_end' && e.sessionId === x.id));
+    const daKetThucHet = endsCuaTungLuot.every(Boolean);
+    const endGanNhat = daKetThucHet ? endsCuaTungLuot.reduce((a, b) => (a.time > b.time ? a : b)) : null;
+    // Thời gian làm việc = TỔNG thời gian của từng lượt (end_i - start_i) —
+    // KHÔNG tính khoảng thời gian "đăng xuất giữa chừng" là đang làm việc.
+    const tongThoiGianMs = daKetThucHet
+      ? dsLuot.reduce((tong, x, i) => tong + (new Date(endsCuaTungLuot[i].time) - new Date(x.time)), 0)
+      : 0;
+    const loads = events.filter((e) => e.type === 'load_confirm' && sessionIds.includes(e.sessionId));
+    const thoiGianLamViec = daKetThucHet ? dinhDangGio(tongThoiGianMs) : 'đang làm việc';
     // Chi tiết theo từng biển số xe trong ca — đúng khuôn mẫu yêu cầu (STT /
     // Biển số xe / Số chuyến / Khối lượng), dùng để hiển thị & xuất báo cáo.
     const theoBienSoMap = {};
@@ -2205,7 +2385,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
       theoBienSoMap[l.plate].khoiLuong += l.estVolume;
     });
     const theoBienSo = Object.values(theoBienSoMap).sort((a, b) => a.plate.localeCompare(b.plate));
-    return { ...s, ketThuc: end?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.estVolume, 0), theoBienSo };
+    return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.estVolume, 0), theoBienSo, sessionIds };
   });
 }
 function BaoCaoMayXuc({ events }) {
@@ -2233,11 +2413,12 @@ function BaoCaoMayXuc({ events }) {
       <tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>`;
   const xuatWordNgay = (p) => xuatWord(bcNgayHTML(p), `bao-cao-may-xuc-${p.excavatorName}-${ngay}`);
   const inNgay = (p) => inTrucTiep(bcNgayHTML(p), `Báo cáo ${p.excavatorName}`);
+  // (Bảng hiệu chỉnh 08/09) Bỏ hẳn bảng tóm tắt (Máy xúc/Lái máy/Ca/Thời gian
+  // làm việc/Số chuyến/Tổng khối lượng) ở đầu file — dữ liệu này đã có sẵn
+  // trong TÊN FILE xuất ra, giữ lại gây dư thừa dữ liệu theo phản ánh của Kế
+  // toán mỏ. Chỉ còn đúng bảng chi tiết theo biển số xe.
   const xuatExcelMotCa = (p) => {
     const rows = [
-      ['Máy xúc', 'Lái máy', 'Ca', 'Thời gian làm việc', 'Số chuyến', 'Tổng khối lượng (m3)'],
-      [p.excavatorName, p.operatorName, p.shift, p.thoiGianLamViec, p.soChuyen, p.tongKhoiLuong],
-      [],
       ['STT', 'Biển số xe', 'Số chuyến', 'Khối lượng (m3)'],
       ...p.theoBienSo.map((b, i) => [i + 1, b.plate, b.soChuyen, b.khoiLuong]),
       ['', 'Cộng', p.soChuyen, p.tongKhoiLuong],
@@ -2949,8 +3130,26 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
 // ---------------------------------------------------------------------------
 // App gốc
 // ---------------------------------------------------------------------------
+// (Bảng hiệu chỉnh 08/09, mục đăng nhập) Lưu phiên đăng nhập vào bộ nhớ TRÌNH
+// DUYỆT (localStorage) — trước đây phiên chỉ giữ trong bộ nhớ React (useState),
+// nên MẤT NGAY khi tải lại trang hoặc khi điện thoại tự giải phóng bộ nhớ tab
+// lúc chuyển sang ứng dụng khác rồi quay lại (rất hay gặp trên di động), buộc
+// phải đăng nhập lại liên tục dù không hề chủ động đăng xuất. Nay phiên được
+// khôi phục lại ngay khi mở ứng dụng, chỉ mất khi tự bấm "Đăng xuất".
+const KHOA_PHIEN_DANG_NHAP = 'mkg3_phien_dang_nhap_v1';
+function docPhienDaLuu() {
+  try { return JSON.parse(localStorage.getItem(KHOA_PHIEN_DANG_NHAP) || 'null'); } catch { return null; }
+}
+function luuPhien(session) {
+  try {
+    if (session) localStorage.setItem(KHOA_PHIEN_DANG_NHAP, JSON.stringify(session));
+    else localStorage.removeItem(KHOA_PHIEN_DANG_NHAP);
+  } catch { /* trình duyệt chặn localStorage (chế độ ẩn danh...) — bỏ qua, không chặn dùng phần mềm */ }
+}
+
 export default function App() {
-  const [session, setSession] = useState(null); // {id, username, name, role, mustChangePassword}
+  const [session, setSessionState] = useState(docPhienDaLuu); // {id, username, name, role, mustChangePassword}
+  const setSession = (s) => { setSessionState(s); luuPhien(s); };
   const [doiMK, setDoiMK] = useState(false);
   const [events, setEvents] = useState([]);
   const [config, setConfigState] = useState(DEFAULT_CONFIG);
@@ -2964,7 +3163,14 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      await seedUsersIfNeeded();
+      const users = await seedUsersIfNeeded();
+      // Phiên đăng nhập khôi phục từ localStorage (nếu có) — kiểm tra lại với
+      // danh sách tài khoản THẬT trên máy chủ: nếu tài khoản đã bị KHOÁ hoặc
+      // không còn tồn tại nữa thì đăng xuất luôn, tránh giữ phiên "ma".
+      if (session && users) {
+        const u = users.find((x) => x.id === session.id);
+        if (!u || !u.active) setSession(null);
+      }
       const cfg = await storageGet('config', true, null);
       const mergedCfg = cfg ? { ...DEFAULT_CONFIG, ...cfg, thietKe: { ...DEFAULT_CONFIG.thietKe, ...(cfg.thietKe || {}) } } : DEFAULT_CONFIG;
       setConfigState(mergedCfg);
@@ -2975,6 +3181,7 @@ export default function App() {
       setClaims(cl || {});
       setReady(true);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const refresh = useCallback(async () => {
@@ -3061,7 +3268,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-950">
       <TopBar session={session} onLogout={dangXuat} onChangePassword={() => setDoiMK(true)} onlineCount={onlineCount} syncing={syncing} />
       {role === 'baove' && <GateScreen events={events} addEvent={addEvent} addEvents={addEvents} />}
-      {role === 'laixuc' && <DriverScreen events={events} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
+      {role === 'laixuc' && <DriverScreen events={events} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} myUsername={session.username} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
       {role === 'kythuat' && <KyThuatScreen events={events} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} />}
       {role === 'ketoan' && <AccountantScreen events={events} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} />}
       {role === 'giamdoc' && <DashboardScreen events={events} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="giamdoc" />}
