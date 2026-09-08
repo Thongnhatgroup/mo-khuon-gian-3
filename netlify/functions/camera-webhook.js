@@ -18,6 +18,11 @@
 //     tên trường khác (đề phòng một số dòng máy/phiên bản cũ dùng tên khác).
 //   - Một số cấu hình/phần mềm trung gian có thể gửi JSON thay vì multipart+XML —
 //     hàm này vẫn hỗ trợ đọc JSON để không bỏ sót trường hợp đó.
+//   - (Bảng hiệu chỉnh 08/09) Mỏ chủ yếu tiếp nhận xe đầu kéo (biển số đầu xe
+//     và đuôi xe khác nhau) — hàm này chỉ ghi nhận xe VÀO MỎ khi trường
+//     <ANPR><direction> (cột "Driving Direction" trên Control Client) =
+//     "reverse" (đúng chiều đuôi xe), bỏ qua các lượt đọc được biển số nhưng
+//     sai chiều — xem hàm timDirectionTrongXmlHoacText bên dưới.
 //
 // VÌ SAO CHƯA CHẮC DÙNG ĐƯỢC NGAY: việc đăng ký địa chỉ máy chủ nhận (bước
 // "PUT /ISAPI/Event/notification/httpHosts") cần thực hiện trực tiếp trên từng
@@ -105,6 +110,34 @@ function timBienSoTrongXmlHoacText(text) {
   return null;
 }
 
+// Dò tìm "chiều di chuyển" (Driving Direction) trong text/XML — đúng tên trường
+// chính thức theo tài liệu ISAPI ANPR của Hikvision: thẻ <ANPR><direction>, giá
+// trị "reverse" | "forward" | "unknown" (hiển thị trên HikCentral Control Client
+// ở cột "Driving Direction" dạng "Reverse"/"Forward"). Trả về chữ thường, hoặc
+// null nếu không thấy trường này (model/firmware không trả về, hoặc dữ liệu test).
+function timDirectionTrongXmlHoacText(text) {
+  if (!text) return null;
+  const khop = text.match(/<direction>\s*([A-Za-z]+)\s*<\/direction>/i);
+  return khop ? khop[1].trim().toLowerCase() : null;
+}
+// Dò tìm field "direction" trong 1 object JSON (đệ quy), dùng khi phần mềm
+// trung gian gửi JSON thay vì XML gốc.
+function timDirectionTrongJson(obj, depth = 0) {
+  if (!obj || depth > 8 || typeof obj !== 'object') return null;
+  if (Array.isArray(obj)) {
+    for (const phanTu of obj) { const d = timDirectionTrongJson(phanTu, depth + 1); if (d) return d; }
+    return null;
+  }
+  for (const key of Object.keys(obj)) {
+    if (/^direction$/i.test(key) && typeof obj[key] === 'string') return obj[key].trim().toLowerCase();
+  }
+  for (const key of Object.keys(obj)) {
+    const d = timDirectionTrongJson(obj[key], depth + 1);
+    if (d) return d;
+  }
+  return null;
+}
+
 // Lấy đúng giá trị boundary khai báo trong header Content-Type của multipart/form-data.
 function boundaryTuContentType(contentType) {
   const m = contentType.match(/boundary="?([^";]+)"?/i);
@@ -158,6 +191,7 @@ export default async (req) => {
 
   const contentType = req.headers.get('content-type') || '';
   let bienSo = null;
+  let direction = null;
   let noiDungGhiLog = '';
 
   if (contentType.includes('multipart/form-data')) {
@@ -168,6 +202,7 @@ export default async (req) => {
     const xmlText = boundary ? timPhanXmlTrongMultipart(buf, boundary) : null;
     if (xmlText) {
       bienSo = timBienSoTrongXmlHoacText(xmlText);
+      direction = timDirectionTrongXmlHoacText(xmlText);
       noiDungGhiLog = xmlText;
     } else {
       noiDungGhiLog = `[multipart/form-data, ${buf.byteLength} byte — không tách được phần "anpr.xml", kiểm tra lại boundary/định dạng]`;
@@ -176,11 +211,21 @@ export default async (req) => {
     let raw = '';
     try { raw = await req.text(); } catch { raw = ''; }
     if (contentType.includes('json')) {
-      try { bienSo = timBienSoTrongJson(JSON.parse(raw)); } catch { /* không phải JSON hợp lệ, thử cách khác bên dưới */ }
+      try { const parsed = JSON.parse(raw); bienSo = timBienSoTrongJson(parsed); direction = timDirectionTrongJson(parsed); } catch { /* không phải JSON hợp lệ, thử cách khác bên dưới */ }
     }
     if (!bienSo) bienSo = timBienSoTrongXmlHoacText(raw);
+    if (!direction) direction = timDirectionTrongXmlHoacText(raw);
     noiDungGhiLog = raw;
   }
+
+  // (Bảng hiệu chỉnh 08/09) Mỏ chủ yếu tiếp nhận xe đầu kéo — biển số đầu xe và
+  // đuôi xe KHÁC NHAU — nên chỉ ghi nhận xe VÀO MỎ theo đúng biển số ĐUÔI XE,
+  // tương ứng với chiều "reverse" ở trường <direction> (cột "Driving Direction"
+  // trên HikCentral Control Client hiển thị là "Reverse"). Nếu camera trả về
+  // chiều KHÁC "reverse" (VD: "forward" — đầu xe) thì KHÔNG tạo lượt vào cổng,
+  // dù vẫn đọc được biển số — tránh ghi trùng/ghi nhầm theo biển số đầu xe. Nếu
+  // camera/model không trả về trường này thì vẫn ghi nhận như cũ (không lọc).
+  const boQuaDoSaiChieu = !!bienSo && !!direction && direction !== 'reverse';
 
   const store = getStore('mo-khuon-gian-v6');
 
@@ -191,7 +236,7 @@ export default async (req) => {
     const logCu = (await store.get('camera_log', { type: 'json' })) || [];
     const logMoi = [
       ...logCu,
-      { time: new Date().toISOString(), contentType, nhanDangDuoc: !!bienSo, plate: bienSo || null, raw: noiDungGhiLog.slice(0, 2000) },
+      { time: new Date().toISOString(), contentType, nhanDangDuoc: !!bienSo, plate: bienSo || null, direction, boQuaDoSaiChieu, raw: noiDungGhiLog.slice(0, 2000) },
     ].slice(-50); // chỉ giữ 50 log gần nhất, tránh phình dữ liệu
     await store.setJSON('camera_log', logMoi);
   } catch (e) {
@@ -199,6 +244,7 @@ export default async (req) => {
   }
 
   if (!bienSo) return json(200, { nhanDuocNhungKhongThayBienSo: true });
+  if (boQuaDoSaiChieu) return json(200, { boQuaDoSaiChieu: true, direction, plate: bienSo });
 
   // Tạo 1 lượt xe vào cổng, chống trùng bằng khoá dựa trên biển số + phút
   // hiện tại (nếu camera gửi lặp lại nhiều lần cho cùng 1 lượt xe trong cùng
