@@ -3263,12 +3263,23 @@ export default function App() {
   const onLogin = (s) => { setSession(s); if (s.mustChangePassword) setDoiMK(true); };
   const dangXuat = () => { setSession(null); setDoiMK(false); };
 
+  // (Sửa lỗi khẩn 09/09) QUAN TRỌNG: useMemo phải gọi ở ĐÂY — TRƯỚC mọi
+  // "return" có điều kiện bên dưới (!ready / !session / doiMK). Trước đây đặt
+  // SAU các return đó khiến số lượng hook gọi ra bị THAY ĐỔI giữa các lần
+  // render (lúc đang tải dữ liệu / chưa đăng nhập thì hook này không được gọi,
+  // đăng nhập xong lại gọi) — vi phạm Rules of Hooks của React, gây lỗi
+  // "Minified React error #310" làm TOÀN BỘ màn hình trắng xóa/trống trơn,
+  // không hiện được cả trang đăng nhập. Ai đã có sẵn phiên đăng nhập lưu trong
+  // trình duyệt thì may mắn không gặp (vì luôn vào thẳng nhánh có gọi hook,
+  // không đổi số lượng) — đây là lý do máy tính (đã đăng nhập sẵn) chạy bình
+  // thường còn điện thoại (đăng nhập lần đầu) thì bị trắng màn hình.
+  const eventsHienThi = useMemo(() => apDungSuaBienSo(events), [events]);
+
   if (!ready) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">Đang tải dữ liệu dùng chung...</div>;
   if (!session) return <LoginScreen onLogin={onLogin} />;
   if (doiMK) return <ChangePasswordScreen session={session} batBuoc={session.mustChangePassword} onDone={() => { setSession({ ...session, mustChangePassword: false }); setDoiMK(false); }} />;
 
   const role = session.role;
-  const eventsHienThi = useMemo(() => apDungSuaBienSo(events), [events]);
   return (
     <div className="min-h-screen bg-slate-950">
       <TopBar session={session} onLogout={dangXuat} onChangePassword={() => setDoiMK(true)} onlineCount={onlineCount} syncing={syncing} />
