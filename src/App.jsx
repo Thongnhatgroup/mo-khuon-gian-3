@@ -1397,7 +1397,10 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
   const [dangXuLyKhongRa, setDangXuLyKhongRa] = useState(null); // plate đang lập biên bản không ra
 
   const today = todayStr();
-  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate && dayStrOf(e.time) === today);
+  // (Sửa lỗi 09/09) Xe đã được Bảo vệ xác nhận RA CỔNG KHÔNG CÓ HÀNG thì
+  // không cần khai báo khối lượng nữa -> loại khỏi danh sách ngay.
+  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate && dayStrOf(e.time) === today
+    && !events.some((o) => o.type === 'gate_out' && o.coHang === false && o.plate === e.plate && o.time > e.time));
   const khaiBaos = events.filter((e) => e.type === 'ky_thuat_khai_bao');
   const bienBans = events.filter((e) => e.type === 'bien_ban');
   const daLapBienBanIds = new Set(bienBans.flatMap((b) => b.khaiBaoIds));
@@ -1697,7 +1700,10 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
   const traMay = () => { addEvent({ id: genId('SE'), type: 'shift_end', sessionId: session.sessionId, time: new Date().toISOString() }); setSession(null); };
 
   const today = todayStr();
-  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate && dayStrOf(e.time) === today);
+  // (Sửa lỗi 09/09) Xe đã được Bảo vệ xác nhận RA CỔNG KHÔNG CÓ HÀNG thì
+  // không còn chờ xúc nữa -> loại khỏi danh sách chờ xúc của lái máy xúc.
+  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate && dayStrOf(e.time) === today
+    && !events.some((o) => o.type === 'gate_out' && o.coHang === false && o.plate === e.plate && o.time > e.time));
   const loadsToday = events.filter((e) => e.type === 'load_confirm' && dayStrOf(e.time) === today);
 
   const xeChoXuc = gateIns.filter((g) => !loadsToday.some((l) => l.plate === g.plate && l.time > g.time)).sort((a, b) => b.time.localeCompare(a.time));
