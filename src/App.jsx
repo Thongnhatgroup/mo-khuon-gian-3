@@ -249,6 +249,29 @@ function inTrucTiep(html, tieuDe, khoGiay) {
   return true;
 }
 
+// Phát 1 tiếng "bíp" báo có phiếu mới — dùng Web Audio API, không cần file âm
+// thanh, không cần mạng. Trình duyệt cho phép phát vì trang đã có tương tác
+// của người dùng trước đó (đăng nhập...). Nếu lỗi thì bỏ qua lặng lẽ.
+function phatAmBaoPhieuMoi() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    [0, 0.3].forEach((delay) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + delay + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 0.25);
+      o.start(ctx.currentTime + delay);
+      o.stop(ctx.currentTime + delay + 0.3);
+    });
+    setTimeout(() => { try { ctx.close(); } catch {} }, 900);
+  } catch {}
+}
+
 // ---------------------------------------------------------------------------
 // Lưu trữ dùng chung (window.storage — bộ nhớ dùng chung của Artifact)
 // ---------------------------------------------------------------------------
@@ -2144,6 +2167,11 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
   const [xemLai, setXemLai] = useState(null);
   const [xemBienBan, setXemBienBan] = useState(null);
   const [tuDongIn, setTuDongIn] = useState(() => { try { return localStorage.getItem(KHOA_TUDONG_IN) === '1'; } catch { return false; } });
+  // Phiếu mới phát sinh nhưng trình duyệt CHẶN cửa sổ in (không phải do thao
+  // tác click trực tiếp của người dùng) -> không được để im lặng mất phiếu,
+  // phải hiện cảnh báo to + có nút bấm 1 lần là in được ngay (click thật của
+  // người dùng thì trình duyệt luôn cho phép mở cửa sổ in).
+  const [phieuChoInThuCong, setPhieuChoInThuCong] = useState([]);
   const today = todayStr();
   const tickets = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today).slice().reverse();
   const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today).slice().reverse();
@@ -2167,16 +2195,31 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
     setTuDongIn(bat);
     try { localStorage.setItem(KHOA_TUDONG_IN, bat ? '1' : '0'); } catch {}
   };
+  const inThuCong = (t) => {
+    const ok = inTrucTiep(phieuGiaoNhanHTML(t, events), `Phiếu ${t.ticketNo}`, '80mm');
+    if (ok) setPhieuChoInThuCong((ds) => ds.filter((x) => x.id !== t.id));
+    return ok;
+  };
   useEffect(() => {
     if (!tuDongIn) return;
     const phieuMoi = tickets.filter((t) => !phieuDaXuLyRef.current.has(t.id));
     if (phieuMoi.length === 0) return;
+    // Có xe xúc đầy mới -> phát tiếng báo NGAY để Kế toán mỏ biết dù không
+    // nhìn màn hình, tránh bỏ sót phiếu cần in.
+    phatAmBaoPhieuMoi();
     // In lần lượt, cách nhau 1.2s để trình duyệt không chặn việc mở nhiều cửa
     // sổ in cùng lúc (tickets đang xếp mới nhất trước — đảo lại để in đúng
     // thứ tự phát sinh: xe xúc trước in trước).
     phieuMoi.slice().reverse().forEach((t, idx) => {
       phieuDaXuLyRef.current.add(t.id);
-      setTimeout(() => inTrucTiep(phieuGiaoNhanHTML(t, events), `Phiếu ${t.ticketNo}`, '80mm'), idx * 1200);
+      setTimeout(() => {
+        const ok = inTrucTiep(phieuGiaoNhanHTML(t, events), `Phiếu ${t.ticketNo}`, '80mm');
+        // Trình duyệt chặn cửa sổ in (thường do chưa cho phép popup cho
+        // trang này) -> KHÔNG được im lặng bỏ qua, phải hiện cảnh báo để Kế
+        // toán mỏ bấm in thủ công (click thật -> luôn được trình duyệt cho
+        // phép), đồng thời phát thêm 1 tiếng báo nhắc.
+        if (!ok) { setPhieuChoInThuCong((ds) => (ds.some((x) => x.id === t.id) ? ds : [...ds, t])); phatAmBaoPhieuMoi(); }
+      }, idx * 1200);
     });
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(phieuDaXuLyRef.current) })); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2223,12 +2266,26 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
 
       {tab === 'phieu' && (
         <>
+          {phieuChoInThuCong.length > 0 && (
+            <Card className="mb-4 border-red-500 bg-red-500/10 animate-pulse">
+              <div className="flex items-center gap-2 text-red-400 font-extrabold text-sm mb-1"><Bell className="w-4 h-4" /> {phieuChoInThuCong.length} phiếu MỚI chưa in được — trình duyệt đang chặn cửa sổ in!</div>
+              <p className="text-slate-300 text-xs mb-2">Bấm nút bên dưới để in ngay (chắc chắn in được vì đây là thao tác bấm trực tiếp). Sau đó vào Cài đặt Chrome cho phép popup cho trang này để lần sau tự in luôn, không cần bấm tay — xem hướng dẫn phía dưới.</p>
+              <div className="space-y-1.5">
+                {phieuChoInThuCong.map((t) => (
+                  <button key={t.id} onClick={() => inThuCong(t)} className="w-full flex justify-between items-center bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg">
+                    <span>🖨️ IN NGAY — {t.plate} · {t.ticketNo}</span><span>{gioVN(t.time)}</span>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
           <Card className={`mb-4 ${tuDongIn ? 'border-emerald-600' : ''}`}>
             <label className="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" checked={tuDongIn} onChange={doiTuDongIn} className="w-4 h-4 accent-brand-600" />
               <div>
                 <div className="text-white text-sm font-bold flex items-center gap-1.5">🖨️ Tự động in phiếu ra máy in nhiệt {tuDongIn ? <span className="text-emerald-400 text-[11px] font-normal">· đang bật</span> : <span className="text-slate-500 text-[11px] font-normal">· đang tắt</span>}</div>
-                <div className="text-slate-400 text-[11px] mt-0.5">Chỉ bật ĐÚNG trên máy tính đang nối với máy in iTP86 tại bàn Kế toán mỏ — máy khác mở màn hình này để tắt, tránh in nhầm. Khi có xe xúc đầy, phiếu sẽ tự mở cửa sổ in (bấm "In" trên hộp thoại trình duyệt để in ra giấy).</div>
+                <div className="text-slate-400 text-[11px] mt-0.5">Chỉ bật ĐÚNG trên máy tính đang nối với máy in iTP86 tại bàn Kế toán mỏ, và để nguyên tab/màn hình này luôn mở (không tắt trình duyệt) — máy khác mở màn hình này để tắt, tránh in nhầm. Khi có xe xúc đầy, phiếu sẽ tự mở cửa sổ in kèm 1 tiếng "bíp" báo (bấm "In" trên hộp thoại trình duyệt để in ra giấy).</div>
+                <div className="text-amber-400 text-[11px] mt-1.5 font-semibold">⚠ Bắt buộc làm 1 lần trên máy này: mở Cài đặt Chrome → Quyền riêng tư và bảo mật → Cài đặt trang web → Cửa sổ bật lên và chuyển hướng → Thêm trang này vào mục "Được phép" (Allow). Nếu không, trình duyệt sẽ âm thầm chặn cửa sổ in tự động mỗi khi có xe xúc đầy.</div>
               </div>
             </label>
           </Card>
