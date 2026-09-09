@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as XLSX from 'xlsx';
 import {
@@ -6,7 +6,7 @@ import {
   Download, Plus, CheckCircle2, AlertTriangle, Users, Printer, Radio,
   ClipboardCheck, Camera, Search, Clock, ImageOff, FileWarning, KeyRound,
   MapPin, Wallet, ArrowRightLeft, LogIn, Ban, Bell, Eye, EyeOff, Ruler, History,
-  FileSpreadsheet, FileText, Link2, RotateCw, Globe, Calendar,
+  FileSpreadsheet, FileText, Link2, RotateCw, Globe, Calendar, Pencil,
 } from 'lucide-react';
 
 // ============================================================================
@@ -152,6 +152,29 @@ function boDauTV(s) {
 function taoUsernameTuHoTen(hoTen) {
   return boDauTV(hoTen).replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
 }
+
+// (Sửa lỗi 09/09) Kỹ thuật được phép tự sửa lại biển số xe khi Camera nhận
+// diện sai (dẫn tới phần mềm ghi nhận sai biển số/khách hàng). Theo đúng
+// kiểu lưu trữ CHỈ THÊM của phần mềm (event-sourcing — không sửa/xóa sự
+// kiện cũ), mỗi lần sửa chỉ tạo THÊM 1 sự kiện 'sua_bien_so' ghi lại đúng
+// gateInId + biển số mới, giữ nguyên sự kiện gate_in gốc để còn lịch sử.
+// Hàm này tạo ra bản "events để hiển thị" trong đó biển số của sự kiện
+// gate_in đã sửa được thay bằng biển số mới — dùng bản này ở TOÀN BỘ phần
+// mềm (thay vì events gốc) để sau khi sửa xong, mọi nơi (Kỹ thuật, lái máy
+// xúc, Bảo vệ, báo cáo...) đều tự động thấy đúng biển số mới, hoạt động
+// bình thường như chưa từng đọc sai.
+function apDungSuaBienSo(rawEvents) {
+  const suaMoiNhat = {};
+  rawEvents.forEach((e) => { if (e.type === 'sua_bien_so' && e.gateInId) suaMoiNhat[e.gateInId] = e; });
+  if (Object.keys(suaMoiNhat).length === 0) return rawEvents;
+  return rawEvents.map((e) => {
+    if (e.type === 'gate_in' && suaMoiNhat[e.id]) {
+      const s = suaMoiNhat[e.id];
+      return { ...e, plate: s.plateMoi, bienSoGocDoCameraSai: e.bienSoGocDoCameraSai || e.plate };
+    }
+    return e;
+  });
+}
 function gioVN(iso) {
   try {
     const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
@@ -162,6 +185,10 @@ function gioVN(iso) {
     return `${hh}:${mm} ${dd}/${mo}`;
   } catch { return iso; }
 }
+// (Sửa lỗi 09/09, mục 6) Chỉ lấy giờ:phút — dùng cho cột "Thời gian xúc" liệt
+// kê nhiều lượt xúc của cùng 1 xe trong báo cáo máy xúc, không cần lặp lại
+// ngày/tháng (đã có ở đầu báo cáo).
+function gioNgan(iso) { return gioVN(iso).split(' ')[0]; }
 function lastNDays(n) {
   const out = [];
   for (let i = n - 1; i >= 0; i--) { const d = new Date(Date.now() + 7 * 60 * 60 * 1000 - i * 86400000); out.push(d.toISOString().slice(0, 10)); }
@@ -244,8 +271,15 @@ function inTrucTiep(html, tieuDe, khoGiay) {
     .ct{text-align:center} .khonvien,.khonvien td,.khonvien th{border:none}
   </style></head><body>${html}</body></html>`);
   cuaSo.document.close();
-  cuaSo.onload = () => { cuaSo.focus(); cuaSo.print(); };
-  setTimeout(() => { try { cuaSo.focus(); cuaSo.print(); } catch {} }, 400);
+  // (Sửa lỗi 09/09) CHỈ được gọi in() đúng 1 lần — ở chế độ in im lặng
+  // (kiosk-printing, dùng cho tự động in ở Kế toán mỏ) mỗi lần gọi print()
+  // là MỘT LỆNH IN THẬT gửi thẳng ra máy in, không giống hộp thoại in thường
+  // (gọi nhiều lần chỉ focus lại hộp thoại). Trước đây gọi 2 lần (khi tải
+  // xong + hẹn giờ dự phòng 400ms) nên bị in ra 2 bản mỗi phiếu.
+  let daGoiIn = false;
+  const goiInMotLan = () => { if (daGoiIn) return; daGoiIn = true; try { cuaSo.focus(); cuaSo.print(); } catch {} };
+  cuaSo.onload = goiInMotLan;
+  setTimeout(goiInMotLan, 400);
   return true;
 }
 
@@ -822,8 +856,8 @@ function GateScreen({ events, addEvent, addEvents }) {
   //  - Cách 3 (nâng cao nhất, tự động hoàn toàn, CHƯA kiểm thử với máy chủ
   //    thật, cần người rành kỹ thuật cài đặt): chương trình cầu nối
   //    camera-agent qua AppKey/AppSecret.
+  const [xemHuongDanTruocTien, setXemHuongDanTruocTien] = useState(false);
   const [xemHuongDanDocManHinh, setXemHuongDanDocManHinh] = useState(false);
-  const [xemHuongDanCamHik, setXemHuongDanCamHik] = useState(false);
   const [xemHuongDanCamHikNangCao, setXemHuongDanCamHikNangCao] = useState(false);
   const [xemLogCam, setXemLogCam] = useState(false);
   const [logCamera, setLogCamera] = useState(null);
@@ -831,129 +865,10 @@ function GateScreen({ events, addEvent, addEvents }) {
   useEffect(() => { if (xemLogCam && logCamera === null) taiLogCamera(); }, [xemLogCam]);
   const [toast, notify] = useToast();
 
-  // (I.1) Kết nối file Excel danh sách xe — theo Bảng hiệu chỉnh V5.0, kết nối
-  // QUAN TRỌNG NHẤT của bản này. Ưu tiên File System Access API (Chrome/Edge,
-  // đọc lại được file liên tục không cần chọn lại) — nếu trình duyệt không hỗ
-  // trợ (Firefox/Safari, hoặc mở qua file://), dùng <input type=file> thường,
-  // cần bảo vệ bấm "Chọn lại file" mỗi khi muốn lấy dữ liệu mới nhất.
-  const [excelStatus, setExcelStatus] = useState({ ten: null, dongBoLuc: null, soHangMoiNhat: 0, loi: null, dangDongBo: false });
-  const fileHandleRef = useRef(null);
-  const inputFileRef = useRef(null);
-  const hoTroFSA = typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function';
-
-  const boDauTV = (s) => (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-
-  // Nhận diện cột "Biển số xe" trong file Excel — SỬA LỖI (17/08 -> 21/08):
-  // trước đây nếu không tìm thấy tiêu đề khớp chữ "bien so", code mặc định
-  // lấy luôn CỘT ĐẦU TIÊN (cột A, thường là STT) làm cột biển số, khiến số
-  // thứ tự bị đọc nhầm thành biển số xe. Nay: (1) mở rộng các cách viết tiêu
-  // đề thường gặp, (2) nếu vẫn không khớp tiêu đề, tự dò cột có DỮ LIỆU trông
-  // giống biển số xe (VD: 29A-123.45, 98H-01234), (3) nếu không dò được cột
-  // nào hợp lệ thì báo lỗi rõ ràng thay vì đoán bừa cột A.
-  const TU_KHOA_COT_BIEN_SO = ['bien so', 'bien kiem soat', 'bien xe', 'bsx', 'so xe'];
-  const MAU_BIEN_SO = /\d{2}[A-Z]{1,2}\d{0,1}[-.\s]?\d{3,5}([.,]\d{1,2})?/i;
-  const domCotBienSoTheoDuLieu = (aoa) => {
-    const soCot = aoa[0]?.length || 0;
-    let capNhat = -1, diemCaoNhat = 0;
-    for (let c = 0; c < soCot; c++) {
-      let khop = 0, tong = 0;
-      for (let r = 1; r < Math.min(aoa.length, 21); r++) {
-        const v = (aoa[r]?.[c] || '').toString().trim();
-        if (!v) continue;
-        tong++;
-        if (MAU_BIEN_SO.test(v)) khop++;
-      }
-      if (tong > 0 && khop / tong > 0.5 && khop > diemCaoNhat) { diemCaoNhat = khop; capNhat = c; }
-    }
-    return capNhat;
-  };
-  const nhapDuLieuTuSheet = useCallback((wb) => {
-    const sheetName = wb.SheetNames[0];
-    const ws = wb.Sheets[sheetName];
-    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-    if (aoa.length === 0) return { soHang: 0, soMoi: 0 };
-    const header = aoa[0].map((h) => boDauTV(h));
-    let colPlate = header.findIndex((h) => TU_KHOA_COT_BIEN_SO.some((tk) => h.includes(tk)));
-    if (colPlate === -1) colPlate = domCotBienSoTheoDuLieu(aoa);
-    if (colPlate === -1) {
-      return { soHang: aoa.length - 1, soMoi: 0, loi: 'Không tìm thấy cột "Biển số xe" trong file — kiểm tra lại tiêu đề cột ở hàng 1 (VD: "Biển số xe", "BSX") hoặc dữ liệu cột có đúng định dạng biển số không.' };
-    }
-    let colLoai = header.findIndex((h) => h.includes('loai xe'));
-    // (Bảng hiệu chỉnh 08/09) Nếu file Excel xuất từ Control Client có cột
-    // "Driving Direction" (mỏ chủ yếu tiếp nhận xe đầu kéo — biển số đầu xe và
-    // đuôi xe khác nhau), CHỈ nhập các dòng có chiều "Reverse" (đuôi xe) làm xe
-    // vào cổng — bỏ qua dòng "Forward"/khác. Nếu file không có cột này thì nhập
-    // tất cả như trước (không lọc), để không ảnh hưởng các file đã dùng trước đây.
-    let colHuong = header.findIndex((h) => h.includes('driving direction') || h === 'direction' || h.includes('chieu'));
-
-    const daNhapKeys = new Set(events.filter((e) => e.type === 'gate_in' && e.excelRowKey).map((e) => e.excelRowKey));
-    const evsMoi = [];
-    let soDongSaiChieu = 0;
-    for (let r = 1; r < aoa.length; r++) {
-      const row = aoa[r];
-      const plateRaw = (row[colPlate] || '').toString().trim().toUpperCase();
-      if (!plateRaw) continue;
-      const key = `${sheetName}-${r}`;
-      if (daNhapKeys.has(key)) continue;
-      if (colHuong > -1) {
-        const huong = boDauTV((row[colHuong] || '').toString()).trim();
-        if (huong && huong !== 'reverse') { soDongSaiChieu++; continue; }
-      }
-      const loaiRaw = colLoai > -1 ? boDauTV(row[colLoai]) : '';
-      const loaiXeId = LOAI_XE.find((x) => loaiRaw.includes(x.id.replace('m3', '')))?.id || LOAI_XE[0].id;
-      evsMoi.push({ id: genId('GI'), type: 'gate_in', plate: plateRaw, source: 'excel', loaiXe: loaiXeId, photo: null, excelRowKey: key, time: new Date().toISOString() });
-    }
-    if (evsMoi.length > 0) addEvents(evsMoi);
-    const ghiChuChieu = soDongSaiChieu > 0 ? ` (đã bỏ qua ${soDongSaiChieu} dòng khác chiều "Reverse")` : '';
-    return { soHang: aoa.length - 1, soMoi: evsMoi.length, ghiChuChieu };
-  }, [events, addEvents]);
-
-  const dongBoTuHandle = useCallback(async (handle) => {
-    setExcelStatus((s) => ({ ...s, dangDongBo: true }));
-    try {
-      const file = await handle.getFile();
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const { soHang, soMoi, loi, ghiChuChieu } = nhapDuLieuTuSheet(wb);
-      setExcelStatus({ ten: file.name, dongBoLuc: new Date().toISOString(), soHangMoiNhat: soHang, loi: loi || null, dangDongBo: false });
-      if (soMoi > 0) notify(`Đã nhập ${soMoi} biển số xe mới từ file Excel${ghiChuChieu || ''}`);
-      if (loi) notify(loi, true);
-    } catch (err) {
-      setExcelStatus((s) => ({ ...s, dangDongBo: false, loi: 'Không đọc được file — kiểm tra lại file có đang mở/đúng định dạng .xlsx không.' }));
-    }
-  }, [nhapDuLieuTuSheet, notify]);
-
-  const ketNoiExcel = async () => {
-    if (hoTroFSA) {
-      try {
-        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }] });
-        fileHandleRef.current = handle;
-        await dongBoTuHandle(handle);
-      } catch { /* người dùng hủy chọn file */ }
-    } else {
-      inputFileRef.current?.click();
-    }
-  };
-  const chonFileThuong = async (e) => {
-    const f = e.target.files?.[0]; if (!f) return;
-    setExcelStatus((s) => ({ ...s, dangDongBo: true }));
-    try {
-      const buf = await f.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const { soHang, soMoi, loi, ghiChuChieu } = nhapDuLieuTuSheet(wb);
-      setExcelStatus({ ten: f.name, dongBoLuc: new Date().toISOString(), soHangMoiNhat: soHang, loi: loi || null, dangDongBo: false });
-      if (soMoi > 0) notify(`Đã nhập ${soMoi} biển số xe mới từ file Excel${ghiChuChieu || ''}`);
-      if (loi) notify(loi, true);
-    } catch { setExcelStatus((s) => ({ ...s, dangDongBo: false, loi: 'Không đọc được file — kiểm tra định dạng .xlsx.' })); }
-  };
-
-  // Tự động đồng bộ lại mỗi 10 giây nếu đang giữ handle (chỉ hoạt động ở trình
-  // duyệt hỗ trợ File System Access API — Chrome/Edge, trên Netlify https).
-  useEffect(() => {
-    if (!fileHandleRef.current) return;
-    const t = setInterval(() => { if (fileHandleRef.current) dongBoTuHandle(fileHandleRef.current); }, 10000);
-    return () => clearInterval(t);
-  }, [excelStatus.ten, dongBoTuHandle]);
+  // (Sửa lỗi 09/09) Đã BỎ HẲN chế độ kết nối file Excel danh sách xe khỏi
+  // giao diện — mỏ không dùng đến cách này nữa (theo Bảng hiệu chỉnh 09/09).
+  // Nguồn ghi nhận xe vào cổng hiện chỉ còn: Camera HikCentral (tự động) và
+  // nhập tay/chụp ảnh (thủ công).
 
   const onChonAnh = async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -966,15 +881,8 @@ function GateScreen({ events, addEvent, addEvents }) {
     setPlate(''); setPhoto(null);
     notify(`Đã ghi nhận xe ${p} vào cổng`);
   };
-  const moPhongCameraDoc = () => {
-    const p = `${Math.floor(Math.random() * 99)}${['A','B','C','H','K'][Math.floor(Math.random()*5)]}-${Math.floor(10000+Math.random()*89999)}`;
-    addEvent({ id: genId('GI'), type: 'gate_in', plate: p, source: 'camera', loaiXe: LOAI_XE[0].id, photo: null, time: new Date().toISOString() });
-    notify(`Camera nhận diện: ${p}`);
-  };
-  const moPhongCameraCanhBao = () => {
-    addEvent({ id: genId('GI'), type: 'gate_in', plate: null, source: 'camera_canhbao', loaiXe: LOAI_XE[0].id, photo: null, needsManualPlate: true, time: new Date().toISOString() });
-    notify('⚠ Camera KHÔNG đọc được biển số — cần bảo vệ bổ sung thủ công', true);
-  };
+  // (Sửa lỗi 09/09) Đã bỏ hẳn khối "Mô phỏng Camera ANPR" khỏi giao diện —
+  // không có nhu cầu sử dụng (theo Bảng hiệu chỉnh 09/09).
 
   const today = todayStr();
   // (I.2) Trạng thái kết nối Camera HikCentral (đẩy dữ liệu lên qua API
@@ -1048,47 +956,18 @@ function GateScreen({ events, addEvent, addEvents }) {
   return (
     <div className="max-w-lg mx-auto p-4">
       <h1 className="text-xl font-bold text-white mt-2">🚧 Cổng vào / ra mỏ</h1>
-      <p className="text-slate-400 text-sm mb-4">Nhận biển số xe từ file Excel cố định — Camera/nhập tay chỉ dùng khi cần bổ sung.</p>
-
-      <Card className="mb-4 border-emerald-600/50">
-        <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Link2 className="w-4 h-4 text-emerald-400" /> Kết nối file Excel danh sách xe</div>
-        <p className="text-slate-400 text-xs mb-2">
-          Đường dẫn cố định: <code className="text-emerald-400">D:\Mo khuon gian 3\Quan ly xe mo khuon gian 3.xlsx</code> — file này để mở liên tục trên máy, phần mềm tự đọc cột <b>"Biển số xe"</b> ở sheet đầu tiên.
-        </p>
-        {excelStatus.ten ? (
-          <div className="bg-slate-950 border border-emerald-600/40 rounded-lg p-3 mb-2">
-            <div className="text-emerald-400 text-xs font-bold">✅ Đã kết nối: {excelStatus.ten}</div>
-            <div className="text-slate-400 text-[11px] mt-0.5">Đồng bộ lúc {excelStatus.dongBoLuc ? gioVN(excelStatus.dongBoLuc) : '—'} · {excelStatus.soHangMoiNhat} dòng dữ liệu trong file</div>
-            {!hoTroFSA && <div className="text-amber-400 text-[11px] mt-1">⚠ Trình duyệt này không tự đồng bộ liên tục được — bấm "Chọn lại file" mỗi khi cần lấy dữ liệu mới.</div>}
-          </div>
-        ) : (
-          <div className="text-slate-500 text-xs mb-2">Chưa kết nối file nào.</div>
-        )}
-        {excelStatus.loi && <div className="text-red-400 text-xs mb-2">{excelStatus.loi}</div>}
-        <div className="grid grid-cols-2 gap-2">
-          <button onClick={ketNoiExcel} className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2">{excelStatus.dangDongBo ? <RotateCw className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} {excelStatus.ten ? 'Chọn lại file' : 'Kết nối file Excel'}</button>
-          <button onClick={() => fileHandleRef.current && dongBoTuHandle(fileHandleRef.current)} disabled={!hoTroFSA || !excelStatus.ten} className="bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2"><RotateCw className="w-4 h-4" /> Làm mới ngay</button>
-        </div>
-        <input ref={inputFileRef} type="file" accept=".xlsx" onChange={chonFileThuong} className="hidden" />
-        <button onClick={() => setXemCauHinhCam(!xemCauHinhCam)} className="text-brand-400 text-xs underline mt-3">{xemCauHinhCam ? 'Ẩn' : 'Xem'} hướng dẫn kết nối chi tiết</button>
-        {xemCauHinhCam && (
-          <div className="text-slate-300 text-xs leading-relaxed mt-2 bg-slate-950 border border-slate-700 rounded-lg p-3">
-            <b>1)</b> Đặt file Excel đúng đường dẫn <code>D:\Mo khuon gian 3\Quan ly xe mo khuon gian 3.xlsx</code>, sheet đầu tiên có cột tiêu đề chứa chữ "Biển số" ở hàng 1 (VD: "Biển số xe"), có thể thêm cột "Loại xe" tùy chọn.<br />
-            <b>2)</b> Bấm nút "Kết nối file Excel" phía trên, chọn đúng file này — trình duyệt Chrome/Edge sẽ tự đọc lại mỗi 10 giây, không cần thao tác lại.<br />
-            <b>3)</b> Mỗi dòng mới thêm vào Excel (biển số ở cột đã nhận diện) sẽ tự động thành 1 lượt xe vào cổng — không nhập trùng dòng đã đọc.<br />
-            <b>4)</b> Nếu dùng trình duyệt không hỗ trợ (Firefox/Safari), bấm "Chọn lại file" mỗi khi cần cập nhật.<br />
-            <b>Lưu ý quan trọng:</b> đây là kết nối qua trình duyệt (cần mở phần mềm trên đúng máy có ổ D: chứa file). Nếu muốn hoàn toàn tự động kể cả khi không mở trình duyệt, cần bổ sung 1 agent nhỏ chạy nền (Power Automate Desktop hoặc script Python) để tự đẩy dữ liệu lên — có thể trao đổi thêm nếu cần.
-          </div>
-        )}
-      </Card>
+      <p className="text-slate-400 text-sm mb-4">Nhận biển số xe từ Camera HikCentral (tự động) — nhập tay/chụp ảnh chỉ dùng khi cần bổ sung.</p>
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
         <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng.</p>
-        <div className="bg-emerald-900/20 border border-emerald-600/40 rounded-lg p-3 mb-3 text-xs text-slate-300 leading-relaxed">
-          <b className="text-emerald-400">Nên thử trước tiên (không cần cài gì, không ai phải thao tác mỗi ca):</b> theo đúng tài liệu kỹ thuật chính hãng Hikvision (ISAPI cho camera ANPR), camera đọc biển số có thể tự động gửi thẳng kết quả ra 1 địa chỉ máy chủ ngoài mỗi khi nhận diện được xe — xem đúng các bước kỹ thuật (địa chỉ cần gọi, nội dung cần gửi) ở mục <b>"Xem hướng dẫn kết nối Camera thật"</b> ở cuối trang này. Việc này cần thực hiện <b>trực tiếp trên từng camera</b> (qua địa chỉ IP riêng của camera, không phải qua trang quản trị HikCentral chung) và cần người có quyền quản trị thiết bị camera — nên nhờ đơn vị đã lắp đặt hệ thống hoặc kỹ thuật Hikvision thực hiện giúp. Nếu model/firmware camera đang dùng không hỗ trợ, hoặc chưa nhờ được kỹ thuật hỗ trợ ngay, dùng 1 trong 3 cách bên dưới.
-        </div>
-        <p className="text-slate-400 text-xs mb-2">3 cách bên dưới — <b className="text-white">Cách 1 chỉ cần thao tác chuột, không cần biết máy tính chuyên sâu, nên làm trước</b>; Cách 2 và Cách 3 tự động hơn nhưng cần biết dùng máy tính cơ bản (Cách 2 giờ chỉ cần bấm đúp 1 file, không cần gõ lệnh), phù hợp khi có người rành kỹ thuật hỗ trợ.</p>
+        <button onClick={() => setXemHuongDanTruocTien(!xemHuongDanTruocTien)} className="text-brand-400 text-xs underline mb-2">{xemHuongDanTruocTien ? 'Ẩn' : 'Xem'} hướng dẫn kết nối (nên thử trước tiên)</button>
+        {xemHuongDanTruocTien && (
+          <div className="bg-emerald-900/20 border border-emerald-600/40 rounded-lg p-3 mb-3 text-xs text-slate-300 leading-relaxed">
+            <b className="text-emerald-400">Nên thử trước tiên (không cần cài gì, không ai phải thao tác mỗi ca):</b> theo đúng tài liệu kỹ thuật chính hãng Hikvision (ISAPI cho camera ANPR), camera đọc biển số có thể tự động gửi thẳng kết quả ra 1 địa chỉ máy chủ ngoài mỗi khi nhận diện được xe — xem đúng các bước kỹ thuật (địa chỉ cần gọi, nội dung cần gửi) ở mục <b>"Xem hướng dẫn kết nối Camera thật"</b> ở cuối trang này. Việc này cần thực hiện <b>trực tiếp trên từng camera</b> (qua địa chỉ IP riêng của camera, không phải qua trang quản trị HikCentral chung) và cần người có quyền quản trị thiết bị camera — nên nhờ đơn vị đã lắp đặt hệ thống hoặc kỹ thuật Hikvision thực hiện giúp. Nếu model/firmware camera đang dùng không hỗ trợ, hoặc chưa nhờ được kỹ thuật hỗ trợ ngay, dùng 1 trong 2 cách bên dưới.
+          </div>
+        )}
+        <p className="text-slate-400 text-xs mb-2">2 cách bên dưới — <b className="text-white">Cách 1 giờ chỉ cần bấm đúp 1 file, không cần gõ lệnh</b>, nên làm trước; Cách 2 tự động hoàn toàn hơn nhưng cần cài đặt 1 lần và lấy khóa kết nối riêng từ HikCentral, phù hợp khi có người rành kỹ thuật hỗ trợ.</p>
         {camHikStats.last ? (
           <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
             <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2, Cách 3, hoặc HikCentral tự gửi)</div>
@@ -1097,28 +976,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         ) : null}
 
         <div className="pt-1">
-          <div className="text-white text-sm font-bold mb-1">Cách 1 — Xuất từ phần mềm Control Client, nạp qua Excel (khuyến nghị — chỉ thao tác chuột, không cần cài đặt gì)</div>
-          <button onClick={() => setXemHuongDanCamHik(!xemHuongDanCamHik)} className="bg-brand-700 hover:bg-brand-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanCamHik ? 'Ẩn các bước' : 'Xem các bước (6 bước)'}</button>
-          {xemHuongDanCamHik && (
-            <div className="text-slate-300 text-xs leading-relaxed mt-3 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-3">
-              <div><b className="text-white">Bước 1 — Mở phần mềm:</b><br />
-                Mở phần mềm <b>"HikCentral Professional Control Client"</b> trên máy tính tại mỏ (biểu tượng có sẵn ngoài màn hình Desktop) → đăng nhập bằng tài khoản quản trị đã được cấp. (Nếu muốn truy cập qua trình duyệt thay vì mở phần mềm, có thể vào địa chỉ nội bộ <code className="break-all">https://113.175.129.251/#/</code> rồi đăng nhập bằng đúng tài khoản đó — cách vào bằng trình duyệt tôi chưa có đủ hình ảnh xác nhận từng bước nên chưa đưa chi tiết vào đây, cách chắc chắn nhất vẫn là mở phần mềm Control Client.)</div>
-              <div><b className="text-white">Bước 2 — Vào mục tìm kiếm xe:</b><br />
-                Vào màn hình <b>"Vehicle Search"</b> (Tìm kiếm xe) trong phần mềm.</div>
-              <div><b className="text-white">Bước 3 — Chọn camera và thời gian cần lấy:</b><br />
-                Tick chọn camera khu vực cổng ra/vào (mục nguồn dữ liệu, ví dụ nhóm "HikCentral Professional" → camera "BSX") → chọn khoảng thời gian (mục <b>"Time"</b>) cần lấy dữ liệu, ví dụ trong ca làm việc hôm đó → bấm <b>"Search"</b>.</div>
-              <div><b className="text-white">Bước 4 — Kiểm tra và sửa biển số đọc sai (nếu có):</b><br />
-                Xem danh sách kết quả hiện ra, bấm vào từng dòng để xem ảnh và biển số phần mềm tự nhận diện — sửa lại nếu đọc sai trước khi xuất ra (bước này quan trọng vì nhận diện tự động đôi khi sai 1-2 ký tự).</div>
-              <div><b className="text-white">Bước 5 — Xuất danh sách:</b><br />
-                Bấm nút <b>"Export"</b> trên danh sách kết quả để xuất ra file Excel, lưu vào đúng đường dẫn máy tính phần mềm quản lý mỏ đang theo dõi: <code className="text-emerald-400 break-all">D:\Mo khuon gian 3\Quan ly xe mo khuon gian 3.xlsx</code> (đè lên file cũ, hoặc xuất xong rồi đổi tên/di chuyển file vào đúng đường dẫn này).</div>
-              <div className="text-amber-400"><b>Bước 6 — Nạp vào phần mềm:</b> quay lại đây, bấm nút "Kết nối file Excel" phía trên (mục "Kết nối file Excel danh sách xe") — phần mềm sẽ tự đọc file vừa xuất và thêm các lượt xe mới vào cổng, không cần nhập tay.</div>
-              <div className="text-slate-500">Lưu ý: file Excel do Control Client xuất ra cần có 1 cột chứa chữ "Biển số" ở hàng tiêu đề để phần mềm nhận đúng cột — nếu tên cột xuất ra khác (ví dụ "License Plate"), có thể cần đổi lại tên cột đó trong file trước khi nạp, hoặc báo lại cho tôi để chỉnh phần mềm nhận diện thêm tên cột đó luôn.</div>
-            </div>
-          )}
-        </div>
-
-        <div className="border-t border-slate-700 pt-3 mt-3">
-          <div className="text-white text-sm font-bold mb-1">Cách 2 — Đọc tự động trên màn hình đang mở (giờ chỉ cần bấm đúp 1 file)</div>
+          <div className="text-white text-sm font-bold mb-1">Cách 1 — Đọc tự động trên màn hình đang mở (giờ chỉ cần bấm đúp 1 file)</div>
           <p className="text-slate-500 text-[11px] mb-2">Máy tính đang mở sẵn phần mềm HikCentral Control Client, khung "Vehicle" tự cập nhật biển số — chương trình sẽ tự "đọc" lại đúng khung đó (giống người đọc màn hình chép lại), không cần Export tay, không cần AppKey/AppSecret, và giờ <b className="text-white">không cần gõ lệnh</b> — chỉ cần bấm đúp vào 1 file. <b className="text-white">Vẫn cần:</b> tự cài Node.js (như cài 1 phần mềm bình thường, bấm Next-Next-Finish). Đọc bằng máy nên thỉnh thoảng có thể nhầm 1 ký tự.</p>
           <button onClick={() => setXemHuongDanDocManHinh(!xemHuongDanDocManHinh)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanDocManHinh ? 'Ẩn các bước' : 'Xem các bước (4 bước)'}</button>
           {xemHuongDanDocManHinh && (
@@ -1136,7 +994,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         </div>
 
         <div className="border-t border-slate-700 pt-3 mt-3">
-          <div className="text-white text-sm font-bold mb-1">Cách 3 — Tự động hoàn toàn qua chương trình cầu nối AppKey/AppSecret (nâng cao)</div>
+          <div className="text-white text-sm font-bold mb-1">Cách 2 — Tự động hoàn toàn qua chương trình cầu nối AppKey/AppSecret (nâng cao)</div>
           <p className="text-slate-500 text-[11px] mb-2">Không cần thao tác thủ công mỗi ca, nhưng cần cài đặt 1 lần trên máy tính tại mỏ và lấy khóa kết nối riêng từ HikCentral. Phần ký gọi API đã viết theo đúng chuẩn Hikvision nhưng <b>chưa được kiểm thử với máy chủ thật của mỏ</b>.</p>
           <button onClick={() => setXemHuongDanCamHikNangCao(!xemHuongDanCamHikNangCao)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 w-full"><Link2 className="w-4 h-4" /> {xemHuongDanCamHikNangCao ? 'Ẩn các bước' : 'Xem các bước (5 bước)'}</button>
           {xemHuongDanCamHikNangCao && (
@@ -1315,14 +1173,6 @@ function GateScreen({ events, addEvent, addEvents }) {
         {xeRaHomNay.length > 0 && <div className="text-slate-500 text-xs mt-2">{xeRaHomNay.length} xe đã ra cổng hôm nay</div>}
       </Card>
 
-      <Card className="mt-4">
-        <div className="font-bold text-white text-sm mb-1">🎥 Mô phỏng Camera ANPR</div>
-        <div className="grid grid-cols-1 gap-2 mt-2">
-          <button onClick={moPhongCameraDoc} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 rounded-lg text-sm">Mô phỏng: đọc được biển số</button>
-          <button onClick={moPhongCameraCanhBao} className="w-full bg-red-900/40 border border-red-600 hover:bg-red-900/60 text-red-300 font-semibold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2"><ImageOff className="w-4 h-4" /> Mô phỏng: KHÔNG đọc được biển số</button>
-        </div>
-      </Card>
-
       <SectionTitle>Xe vào cổng hôm nay ({daXacDinh.length}) · đang trong mỏ ({dangTrongMo.length})</SectionTitle>
       {daXacDinh.length === 0 ? <Card><div className="text-slate-500 text-sm text-center py-6">Chưa có xe nào.</div></Card> : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1418,6 +1268,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
   const [xemBienBanViPham, setXemBienBanViPham] = useState(null); // đối tượng ky_thuat_khai_bao có viPham
   const [xuLyXeLa, setXuLyXeLa] = useState(null); // {alert, khoiLuong, customerId}
   const [dangXuLyKhongRa, setDangXuLyKhongRa] = useState(null); // plate đang lập biên bản không ra
+  const [dangSuaBienSo, setDangSuaBienSo] = useState(null); // id gate_in đang sửa biển số + giá trị nhập
 
   const today = todayStr();
   // (Sửa lỗi 09/09) Xe đã được Bảo vệ xác nhận RA CỔNG KHÔNG CÓ HÀNG thì
@@ -1507,6 +1358,19 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
     notify(`Đã lập biên bản xe ${plate} vào cổng nhưng chưa ra`);
   };
 
+  // (Sửa lỗi 09/09) Kỹ thuật tự sửa lại biển số khi Camera nhận diện sai. Ghi
+  // sự kiện MỚI 'sua_bien_so' (không sửa/xóa sự kiện gate_in gốc) — sau khi
+  // lưu, toàn bộ phần mềm (Bảo vệ, lái máy xúc, báo cáo...) tự động hiển thị
+  // đúng biển số mới nhờ hàm apDungSuaBienSo() áp dụng ở App().
+  const xacNhanSuaBienSo = (g) => {
+    const plateMoi = (dangSuaBienSo?.plateMoi || '').trim().toUpperCase();
+    if (!plateMoi) return notify('Chưa nhập biển số mới', true);
+    if (plateMoi === g.plate) { setDangSuaBienSo(null); return; }
+    addEvent({ id: genId('SB'), type: 'sua_bien_so', gateInId: g.id, plateCu: g.plate, plateMoi, suaBoi: myName, time: new Date().toISOString() });
+    setDangSuaBienSo(null);
+    notify(`Đã sửa biển số ${g.plate} → ${plateMoi}. Toàn bộ hệ thống sẽ tự cập nhật biển số mới.`);
+  };
+
   const homNayBienBan = bienBans.filter((b) => dayStrOf(b.time) === today).slice().reverse();
   const mauTrangThai = { do: 'border-red-500 bg-red-500/5', vang: 'border-amber-500 bg-amber-500/5', xanh: 'border-emerald-500 bg-emerald-500/5', mien: 'border-slate-700' };
   const nhanTrangThai = { do: 'QUÁ HẠN', vang: 'Chờ khai báo', xanh: 'Đã khai báo', mien: 'Miễn (trong hạn 3 ngày)' };
@@ -1569,10 +1433,22 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
             <div>
               <div className="text-white font-extrabold text-lg tabular-nums flex items-center gap-2">
                 {g.plate}
+                <button onClick={() => setDangSuaBienSo(dangSuaBienSo?.id === g.id ? null : { id: g.id, plateMoi: g.plate })} title="Sửa biển số (camera nhận diện sai)" className="text-slate-400 hover:text-brand-400"><Pencil className="w-3.5 h-3.5" /></button>
                 {g.soLanKiemTraTruoc > 0 && <button onClick={() => setXemLichSuPlate(g.plate)} className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded-full flex items-center gap-1"><History className="w-3 h-3" /> {g.soLanKiemTraTruoc} lần trước</button>}
               </div>
               <div className="text-slate-400 text-xs">Vào cổng lúc {gioVN(g.time)}</div>
               {kichThuocBanDau && <div className="text-slate-500 text-[11px] mt-0.5">Kích thước ban đầu (lần đầu ghi nhận): {kichThuocBanDau.dai || '?'}×{kichThuocBanDau.rong || '?'}×{kichThuocBanDau.cao || '?'} m</div>}
+              {g.bienSoGocDoCameraSai && <div className="text-amber-400 text-[11px] mt-0.5">Đã sửa từ biển số Camera đọc sai: {g.bienSoGocDoCameraSai}</div>}
+              {dangSuaBienSo?.id === g.id && (
+                <div className="mt-2 bg-slate-950 border border-brand-600/50 rounded-lg p-2.5 max-w-xs">
+                  <label className="block text-slate-400 text-xs mb-1">Nhập lại biển số đúng</label>
+                  <input value={dangSuaBienSo.plateMoi} onChange={(e) => setDangSuaBienSo({ ...dangSuaBienSo, plateMoi: e.target.value.toUpperCase() })} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm tabular-nums" autoFocus />
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button onClick={() => setDangSuaBienSo(null)} className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold py-1.5 rounded-lg">Hủy</button>
+                    <button onClick={() => xacNhanSuaBienSo(g)} className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-1.5 rounded-lg">Lưu biển số mới</button>
+                  </div>
+                </div>
+              )}
             </div>
             <span className={`text-[11px] px-2 py-1 rounded-full font-bold whitespace-nowrap ${mauNhan[g.trangThai]}`}>{nhanTrangThai[g.trangThai]}{g.trangThai === 'vang' && ` (còn ${g.conLai} ngày)`}</span>
           </div>
@@ -2162,10 +2038,60 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
 // thoại...) mở màn hình này không bị tự bật cửa sổ in theo.
 const KHOA_TUDONG_IN = 'ktMo_tuDongIn_v1';
 const KHOA_PHIEU_DA_XU_LY = 'ktMo_phieuDaXuLy_v1';
+// (Sửa lỗi 09/09, mục 5) Báo cáo chi tiết các xe ra cổng không có hàng — in/xuất
+// trực tiếp theo đúng mẫu: STT, Biển số xe, Thời gian vào cổng, Thời gian ra
+// cổng, Ghi chú; ký tên Bảo vệ / Kỹ thuật / Kế toán.
+function baoCaoXeKhongHangHTML(danhSachRaKhongHang, events, tuNgay, denNgay) {
+  const layGioVaoTuongUng = (goEvent) => {
+    const gi = events.filter((e) => e.type === 'gate_in' && e.plate === goEvent.plate && e.time <= goEvent.time)
+      .sort((a, b) => b.time.localeCompare(a.time))[0];
+    return gi ? gioVN(gi.time) : '................';
+  };
+  const rows = danhSachRaKhongHang.map((e, idx) => `
+    <tr>
+      <td class="ct">${idx + 1}</td>
+      <td class="ct"><b>${e.plate}</b></td>
+      <td class="ct">${layGioVaoTuongUng(e)}</td>
+      <td class="ct">${gioVN(e.time)}</td>
+      <td>${e.ghiChu || ''}</td>
+    </tr>`).join('');
+  const khoangThoiGian = tuNgay === denNgay ? `Ngày ${ngayVN(tuNgay)}` : `Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`;
+  return `
+    <table class="khonvien" style="margin-bottom:16px"><tr>
+      <td class="khonvien" style="width:50%"><b>CÔNG TY CP DV VÀ TM<br/>THỐNG NHẤT<br/>MỎ KHUÔN GIÀN 3</b></td>
+      <td class="khonvien ct" style="width:50%"><b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br/><b>Độc lập – Tự do – Hạnh phúc</b></td>
+    </tr></table>
+    <h2 class="ct">BÁO CÁO CHI TIẾT CÁC XE RA CỔNG KHÔNG CÓ HÀNG</h2>
+    <p class="ct">${khoangThoiGian}</p>
+    <table>
+      <tr><th>STT</th><th>Biển số xe</th><th>Thời gian vào cổng</th><th>Thời gian ra cổng</th><th>Ghi chú</th></tr>
+      ${rows || '<tr><td colspan="5" class="ct">Không có xe nào ra cổng không có hàng</td></tr>'}
+    </table>
+    <br/>
+    <table class="khonvien"><tr>
+      <td class="khonvien ct"><b>BẢO VỆ</b></td><td class="khonvien ct"><b>KỸ THUẬT</b></td><td class="khonvien ct"><b>KẾ TOÁN</b></td>
+    </tr><tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>
+  `;
+}
+function BaoCaoXeKhongHangModal({ open, onClose, danhSach, events, tuNgay, denNgay }) {
+  if (!open) return null;
+  const html = baoCaoXeKhongHangHTML(danhSach, events, tuNgay, denNgay);
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white text-black rounded-lg p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto text-sm" onClick={(e) => e.stopPropagation()} dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="fixed bottom-6 flex gap-2 flex-wrap justify-center" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => xuatWord(html, `bao-cao-xe-khong-hang-${tuNgay}`)} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xuất Word</button>
+        <button onClick={() => inTrucTiep(html, 'Báo cáo xe ra cổng không có hàng')} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg">🖨️ In (A4)</button>
+        <button onClick={onClose} className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2.5 rounded-lg">Đóng</button>
+      </div>
+    </div>
+  );
+}
 function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
   const [tab, setTab] = useState('phieu');
   const [xemLai, setXemLai] = useState(null);
   const [xemBienBan, setXemBienBan] = useState(null);
+  const [xemBaoCaoKhongHang, setXemBaoCaoKhongHang] = useState(false);
   const [tuDongIn, setTuDongIn] = useState(() => { try { return localStorage.getItem(KHOA_TUDONG_IN) === '1'; } catch { return false; } });
   // Phiếu mới phát sinh nhưng trình duyệt CHẶN cửa sổ in (không phải do thao
   // tác click trực tiếp của người dùng) -> không được để im lặng mất phiếu,
@@ -2350,6 +2276,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
                   <div key={e.id} className="py-2 flex justify-between"><div><span className="text-white font-bold tabular-nums">{e.plate}</span>{e.ghiChu && <span className="text-slate-500 text-xs"> · {e.ghiChu}</span>}</div><span className="text-slate-400">{gioVN(e.time)}</span></div>
                 ))}
               </div>
+              <button onClick={() => setXemBaoCaoKhongHang(true)} className="w-full flex items-center justify-center gap-2 mt-3 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xem / In / Xuất báo cáo chi tiết</button>
             </Card>
           )}
           <BaoCaoKhachHangVaTraSoat events={events} config={config} setConfig={setConfig} choSuaDonGia={true} />
@@ -2397,6 +2324,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
         );
       })()}
       <BienBanModal khaiBao={xemBienBan} events={events} onClose={() => setXemBienBan(null)} />
+      <BaoCaoXeKhongHangModal open={xemBaoCaoKhongHang} onClose={() => setXemBaoCaoKhongHang(false)} danhSach={xeRaKhongHangHomNay} events={events} tuNgay={today} denNgay={today} />
     </div>
   );
 }
@@ -2443,11 +2371,18 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     // Biển số xe / Số chuyến / Khối lượng), dùng để hiển thị & xuất báo cáo.
     const theoBienSoMap = {};
     loads.forEach((l) => {
-      theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0 };
+      theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] };
       theoBienSoMap[l.plate].soChuyen += 1;
       theoBienSoMap[l.plate].khoiLuong += l.estVolume;
+      theoBienSoMap[l.plate].thoiGianXucList.push(l.time);
     });
-    const theoBienSo = Object.values(theoBienSoMap).sort((a, b) => a.plate.localeCompare(b.plate));
+    // (Sửa lỗi 09/09, mục 6) Cột "Thời gian xúc" — 1 xe có thể xúc nhiều
+    // chuyến trong ca nên liệt kê đủ các giờ xúc, sắp theo thứ tự thời gian.
+    const theoBienSo = Object.values(theoBienSoMap).map((b) => ({
+      ...b,
+      thoiGianXucList: b.thoiGianXucList.slice().sort(),
+      thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioNgan).join(', '),
+    })).sort((a, b) => a.plate.localeCompare(b.plate));
     return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.estVolume, 0), theoBienSo, sessionIds };
   });
 }
@@ -2469,9 +2404,9 @@ function BaoCaoMayXuc({ events }) {
       <p><b>Ca làm việc:</b> ${p.shift} &nbsp;&nbsp;&nbsp; <b>Thời gian làm việc:</b> ${p.thoiGianLamViec}</p>
       <p><b>Số chuyến:</b> ${p.soChuyen}</p>
       <p><b>Tổng khối lượng:</b> ${soVN(p.tongKhoiLuong)} m3</p>
-      <table><tr><th>STT</th><th>Biển số xe</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${
-        p.theoBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${b.plate}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('')
-      }<tr><td></td><td><b>Cộng</b></td><td><b>${soVN(p.soChuyen)}</b></td><td><b>${soVN(p.tongKhoiLuong)}</b></td></tr></table>
+      <table><tr><th>STT</th><th>Biển số xe</th><th>Thời gian xúc</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${
+        p.theoBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('')
+      }<tr><td></td><td><b>Cộng</b></td><td></td><td><b>${soVN(p.soChuyen)}</b></td><td><b>${soVN(p.tongKhoiLuong)}</b></td></tr></table>
       <br/><table class="khonvien"><tr><td class="khonvien ct"><b>KẾ TOÁN MỎ</b></td><td class="khonvien ct"><b>GIÁM ĐỐC MỎ</b></td><td class="khonvien ct"><b>LÁI MÁY</b></td></tr>
       <tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>`;
   const xuatWordNgay = (p) => xuatWord(bcNgayHTML(p), `bao-cao-may-xuc-${p.excavatorName}-${ngay}`);
@@ -2482,9 +2417,9 @@ function BaoCaoMayXuc({ events }) {
   // toán mỏ. Chỉ còn đúng bảng chi tiết theo biển số xe.
   const xuatExcelMotCa = (p) => {
     const rows = [
-      ['STT', 'Biển số xe', 'Số chuyến', 'Khối lượng (m3)'],
-      ...p.theoBienSo.map((b, i) => [i + 1, b.plate, b.soChuyen, b.khoiLuong]),
-      ['', 'Cộng', p.soChuyen, p.tongKhoiLuong],
+      ['STT', 'Biển số xe', 'Thời gian xúc', 'Số chuyến', 'Khối lượng (m3)'],
+      ...p.theoBienSo.map((b, i) => [i + 1, b.plate, b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
+      ['', 'Cộng', '', p.soChuyen, p.tongKhoiLuong],
     ];
     xuatExcel({ [`${ngay}`]: rows }, `bao-cao-may-xuc-${p.excavatorName}-${p.operatorName}-${ngay}`);
   };
@@ -2533,8 +2468,14 @@ function BaoCaoMayXuc({ events }) {
   const layChiTietTheoBienSo = (excavatorId) => {
     const veTheoBienSo = {};
     events.filter((e) => e.type === 'ticket_print' && e.excavatorId === excavatorId && dayStrOf(e.time) >= tuThang && dayStrOf(e.time) <= denThang)
-      .forEach((t) => { veTheoBienSo[t.plate] = veTheoBienSo[t.plate] || { plate: t.plate, soChuyen: 0, khoiLuong: 0 }; veTheoBienSo[t.plate].soChuyen += 1; veTheoBienSo[t.plate].khoiLuong += t.volume; });
-    const ds = Object.values(veTheoBienSo);
+      .forEach((t) => { veTheoBienSo[t.plate] = veTheoBienSo[t.plate] || { plate: t.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] }; veTheoBienSo[t.plate].soChuyen += 1; veTheoBienSo[t.plate].khoiLuong += t.volume; veTheoBienSo[t.plate].thoiGianXucList.push(t.time); });
+    // (Sửa lỗi 09/09, mục 6) Báo cáo theo kỳ/tháng trải nhiều ngày -> ghi kèm
+    // ngày/tháng cho từng giờ xúc (gioVN đầy đủ), không chỉ giờ:phút.
+    const ds = Object.values(veTheoBienSo).map((b) => ({
+      ...b,
+      thoiGianXucList: b.thoiGianXucList.slice().sort(),
+      thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioVN).join('; '),
+    }));
     const tong = ds.reduce((s, b) => ({ soChuyen: s.soChuyen + b.soChuyen, khoiLuong: s.khoiLuong + b.khoiLuong }), { soChuyen: 0, khoiLuong: 0 });
     return { ds, tong };
   };
@@ -2542,22 +2483,22 @@ function BaoCaoMayXuc({ events }) {
     const { ds, tong } = layChiTietTheoBienSo(m.excavatorId);
     xuatExcel({ 'Chi tiết': [
       ['Máy xúc', m.excavatorName], ['Lái máy xúc', Array.from(m.laiXe).join(', ')], ['Từ ngày', ngayVN(tuThang)], ['Đến ngày', ngayVN(denThang)], [],
-      ['STT', 'Biển số xe', 'Số chuyến', 'Khối lượng (m3)'],
-      ...ds.map((b, i) => [i + 1, b.plate, b.soChuyen, b.khoiLuong]),
-      ['', 'Cộng', tong.soChuyen, tong.khoiLuong],
+      ['STT', 'Biển số xe', 'Thời gian xúc', 'Số chuyến', 'Khối lượng (m3)'],
+      ...ds.map((b, i) => [i + 1, b.plate, b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
+      ['', 'Cộng', '', tong.soChuyen, tong.khoiLuong],
     ] }, `chi-tiet-${m.excavatorName}-${tuThang}_${denThang}`);
   };
   const mayDangXem = dsMayThang.find((m) => m.excavatorId === xemChiTietMay);
   const { ds: dsBienSo, tong: tongBienSo } = mayDangXem ? layChiTietTheoBienSo(mayDangXem.excavatorId) : { ds: [], tong: { soChuyen: 0, khoiLuong: 0 } };
   const chiTietMayHTML = () => {
-    const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${b.plate}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
+    const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
     return `
       <p><b>Công ty Cp DV và TM Thống Nhất</b></p><p>Mỏ khuôn giàn 3</p>
       <h2 class="ct">BÁO CÁO CHI TIẾT KHỐI LƯỢNG MÁY XÚC</h2>
       <p>máy xúc:....${mayDangXem?.excavatorName || ''}.... &nbsp;&nbsp; Lái máy xúc:....${Array.from(mayDangXem?.laiXe || []).join(', ')}....</p>
       <p class="ct">Từ ngày ${ngayVN(tuThang)} đến ngày ${ngayVN(denThang)}</p>
-      <table><tr><th>STT</th><th>Biển số xe</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${hang}
-      <tr><td colspan="2"><b>Cộng</b></td><td>${soVN(tongBienSo.soChuyen)}</td><td>${soVN(tongBienSo.khoiLuong)}</td></tr></table>
+      <table><tr><th>STT</th><th>Biển số xe</th><th>Thời gian xúc</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${hang}
+      <tr><td colspan="3"><b>Cộng</b></td><td>${soVN(tongBienSo.soChuyen)}</td><td>${soVN(tongBienSo.khoiLuong)}</td></tr></table>
       <br/><table class="khonvien"><tr><td class="khonvien ct"><b>Xác nhận của lái máy</b></td><td class="khonvien ct"><b>Kế toán mỏ</b></td><td class="khonvien ct"><b>Kỹ thuật</b></td></tr></table>`;
   };
 
@@ -2589,9 +2530,9 @@ function BaoCaoMayXuc({ events }) {
               </div>
               {p.theoBienSo.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-slate-700 text-xs">
-                  <div className="grid grid-cols-3 gap-1 text-slate-500 font-semibold mb-1"><span>Biển số xe</span><span className="text-center">Số chuyến</span><span className="text-right">Khối lượng (m³)</span></div>
+                  <div className="grid grid-cols-4 gap-1 text-slate-500 font-semibold mb-1"><span>Biển số xe</span><span>Thời gian xúc</span><span className="text-center">Số chuyến</span><span className="text-right">Khối lượng (m³)</span></div>
                   {p.theoBienSo.map((b) => (
-                    <div key={b.plate} className="grid grid-cols-3 gap-1 text-slate-300 py-0.5"><span className="text-white font-semibold tabular-nums">{b.plate}</span><span className="text-center tabular-nums">{soVN(b.soChuyen)}</span><span className="text-right tabular-nums">{soVN(b.khoiLuong)}</span></div>
+                    <div key={b.plate} className="grid grid-cols-4 gap-1 text-slate-300 py-0.5"><span className="text-white font-semibold tabular-nums">{b.plate}</span><span className="tabular-nums text-slate-400">{b.thoiGianXuc}</span><span className="text-center tabular-nums">{soVN(b.soChuyen)}</span><span className="text-right tabular-nums">{soVN(b.khoiLuong)}</span></div>
                   ))}
                 </div>
               )}
@@ -2642,8 +2583,8 @@ function BaoCaoMayXuc({ events }) {
               </div>
             </div>
             {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : (
-              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Biển số</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th></tr></thead>
-                <tbody>{dsBienSo.map((b) => (<tr key={b.plate} className="border-t border-slate-700"><td className="py-1.5 text-white font-bold">{b.plate}</td><td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td><td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td></tr>))}</tbody>
+              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th></tr></thead>
+                <tbody>{dsBienSo.map((b) => (<tr key={b.plate} className="border-t border-slate-700"><td className="py-1.5 text-white font-bold">{b.plate}</td><td className="py-1.5 text-slate-400 text-xs">{b.thoiGianXuc}</td><td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td><td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td></tr>))}</tbody>
               </table>
             )}
             <button onClick={() => setXemChiTietMay(null)} className="w-full mt-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm">Đóng</button>
@@ -3327,16 +3268,17 @@ export default function App() {
   if (doiMK) return <ChangePasswordScreen session={session} batBuoc={session.mustChangePassword} onDone={() => { setSession({ ...session, mustChangePassword: false }); setDoiMK(false); }} />;
 
   const role = session.role;
+  const eventsHienThi = useMemo(() => apDungSuaBienSo(events), [events]);
   return (
     <div className="min-h-screen bg-slate-950">
       <TopBar session={session} onLogout={dangXuat} onChangePassword={() => setDoiMK(true)} onlineCount={onlineCount} syncing={syncing} />
-      {role === 'baove' && <GateScreen events={events} addEvent={addEvent} addEvents={addEvents} />}
-      {role === 'laixuc' && <DriverScreen events={events} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} myUsername={session.username} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
-      {role === 'kythuat' && <KyThuatScreen events={events} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} />}
-      {role === 'ketoan' && <AccountantScreen events={events} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} />}
-      {role === 'giamdoc' && <DashboardScreen events={events} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="giamdoc" />}
-      {role === 'ketoancongty' && <DashboardScreen events={events} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="ketoancongty" />}
-      {role === 'banlanhdao' && <DashboardScreen events={events} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="banlanhdao" />}
+      {role === 'baove' && <GateScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} />}
+      {role === 'laixuc' && <DriverScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} myUsername={session.username} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
+      {role === 'kythuat' && <KyThuatScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} />}
+      {role === 'ketoan' && <AccountantScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} />}
+      {role === 'giamdoc' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="giamdoc" />}
+      {role === 'ketoancongty' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="ketoancongty" />}
+      {role === 'banlanhdao' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="banlanhdao" />}
     </div>
   );
 }
