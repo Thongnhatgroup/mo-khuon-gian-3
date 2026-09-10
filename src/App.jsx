@@ -1300,9 +1300,13 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
 
   const khaiBao = (g) => {
     const f = form[g.id] || {};
-    const loaiXeId = f.loaiXe || LOAI_XE[0].id;
-    const khoiLuong = Number(f.khoiLuong) || LOAI_XE_MAP[loaiXeId].khoiLuong;
-    const dai = Number(f.dai) || null, rong = Number(f.rong) || null, cao = Number(f.cao) || null;
+    // (Bổ sung 10/09) Nếu Kỹ thuật không sửa gì (dùng đúng giá trị đã điền sẵn
+    // theo lần khai báo gần nhất của biển số này), thì khi lưu vẫn phải LẤY
+    // ĐÚNG giá trị gợi ý đó — không được rơi về mặc định chuẩn của loại xe.
+    const goiY = khaiBaoGanNhatTheoPlate(g.plate, events);
+    const loaiXeId = f.loaiXe || goiY?.loaiXe || LOAI_XE[0].id;
+    const khoiLuong = Number(f.khoiLuong) || goiY?.khoiLuong || LOAI_XE_MAP[loaiXeId].khoiLuong;
+    const dai = Number(f.dai) || goiY?.dai || null, rong = Number(f.rong) || goiY?.rong || null, cao = Number(f.cao) || goiY?.cao || null;
     const customerId = f.customerId || goiYKhachHangTheoPlate(g.plate, events) || config.customers[0]?.id;
     const customer = config.customers.find((c) => c.id === customerId);
     if (!customer) return notify('Chưa có khách hàng nào trong hệ thống — Kế toán/Giám đốc cần thêm khách hàng trước', true);
@@ -1427,6 +1431,9 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
 
       {list.length === 0 ? <Card><div className="text-slate-500 text-sm text-center py-6">Chưa có xe nào vào cổng hôm nay.</div></Card> : list.map((g) => {
         const kichThuocBanDau = kichThuocBanDauTheoPlate[g.plate];
+        // (Bổ sung 10/09) Gợi ý điền sẵn theo lần khai báo gần nhất của biển số
+        // này (nếu có) — chỉ có ý nghĩa khi xe CHƯA khai báo cho lượt vào cổng lần này.
+        const khaiBaoGoiY = !g.khaiBao ? khaiBaoGanNhatTheoPlate(g.plate, events) : null;
         return (
         <Card key={g.id} className={`mb-3 border ${mauTrangThai[g.trangThai]}`}>
           <div className="flex justify-between items-start gap-2">
@@ -1459,23 +1466,28 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
 
           {!g.khaiBao && g.trangThai !== 'mien' ? (
             <>
+              {khaiBaoGoiY && (
+                <div className="mt-3 text-[11px] text-brand-400 bg-brand-500/10 border border-brand-600/30 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                  <History className="w-3 h-3 flex-shrink-0" /> Đã tự động điền theo lần khai báo gần nhất ({gioVN(khaiBaoGoiY.time)}) — kiểm tra lại, sửa nếu lần này khác.
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <div>
                   <label className="block text-slate-400 text-xs mb-1">Loại xe (gợi ý nhanh)</label>
-                  <select value={form[g.id]?.loaiXe || LOAI_XE[0].id} onChange={(e) => { capNhatForm(g.id, 'loaiXe', e.target.value); capNhatForm(g.id, 'khoiLuong', LOAI_XE_MAP[e.target.value].khoiLuong); }} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm">
+                  <select value={form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id} onChange={(e) => { capNhatForm(g.id, 'loaiXe', e.target.value); capNhatForm(g.id, 'khoiLuong', LOAI_XE_MAP[e.target.value].khoiLuong); }} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm">
                     {LOAI_XE.map((x) => <option key={x.id} value={x.id}>{x.ten}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-slate-400 text-xs mb-1">Khối lượng dự kiến (m³)</label>
-                  <input type="number" value={form[g.id]?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || LOAI_XE[0].id].khoiLuong} onChange={(e) => capNhatForm(g.id, 'khoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                  <input type="number" value={form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong} onChange={(e) => capNhatForm(g.id, 'khoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
                 </div>
               </div>
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước đo thực tế lần này (m) — không bắt buộc</label>
               <div className="grid grid-cols-3 gap-2">
-                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.dai || ''} onChange={(e) => capNhatForm(g.id, 'dai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong || ''} onChange={(e) => capNhatForm(g.id, 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao || ''} onChange={(e) => capNhatForm(g.id, 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.dai || khaiBaoGoiY?.dai || ''} onChange={(e) => capNhatForm(g.id, 'dai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong || khaiBaoGoiY?.rong || ''} onChange={(e) => capNhatForm(g.id, 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao || khaiBaoGoiY?.cao || ''} onChange={(e) => capNhatForm(g.id, 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               </div>
               <label className="block text-slate-400 text-xs mb-1 mt-2">Khách hàng (đối tượng mua đất)</label>
               <select value={form[g.id]?.customerId || goiYKhachHangTheoPlate(g.plate, events) || config.customers[0]?.id || ''} onChange={(e) => capNhatForm(g.id, 'customerId', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm">
@@ -1816,6 +1828,13 @@ function khaiBaoHopLe(plate, events) {
   const baoCoiNoiSauDo = events.some((e) => e.type === 'bao_coi_noi' && e.plate === plate && e.time > khaiBaoGanNhat.time);
   if (baoCoiNoiSauDo) return null; // có báo cơi nới sau lần khai báo -> bắt buộc khai báo lại
   return khaiBaoGanNhat;
+}
+// (Bổ sung 10/09) Lần khai báo gần nhất của biển số này (bất kỳ lượt vào cổng
+// nào, không cần còn hiệu lực trong hạn 3 ngày) — dùng để tự động điền sẵn
+// loại xe/khối lượng dự kiến/kích thước cho lần khai báo mới, đỡ phải nhập
+// lại từ đầu. Kỹ thuật vẫn có thể sửa nếu lần này khác lần trước.
+function khaiBaoGanNhatTheoPlate(plate, events) {
+  return events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === plate).sort((a, b) => b.time.localeCompare(a.time))[0] || null;
 }
 // lần khai báo gần nhất trước đó của chính biển số này (nếu xe quay lại nhiều lần)
 function goiYKhachHangTheoPlate(plate, events) {
