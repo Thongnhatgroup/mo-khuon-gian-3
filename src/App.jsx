@@ -525,7 +525,7 @@ function phieuGiaoNhanHTML(t, events) {
       <div>Biển số xe: ${t.plate}</div>
       <div style="margin-top:6px">Khối lượng: ${soVN(t.volume)} m3</div>
       <div style="border-top:2px dashed #333;margin:8px 0"></div>
-      <div style="display:flex;justify-content:space-between;margin-top:14px"><span>Kế toán mỏ</span><span>Lái xe ký nhận</span></div>
+      <div style="display:flex;justify-content:space-between;margin-top:14px"><span>Kế toán mỏ</span><span>Bảo vệ</span></div>
     </div>`).join('');
 }
 
@@ -856,6 +856,11 @@ function GateScreen({ events, addEvent, addEvents }) {
   //  - Cách 3 (nâng cao nhất, tự động hoàn toàn, CHƯA kiểm thử với máy chủ
   //    thật, cần người rành kỹ thuật cài đặt): chương trình cầu nối
   //    camera-agent qua AppKey/AppSecret.
+  // (Yêu cầu 14/09) Ẩn mặc định toàn bộ khối hướng dẫn kết nối Camera (chiếm
+  // nhiều diện tích màn hình Bảo vệ mỗi lần mở phần mềm) — gói gọn lại 1 dòng
+  // có thể bấm mở ra khi cần cài đặt/khắc phục sự cố, còn ngày thường Bảo vệ
+  // chỉ thấy đúng khung trạng thái + khu vực ghi nhận xe vào/ra cổng.
+  const [xemKhoiHuongDanCamera, setXemKhoiHuongDanCamera] = useState(false);
   const [xemHuongDanTruocTien, setXemHuongDanTruocTien] = useState(false);
   const [xemHuongDanDocManHinh, setXemHuongDanDocManHinh] = useState(false);
   const [xemHuongDanCamHikNangCao, setXemHuongDanCamHikNangCao] = useState(false);
@@ -960,6 +965,19 @@ function GateScreen({ events, addEvent, addEvents }) {
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
+        {camHikStats.last ? (
+          <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
+            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2, Cách 3, hoặc HikCentral tự gửi)</div>
+            <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} lượt hôm nay</div>
+          </div>
+        ) : (
+          <p className="text-slate-500 text-xs mb-2">Chưa từng nhận dữ liệu qua Camera — Bảo vệ vẫn ghi nhận xe vào cổng bằng tay bình thường ở khu vực bên dưới.</p>
+        )}
+        <button onClick={() => setXemKhoiHuongDanCamera(!xemKhoiHuongDanCamera)} className="w-full flex items-center justify-center gap-1.5 text-brand-400 text-xs font-semibold underline py-1">
+          {xemKhoiHuongDanCamera ? '▲ Ẩn hướng dẫn kết nối Camera' : '▾ Xem hướng dẫn kết nối Camera (chỉ cần khi lắp mới / khắc phục sự cố)'}
+        </button>
+        {xemKhoiHuongDanCamera && (
+        <div className="mt-2">
         <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng.</p>
         <button onClick={() => setXemHuongDanTruocTien(!xemHuongDanTruocTien)} className="text-brand-400 text-xs underline mb-2">{xemHuongDanTruocTien ? 'Ẩn' : 'Xem'} hướng dẫn kết nối (nên thử trước tiên)</button>
         {xemHuongDanTruocTien && (
@@ -968,12 +986,6 @@ function GateScreen({ events, addEvent, addEvents }) {
           </div>
         )}
         <p className="text-slate-400 text-xs mb-2">2 cách bên dưới — <b className="text-white">Cách 1 giờ chỉ cần bấm đúp 1 file, không cần gõ lệnh</b>, nên làm trước; Cách 2 tự động hoàn toàn hơn nhưng cần cài đặt 1 lần và lấy khóa kết nối riêng từ HikCentral, phù hợp khi có người rành kỹ thuật hỗ trợ.</p>
-        {camHikStats.last ? (
-          <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
-            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2, Cách 3, hoặc HikCentral tự gửi)</div>
-            <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} lượt hôm nay</div>
-          </div>
-        ) : null}
 
         <div className="pt-1">
           <div className="text-white text-sm font-bold mb-1">Cách 1 — Đọc tự động trên màn hình đang mở (giờ chỉ cần bấm đúp 1 file)</div>
@@ -1012,6 +1024,8 @@ function GateScreen({ events, addEvent, addEvents }) {
             </div>
           )}
         </div>
+        </div>
+        )}
       </Card>
 
       <p className="text-slate-400 text-sm mb-1">Camera đọc biển số tự động gửi dữ liệu về đây. Bảo vệ nhập tay + chụp ảnh khi cần.</p>
@@ -2060,19 +2074,34 @@ const KHOA_PHIEU_DA_XU_LY = 'ktMo_phieuDaXuLy_v1';
 // (Sửa lỗi 09/09, mục 5) Báo cáo chi tiết các xe ra cổng không có hàng — in/xuất
 // trực tiếp theo đúng mẫu: STT, Biển số xe, Thời gian vào cổng, Thời gian ra
 // cổng, Ghi chú; ký tên Bảo vệ / Kỹ thuật / Kế toán.
-function baoCaoXeKhongHangHTML(danhSachRaKhongHang, events, tuNgay, denNgay) {
+// (Yêu cầu 14/09) Tách riêng phần "lấy dữ liệu từng dòng" để dùng chung cho cả
+// bản in/Word (HTML) lẫn bản xuất Excel — đồng thời bổ sung cột "Ngày tháng"
+// riêng (trước đây gộp chung vào giờ vào/giờ ra) đúng theo mẫu báo cáo giấy
+// hiện có của mỏ.
+function layDongXeKhongHang(danhSachRaKhongHang, events) {
   const layGioVaoTuongUng = (goEvent) => {
     const gi = events.filter((e) => e.type === 'gate_in' && e.plate === goEvent.plate && e.time <= goEvent.time)
       .sort((a, b) => b.time.localeCompare(a.time))[0];
-    return gi ? gioVN(gi.time) : '................';
+    return gi ? gioNgan(gi.time) : '';
   };
-  const rows = danhSachRaKhongHang.map((e, idx) => `
+  return danhSachRaKhongHang.map((e) => ({
+    ngayThang: ngayVN(dayStrOf(e.time)),
+    plate: e.plate,
+    gioVao: layGioVaoTuongUng(e),
+    gioRa: gioNgan(e.time),
+    ghiChu: e.ghiChu || '',
+  }));
+}
+function baoCaoXeKhongHangHTML(danhSachRaKhongHang, events, tuNgay, denNgay) {
+  const dong = layDongXeKhongHang(danhSachRaKhongHang, events);
+  const rows = dong.map((d, idx) => `
     <tr>
       <td class="ct">${idx + 1}</td>
-      <td class="ct"><b>${e.plate}</b></td>
-      <td class="ct">${layGioVaoTuongUng(e)}</td>
-      <td class="ct">${gioVN(e.time)}</td>
-      <td>${e.ghiChu || ''}</td>
+      <td class="ct">${d.ngayThang}</td>
+      <td class="ct"><b>${d.plate}</b></td>
+      <td class="ct">${d.gioVao}</td>
+      <td class="ct">${d.gioRa}</td>
+      <td>${d.ghiChu}</td>
     </tr>`).join('');
   const khoangThoiGian = tuNgay === denNgay ? `Ngày ${ngayVN(tuNgay)}` : `Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`;
   return `
@@ -2083,14 +2112,26 @@ function baoCaoXeKhongHangHTML(danhSachRaKhongHang, events, tuNgay, denNgay) {
     <h2 class="ct">BÁO CÁO CHI TIẾT CÁC XE RA CỔNG KHÔNG CÓ HÀNG</h2>
     <p class="ct">${khoangThoiGian}</p>
     <table>
-      <tr><th>STT</th><th>Biển số xe</th><th>Thời gian vào cổng</th><th>Thời gian ra cổng</th><th>Ghi chú</th></tr>
-      ${rows || '<tr><td colspan="5" class="ct">Không có xe nào ra cổng không có hàng</td></tr>'}
+      <tr><th>STT</th><th>Ngày tháng</th><th>Biển số xe</th><th>Giờ vào</th><th>Giờ ra</th><th>Ghi chú</th></tr>
+      ${rows || '<tr><td colspan="6" class="ct">Không có xe nào ra cổng không có hàng</td></tr>'}
     </table>
     <br/>
     <table class="khonvien"><tr>
       <td class="khonvien ct"><b>BẢO VỆ</b></td><td class="khonvien ct"><b>KỸ THUẬT</b></td><td class="khonvien ct"><b>KẾ TOÁN</b></td>
     </tr><tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>
   `;
+}
+function xuatExcelXeKhongHang(danhSachRaKhongHang, events, tuNgay, denNgay) {
+  const dong = layDongXeKhongHang(danhSachRaKhongHang, events);
+  const khoangThoiGian = tuNgay === denNgay ? `Ngày ${ngayVN(tuNgay)}` : `Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`;
+  const rows = [
+    ['CÔNG TY CP DV VÀ TM THỐNG NHẤT — MỎ KHUÔN GIÀN 3'],
+    ['BÁO CÁO CHI TIẾT CÁC XE RA CỔNG KHÔNG CÓ HÀNG'],
+    [khoangThoiGian], [],
+    ['STT', 'Ngày tháng', 'Biển số xe', 'Giờ vào', 'Giờ ra', 'Ghi chú'],
+    ...dong.map((d, i) => [i + 1, d.ngayThang, d.plate, d.gioVao, d.gioRa, d.ghiChu]),
+  ];
+  xuatExcel({ 'Xe không hàng': rows }, `bao-cao-xe-khong-hang-${tuNgay}_${denNgay}`);
 }
 function BaoCaoXeKhongHangModal({ open, onClose, danhSach, events, tuNgay, denNgay }) {
   if (!open) return null;
@@ -2099,6 +2140,7 @@ function BaoCaoXeKhongHangModal({ open, onClose, danhSach, events, tuNgay, denNg
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white text-black rounded-lg p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto text-sm" onClick={(e) => e.stopPropagation()} dangerouslySetInnerHTML={{ __html: html }} />
       <div className="fixed bottom-6 flex gap-2 flex-wrap justify-center" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => xuatExcelXeKhongHang(danhSach, events, tuNgay, denNgay)} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất Excel</button>
         <button onClick={() => xuatWord(html, `bao-cao-xe-khong-hang-${tuNgay}`)} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xuất Word</button>
         <button onClick={() => inTrucTiep(html, 'Báo cáo xe ra cổng không có hàng')} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg">🖨️ In (A4)</button>
         <button onClick={onClose} className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2.5 rounded-lg">Đóng</button>
@@ -2334,7 +2376,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
                 <div>Biển số xe: {xemLai.plate}</div>
                 <div className="mt-1">Khối lượng: {soVN(xemLai.volume)} m3</div>
                 <div className="border-t-2 border-dashed border-slate-400 my-2" />
-                <div className="flex justify-between mt-3"><span>Kế toán mỏ</span><span>Lái xe ký nhận</span></div>
+                <div className="flex justify-between mt-3"><span>Kế toán mỏ</span><span>Bảo vệ</span></div>
               </div>
             ))}
           </div>
@@ -2423,9 +2465,9 @@ function BaoCaoMayXuc({ events }) {
       <p><b>Ca làm việc:</b> ${p.shift} &nbsp;&nbsp;&nbsp; <b>Thời gian làm việc:</b> ${p.thoiGianLamViec}</p>
       <p><b>Số chuyến:</b> ${p.soChuyen}</p>
       <p><b>Tổng khối lượng:</b> ${soVN(p.tongKhoiLuong)} m3</p>
-      <table><tr><th>STT</th><th>Biển số xe</th><th>Thời gian xúc</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${
-        p.theoBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('')
-      }<tr><td></td><td><b>Cộng</b></td><td></td><td><b>${soVN(p.soChuyen)}</b></td><td><b>${soVN(p.tongKhoiLuong)}</b></td></tr></table>
+      <table><tr><th>STT</th><th>Ngày tháng</th><th>Biển số xe</th><th>Thời gian xúc</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${
+        p.theoBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${ngayVN(ngay)}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('')
+      }<tr><td colspan="2"></td><td><b>Cộng</b></td><td></td><td><b>${soVN(p.soChuyen)}</b></td><td><b>${soVN(p.tongKhoiLuong)}</b></td></tr></table>
       <br/><table class="khonvien"><tr><td class="khonvien ct"><b>KẾ TOÁN MỎ</b></td><td class="khonvien ct"><b>GIÁM ĐỐC MỎ</b></td><td class="khonvien ct"><b>LÁI MÁY</b></td></tr>
       <tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>`;
   const xuatWordNgay = (p) => xuatWord(bcNgayHTML(p), `bao-cao-may-xuc-${p.excavatorName}-${ngay}`);
@@ -2436,9 +2478,9 @@ function BaoCaoMayXuc({ events }) {
   // toán mỏ. Chỉ còn đúng bảng chi tiết theo biển số xe.
   const xuatExcelMotCa = (p) => {
     const rows = [
-      ['STT', 'Biển số xe', 'Thời gian xúc', 'Số chuyến', 'Khối lượng (m3)'],
-      ...p.theoBienSo.map((b, i) => [i + 1, b.plate, b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
-      ['', 'Cộng', '', p.soChuyen, p.tongKhoiLuong],
+      ['STT', 'Ngày tháng', 'Biển số xe', 'Thời gian xúc', 'Số chuyến', 'Khối lượng (m3)'],
+      ...p.theoBienSo.map((b, i) => [i + 1, ngayVN(ngay), b.plate, b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
+      ['', '', 'Cộng', '', p.soChuyen, p.tongKhoiLuong],
     ];
     xuatExcel({ [`${ngay}`]: rows }, `bao-cao-may-xuc-${p.excavatorName}-${p.operatorName}-${ngay}`);
   };
