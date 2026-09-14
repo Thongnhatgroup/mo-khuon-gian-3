@@ -1242,11 +1242,13 @@ function bienBanHTML(khaiBao, banDau) {
     <p><b>Biển số xe:</b> ${khaiBao.plate || '................................'}</p>
     <p><b>Tên lái xe:</b> ${khaiBao.tenLaiXe || '................................'}</p>
     <p><b>Tên khách hàng:</b> ${khaiBao.customerName || '................................'}</p>
-    <p><b>Kích thước thùng xe ban đầu:</b></p>
+    <p><b>Kích thước thành thùng xe ban đầu:</b></p>
     <p>Rộng:${banDau?.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${banDau?.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${banDau?.cao ?? '........'}</p>
+    ${banDau?.ngonDai ? `<p><b>Kích thước phần ngọn ban đầu:</b></p><p>Rộng:${banDau.ngonRong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${banDau.ngonDai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${banDau.ngonCao ?? '........'}</p>` : ''}
     <p><b>Khối lượng ban đầu:</b> ${banDau ? soVN(banDau.khoiLuong) : '................'} m3</p>
-    <p><b>Kích thước thùng xe kiểm tra lại:</b></p>
+    <p><b>Kích thước thành thùng xe kiểm tra lại:</b></p>
     <p>Rộng:${khaiBao.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${khaiBao.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${khaiBao.cao ?? '........'}</p>
+    ${khaiBao.ngonDai ? `<p><b>Kích thước phần ngọn kiểm tra lại:</b></p><p>Rộng:${khaiBao.ngonRong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${khaiBao.ngonDai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${khaiBao.ngonCao ?? '........'}</p>` : ''}
     <p><b>Khối lượng kiểm tra:</b> ${soVN(khaiBao.khoiLuong)} m3</p>
     ${khaiBao.viPham ? `<p><b>Lý do kiểm tra lại:</b> Vi phạm vượt khối lượng kích thước thành thùng</p>` : ''}
     <p><b>Ghi chú:</b> ${khaiBao.ghiChuViPham || '..........................................................'}</p>
@@ -1321,6 +1323,9 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
     const loaiXeId = f.loaiXe || goiY?.loaiXe || LOAI_XE[0].id;
     const khoiLuong = Number(f.khoiLuong) || goiY?.khoiLuong || LOAI_XE_MAP[loaiXeId].khoiLuong;
     const dai = Number(f.dai) || goiY?.dai || null, rong = Number(f.rong) || goiY?.rong || null, cao = Number(f.cao) || goiY?.cao || null;
+    // (Yêu cầu 14/09) Kích thước phần ngọn — riêng, không bắt buộc, ghi thêm khi
+    // xe chất đất cao hơn thành thùng (không cộng dồn tự động vào dai/rong/cao ở trên).
+    const ngonDai = Number(f.ngonDai) || goiY?.ngonDai || null, ngonRong = Number(f.ngonRong) || goiY?.ngonRong || null, ngonCao = Number(f.ngonCao) || goiY?.ngonCao || null;
     const customerId = f.customerId || goiYKhachHangTheoPlate(g.plate, events) || config.customers[0]?.id;
     const customer = config.customers.find((c) => c.id === customerId);
     if (!customer) return notify('Chưa có khách hàng nào trong hệ thống — Kế toán/Giám đốc cần thêm khách hàng trước', true);
@@ -1330,7 +1335,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
     // người quyết định, phần mềm không tự động chặn ở bước này.
     addEvent({
       id: genId('KB'), type: 'ky_thuat_khai_bao', gateInId: g.id, plate: g.plate,
-      loaiXe: loaiXeId, khoiLuong, dai, rong, cao, customerId, customerName: customer.name,
+      loaiXe: loaiXeId, khoiLuong, dai, rong, cao, ngonDai, ngonRong, ngonCao, customerId, customerName: customer.name,
       tenLaiXe: f.tenLaiXe || '', viPham: f.viPham || false, ghiChuViPham: f.viPham ? (f.ghiChuViPham || '') : '',
       inspectorName: myName, time: new Date().toISOString(),
     });
@@ -1458,7 +1463,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                 {g.soLanKiemTraTruoc > 0 && <button onClick={() => setXemLichSuPlate(g.plate)} className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded-full flex items-center gap-1"><History className="w-3 h-3" /> {g.soLanKiemTraTruoc} lần trước</button>}
               </div>
               <div className="text-slate-400 text-xs">Vào cổng lúc {gioVN(g.time)}</div>
-              {kichThuocBanDau && <div className="text-slate-500 text-[11px] mt-0.5">Kích thước ban đầu (lần đầu ghi nhận): {kichThuocBanDau.dai || '?'}×{kichThuocBanDau.rong || '?'}×{kichThuocBanDau.cao || '?'} m</div>}
+              {kichThuocBanDau && <div className="text-slate-500 text-[11px] mt-0.5">Kích thước ban đầu (lần đầu ghi nhận): {kichThuocBanDau.dai || '?'}×{kichThuocBanDau.rong || '?'}×{kichThuocBanDau.cao || '?'} m — Khối lượng: {soVN(kichThuocBanDau.khoiLuong)} m³</div>}
               {g.bienSoGocDoCameraSai && <div className="text-amber-400 text-[11px] mt-0.5">Đã sửa từ biển số Camera đọc sai: {g.bienSoGocDoCameraSai}</div>}
               {dangSuaBienSo?.id === g.id && (
                 <div className="mt-2 bg-slate-950 border border-brand-600/50 rounded-lg p-2.5 max-w-xs">
@@ -1497,11 +1502,21 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                   <input type="number" value={form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong} onChange={(e) => capNhatForm(g.id, 'khoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
                 </div>
               </div>
-              <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước đo thực tế lần này (m) — không bắt buộc</label>
+              <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước thành thùng xe (m) — không bắt buộc</label>
               <div className="grid grid-cols-3 gap-2">
                 <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.dai || khaiBaoGoiY?.dai || ''} onChange={(e) => capNhatForm(g.id, 'dai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
                 <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong || khaiBaoGoiY?.rong || ''} onChange={(e) => capNhatForm(g.id, 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
                 <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao || khaiBaoGoiY?.cao || ''} onChange={(e) => capNhatForm(g.id, 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+              </div>
+              {/* (Yêu cầu 14/09) Thêm dòng kích thước RIÊNG cho "phần ngọn" — phần đất
+                  chất cao hơn thành thùng xe (không tính được bằng kích thước thành
+                  thùng ở trên) — để Kỹ thuật ghi nhận đầy đủ khi xe có ngọn cao, phục
+                  vụ đối chiếu khi lập biên bản vi phạm vượt khối lượng. */}
+              <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước phần ngọn (khối đất cao hơn thành thùng, m) — không bắt buộc</label>
+              <div className="grid grid-cols-3 gap-2">
+                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.ngonDai || khaiBaoGoiY?.ngonDai || ''} onChange={(e) => capNhatForm(g.id, 'ngonDai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.ngonRong || khaiBaoGoiY?.ngonRong || ''} onChange={(e) => capNhatForm(g.id, 'ngonRong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.ngonCao || khaiBaoGoiY?.ngonCao || ''} onChange={(e) => capNhatForm(g.id, 'ngonCao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               </div>
               <label className="block text-slate-400 text-xs mb-1 mt-2">Khách hàng (đối tượng mua đất)</label>
               <select value={form[g.id]?.customerId || goiYKhachHangTheoPlate(g.plate, events) || config.customers[0]?.id || ''} onChange={(e) => capNhatForm(g.id, 'customerId', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm">
@@ -1527,7 +1542,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
             </>
           ) : g.khaiBao ? (
             <>
-              <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³ · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {LOAI_XE_MAP[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}</div>
+              <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³ · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {LOAI_XE_MAP[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · Thành thùng: ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}{g.khaiBao.ngonDai ? ` · Ngọn: ${g.khaiBao.ngonDai}×${g.khaiBao.ngonRong}×${g.khaiBao.ngonCao}m` : ''}</div>
               {g.khaiBao.viPham && <div className="mt-2 text-amber-400 text-xs">⚠ Biên bản vi phạm: {g.khaiBao.ghiChuViPham || 'cơi nới thùng không báo trước'}</div>}
               <div className="flex items-center gap-3 mt-2">
                 <button onClick={() => setXemBienBanViPham(g.khaiBao)} className="text-[11px] bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In biên bản</button>
@@ -1567,7 +1582,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
               {lichSuCuaPlate.map((k) => (
                 <div key={k.id} className="py-2">
                   <div className="text-white font-semibold">{gioVN(k.time)} · {k.inspectorName}</div>
-                  <div className="text-slate-400 text-xs">{k.khoiLuong} m³ · KH: {k.customerName}{k.dai ? ` · Kích thước: ${k.dai}×${k.rong}×${k.cao}m` : ' · (chưa đo kích thước)'}{k.viPham ? ' · ⚠ Có vi phạm' : ''}</div>
+                  <div className="text-slate-400 text-xs">{k.khoiLuong} m³ · KH: {k.customerName}{k.dai ? ` · Thành thùng: ${k.dai}×${k.rong}×${k.cao}m` : ' · (chưa đo kích thước)'}{k.ngonDai ? ` · Ngọn: ${k.ngonDai}×${k.ngonRong}×${k.ngonCao}m` : ''}{k.viPham ? ' · ⚠ Có vi phạm' : ''}</div>
                 </div>
               ))}
             </div>
