@@ -34,10 +34,16 @@ const ROLES_INFO = {
 };
 const DASHBOARD_ROLES = ['banlanhdao', 'ketoancongty', 'giamdoc'];
 
+// (Yêu cầu 15/09) Đổi danh sách loại xe theo phân loại thực tế của mỏ (số
+// trục/loại xe) thay vì phân theo m³ như trước — vì khối lượng giờ được tính
+// = khối lượng thùng xe (Kỹ thuật tự đo/đánh số) + khối lượng cộng thêm do
+// ngọn, không còn gán cứng theo loại xe nữa. khoiLuong ở đây chỉ còn là số
+// GỢI Ý ban đầu cho ô "Khối lượng thùng xe" khi chọn loại xe, Kỹ thuật vẫn
+// sửa lại theo thực tế từng xe.
 const LOAI_XE = [
-  { id: '25m3', ten: 'Xe ben 25m³ (tiêu chuẩn)', kichThuoc: 'Dài 6,2m × Rộng 2,3m × Cao 1,5m', khoiLuong: 25 },
-  { id: '22m3', ten: 'Xe ben 22m³', kichThuoc: 'Dài 5,8m × Rộng 2,3m × Cao 1,4m', khoiLuong: 22 },
-  { id: '27m3', ten: 'Xe ben 27m³', kichThuoc: 'Dài 6,6m × Rộng 2,3m × Cao 1,6m', khoiLuong: 27 },
+  { id: 'ben4chan', ten: 'Xe ben 4 chân', khoiLuong: 25 },
+  { id: 'ben2chan', ten: 'Xe ben 2 chân', khoiLuong: 15 },
+  { id: 'daukeo', ten: 'Xe đầu kéo', khoiLuong: 30 },
 ];
 const LOAI_XE_MAP = Object.fromEntries(LOAI_XE.map((x) => [x.id, x]));
 
@@ -1245,11 +1251,11 @@ function bienBanHTML(khaiBao, banDau) {
     <p><b>Kích thước thành thùng xe ban đầu:</b></p>
     <p>Rộng:${banDau?.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${banDau?.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${banDau?.cao ?? '........'}</p>
     ${banDau?.ngonDai ? `<p><b>Kích thước phần ngọn ban đầu:</b></p><p>Rộng:${banDau.ngonRong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${banDau.ngonDai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${banDau.ngonCao ?? '........'}</p>` : ''}
-    <p><b>Khối lượng ban đầu:</b> ${banDau ? soVN(banDau.khoiLuong) : '................'} m3${banDau?.ngonKhoiLuong ? ` (gốc ${soVN(banDau.khoiLuongGoc)} + cộng thêm do ngọn ${soVN(banDau.ngonKhoiLuong)})` : ''}</p>
+    <p><b>Khối lượng ban đầu:</b> ${banDau ? soVN(banDau.khoiLuong) : '................'} m3${banDau?.ngonKhoiLuong ? ` (thùng xe ${soVN(banDau.khoiLuongGoc)} + cộng thêm do ngọn ${soVN(banDau.ngonKhoiLuong)})` : ''}</p>
     <p><b>Kích thước thành thùng xe kiểm tra lại:</b></p>
     <p>Rộng:${khaiBao.rong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${khaiBao.dai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${khaiBao.cao ?? '........'}</p>
     ${khaiBao.ngonDai ? `<p><b>Kích thước phần ngọn kiểm tra lại:</b></p><p>Rộng:${khaiBao.ngonRong ?? '........'}&nbsp;&nbsp;&nbsp; Dài:${khaiBao.ngonDai ?? '........'}&nbsp;&nbsp;&nbsp; Cao:${khaiBao.ngonCao ?? '........'}</p>` : ''}
-    <p><b>Khối lượng kiểm tra:</b> ${soVN(khaiBao.khoiLuong)} m3${khaiBao.ngonKhoiLuong ? ` (gốc ${soVN(khaiBao.khoiLuongGoc)} + cộng thêm do ngọn ${soVN(khaiBao.ngonKhoiLuong)})` : ''}</p>
+    <p><b>Khối lượng kiểm tra:</b> ${soVN(khaiBao.khoiLuong)} m3${khaiBao.ngonKhoiLuong ? ` (thùng xe ${soVN(khaiBao.khoiLuongGoc)} + cộng thêm do ngọn ${soVN(khaiBao.ngonKhoiLuong)})` : ''}</p>
     ${khaiBao.viPham ? `<p><b>Lý do kiểm tra lại:</b> Vi phạm vượt khối lượng kích thước thành thùng</p>` : ''}
     <p><b>Ghi chú:</b> ${khaiBao.ghiChuViPham || '..........................................................'}</p>
     <p>..........................................................</p>
@@ -1349,7 +1355,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
       tenLaiXe: f.tenLaiXe || '', viPham: f.viPham || false, ghiChuViPham: f.viPham ? (f.ghiChuViPham || '') : '',
       inspectorName: myName, time: new Date().toISOString(),
     });
-    notify(f.viPham ? `⚠ Đã lập biên bản vi phạm & xác nhận lại khối lượng xe ${g.plate}` : `Đã khai báo xe ${g.plate}: ${tongKhoiLuong} m³${ngonKhoiLuong ? ` (gốc ${khoiLuongGoc} + ngọn ${ngonKhoiLuong})` : ''} — KH: ${customer.name}`);
+    notify(f.viPham ? `⚠ Đã lập biên bản vi phạm & xác nhận lại khối lượng xe ${g.plate}` : `Đã khai báo xe ${g.plate}: ${tongKhoiLuong} m³${ngonKhoiLuong ? ` (thùng xe ${khoiLuongGoc} + ngọn ${ngonKhoiLuong})` : ''} — KH: ${customer.name}`);
   };
 
   const daKhaiBaoChuaLapBB = list.filter((l) => l.khaiBao && !daLapBienBanIds.has(l.khaiBao.id));
@@ -1463,6 +1469,12 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
         // (Bổ sung 10/09) Gợi ý điền sẵn theo lần khai báo gần nhất của biển số
         // này (nếu có) — chỉ có ý nghĩa khi xe CHƯA khai báo cho lượt vào cổng lần này.
         const khaiBaoGoiY = !g.khaiBao ? khaiBaoGanNhatTheoPlate(g.plate, events) : null;
+        // (Yêu cầu 15/09) "Khối lượng dự kiến" đổi thành "Tổng khối lượng", tự
+        // tính = khối lượng thùng xe (đo/đánh theo kích thước thành thùng) +
+        // khối lượng cộng thêm do ngọn — không cho gõ tay trực tiếp vào tổng nữa.
+        const thungXeVal = Number(form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong) || 0;
+        const ngonVal = Number(form[g.id]?.ngonKhoiLuong ?? khaiBaoGoiY?.ngonKhoiLuong) || 0;
+        const tongKhoiLuongForm = thungXeVal + ngonVal;
         return (
         <Card key={g.id} className={`mb-3 border ${mauTrangThai[g.trangThai]}`}>
           <div className="flex justify-between items-start gap-2">
@@ -1473,7 +1485,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                 {g.soLanKiemTraTruoc > 0 && <button onClick={() => setXemLichSuPlate(g.plate)} className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded-full flex items-center gap-1"><History className="w-3 h-3" /> {g.soLanKiemTraTruoc} lần trước</button>}
               </div>
               <div className="text-slate-400 text-xs">Vào cổng lúc {gioVN(g.time)}</div>
-              {kichThuocBanDau && <div className="text-slate-500 text-[11px] mt-0.5">Kích thước ban đầu (lần đầu ghi nhận): {kichThuocBanDau.dai || '?'}×{kichThuocBanDau.rong || '?'}×{kichThuocBanDau.cao || '?'} m — Khối lượng: {soVN(kichThuocBanDau.khoiLuong)} m³{kichThuocBanDau.ngonKhoiLuong ? ` (gốc ${soVN(kichThuocBanDau.khoiLuongGoc)} + ngọn ${soVN(kichThuocBanDau.ngonKhoiLuong)})` : ''}</div>}
+              {kichThuocBanDau && <div className="text-slate-500 text-[11px] mt-0.5">Kích thước ban đầu (lần đầu ghi nhận): {kichThuocBanDau.dai || '?'}×{kichThuocBanDau.rong || '?'}×{kichThuocBanDau.cao || '?'} m — Khối lượng: {soVN(kichThuocBanDau.khoiLuong)} m³{kichThuocBanDau.ngonKhoiLuong ? ` (thùng xe ${soVN(kichThuocBanDau.khoiLuongGoc)} + ngọn ${soVN(kichThuocBanDau.ngonKhoiLuong)})` : ''}</div>}
               {g.bienSoGocDoCameraSai && <div className="text-amber-400 text-[11px] mt-0.5">Đã sửa từ biển số Camera đọc sai: {g.bienSoGocDoCameraSai}</div>}
               {dangSuaBienSo?.id === g.id && (
                 <div className="mt-2 bg-slate-950 border border-brand-600/50 rounded-lg p-2.5 max-w-xs">
@@ -1508,8 +1520,8 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-400 text-xs mb-1">Khối lượng dự kiến (m³)</label>
-                  <input type="number" value={form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong} onChange={(e) => capNhatForm(g.id, 'khoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                  <label className="block text-slate-400 text-xs mb-1">Tổng khối lượng (m³)</label>
+                  <div className="w-full bg-slate-900 border border-emerald-700/60 rounded-lg px-2 py-2 text-emerald-400 font-bold text-sm">{soVN(tongKhoiLuongForm)}</div>
                 </div>
               </div>
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước thành thùng xe (m) — không bắt buộc</label>
@@ -1518,6 +1530,13 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                 <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong || khaiBaoGoiY?.rong || ''} onChange={(e) => capNhatForm(g.id, 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
                 <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao || khaiBaoGoiY?.cao || ''} onChange={(e) => capNhatForm(g.id, 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               </div>
+              {/* (Yêu cầu 15/09) Thêm dòng "Khối lượng thùng xe" ngay trong mục kích
+                  thước thành thùng — đây là số Kỹ thuật TỰ ĐÁNH (không tự tính theo
+                  công thức Dài×Rộng×Cao vì thùng xe không phải hình hộp chữ nhật
+                  tuyệt đối), dùng làm thành phần "khối lượng gốc" để cộng với khối
+                  lượng ngọn ra Tổng khối lượng ở khung phía trên. */}
+              <label className="block text-slate-400 text-xs mb-1 mt-2">Khối lượng thùng xe (m³)</label>
+              <input type="number" value={form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong} onChange={(e) => capNhatForm(g.id, 'khoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               {/* (Yêu cầu 14/09) Thêm dòng kích thước RIÊNG cho "phần ngọn" — phần đất
                   chất cao hơn thành thùng xe (không tính được bằng kích thước thành
                   thùng ở trên) — để Kỹ thuật ghi nhận đầy đủ khi xe có ngọn cao, phục
@@ -1530,16 +1549,13 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
               </div>
               {/* (Bổ sung 14/09 lần 2) Phần ngọn chỉ ghi chú kích thước ở trên (không
                   tự tính ra m³ theo công thức) — ô riêng này để Kỹ thuật TỰ ĐÁNH số
-                  khối lượng cộng thêm do ngọn, được cộng vào "Khối lượng dự kiến"
-                  (khối lượng khi chưa có ngọn) ở trên để ra tổng khối lượng xác nhận. */}
+                  khối lượng cộng thêm do ngọn, được cộng vào "Khối lượng thùng xe"
+                  ở trên để ra Tổng khối lượng hiển thị ở khung đầu form. */}
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Khối lượng cộng thêm do phần ngọn (m³) — không bắt buộc</label>
               <input type="number" step="0.1" placeholder="VD: 2" value={form[g.id]?.ngonKhoiLuong || khaiBaoGoiY?.ngonKhoiLuong || ''} onChange={(e) => capNhatForm(g.id, 'ngonKhoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-              {(Number(form[g.id]?.ngonKhoiLuong) || 0) > 0 && (
-                <div className="text-emerald-400 text-[11px] mt-1">
-                  Tổng khối lượng sẽ xác nhận: {(Number(form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong) || 0) + (Number(form[g.id]?.ngonKhoiLuong) || 0)} m³
-                  {' '}(gốc {Number(form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong) || 0} + ngọn {Number(form[g.id]?.ngonKhoiLuong) || 0})
-                </div>
-              )}
+              <div className="text-emerald-400 text-[11px] mt-1">
+                Tổng khối lượng sẽ xác nhận: {soVN(tongKhoiLuongForm)} m³ (thùng xe {soVN(thungXeVal)}{ngonVal ? ` + ngọn ${soVN(ngonVal)}` : ''})
+              </div>
               <label className="block text-slate-400 text-xs mb-1 mt-2">Khách hàng (đối tượng mua đất)</label>
               <select value={form[g.id]?.customerId || goiYKhachHangTheoPlate(g.plate, events) || config.customers[0]?.id || ''} onChange={(e) => capNhatForm(g.id, 'customerId', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm">
                 {config.customers.length === 0 && <option value="">— Chưa có khách hàng, thêm ở màn Kế toán/Giám đốc —</option>}
@@ -1564,7 +1580,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
             </>
           ) : g.khaiBao ? (
             <>
-              <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³{g.khaiBao.ngonKhoiLuong ? ` (gốc ${g.khaiBao.khoiLuongGoc} + ngọn ${g.khaiBao.ngonKhoiLuong})` : ''} · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {LOAI_XE_MAP[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · Thành thùng: ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}{g.khaiBao.ngonDai ? ` · Kích thước ngọn: ${g.khaiBao.ngonDai}×${g.khaiBao.ngonRong}×${g.khaiBao.ngonCao}m` : ''}</div>
+              <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³{g.khaiBao.ngonKhoiLuong ? ` (thùng xe ${g.khaiBao.khoiLuongGoc} + ngọn ${g.khaiBao.ngonKhoiLuong})` : ''} · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {LOAI_XE_MAP[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · Thành thùng: ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}{g.khaiBao.ngonDai ? ` · Kích thước ngọn: ${g.khaiBao.ngonDai}×${g.khaiBao.ngonRong}×${g.khaiBao.ngonCao}m` : ''}</div>
               {g.khaiBao.viPham && <div className="mt-2 text-amber-400 text-xs">⚠ Biên bản vi phạm: {g.khaiBao.ghiChuViPham || 'cơi nới thùng không báo trước'}</div>}
               <div className="flex items-center gap-3 mt-2">
                 <button onClick={() => setXemBienBanViPham(g.khaiBao)} className="text-[11px] bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In biên bản</button>
@@ -1604,7 +1620,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
               {lichSuCuaPlate.map((k) => (
                 <div key={k.id} className="py-2">
                   <div className="text-white font-semibold">{gioVN(k.time)} · {k.inspectorName}</div>
-                  <div className="text-slate-400 text-xs">{k.khoiLuong} m³{k.ngonKhoiLuong ? ` (gốc ${k.khoiLuongGoc} + ngọn ${k.ngonKhoiLuong})` : ''} · KH: {k.customerName}{k.dai ? ` · Thành thùng: ${k.dai}×${k.rong}×${k.cao}m` : ' · (chưa đo kích thước)'}{k.ngonDai ? ` · Kích thước ngọn: ${k.ngonDai}×${k.ngonRong}×${k.ngonCao}m` : ''}{k.viPham ? ' · ⚠ Có vi phạm' : ''}</div>
+                  <div className="text-slate-400 text-xs">{k.khoiLuong} m³{k.ngonKhoiLuong ? ` (thùng xe ${k.khoiLuongGoc} + ngọn ${k.ngonKhoiLuong})` : ''} · KH: {k.customerName}{k.dai ? ` · Thành thùng: ${k.dai}×${k.rong}×${k.cao}m` : ' · (chưa đo kích thước)'}{k.ngonDai ? ` · Kích thước ngọn: ${k.ngonDai}×${k.ngonRong}×${k.ngonCao}m` : ''}{k.viPham ? ' · ⚠ Có vi phạm' : ''}</div>
                 </div>
               ))}
             </div>
@@ -2558,22 +2574,28 @@ function BaoCaoMayXuc({ events }) {
   };
 
   // Chi tiết khối lượng theo TỪNG BIỂN SỐ trong 1 máy xúc — đúng mẫu báo cáo
-  // "BÁO CÁO CHI TIẾT KHỐI LƯỢNG MÁY XÚC" (STT / Biển số xe / Số chuyến /
-  // Khối lượng, có dòng Cộng). Tách thành hàm dùng chung `layChiTietTheoBienSo`
-  // để nút "Xuất Excel chi tiết" trên từng dòng máy xúc gọi thẳng được, không
-  // bắt buộc phải mở modal "Chi tiết theo xe" trước mới xuất được (21/08: làm
-  // nút xuất Excel chi tiết dễ thấy hơn theo yêu cầu).
+  // "BÁO CÁO CHI TIẾT KHỐI LƯỢNG MÁY XÚC" (STT / Ngày tháng / Biển số xe /
+  // Số chuyến / Khối lượng, có dòng Cộng). Tách thành hàm dùng chung
+  // `layChiTietTheoBienSo` để nút "Xuất Excel chi tiết" trên từng dòng máy xúc
+  // gọi thẳng được, không bắt buộc phải mở modal "Chi tiết theo xe" trước mới
+  // xuất được (21/08: làm nút xuất Excel chi tiết dễ thấy hơn theo yêu cầu).
+  // (Yêu cầu 15/09) Báo cáo theo kỳ/tháng trải nhiều ngày -> bổ sung cột
+  // "Ngày tháng" như báo cáo theo ngày. Để mỗi dòng có đúng 1 ngày tháng, gộp
+  // theo CẶP (ngày, biển số) thay vì gộp theo biển số suốt cả kỳ như trước.
   const layChiTietTheoBienSo = (excavatorId) => {
     const veTheoBienSo = {};
     events.filter((e) => e.type === 'ticket_print' && e.excavatorId === excavatorId && dayStrOf(e.time) >= tuThang && dayStrOf(e.time) <= denThang)
-      .forEach((t) => { veTheoBienSo[t.plate] = veTheoBienSo[t.plate] || { plate: t.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] }; veTheoBienSo[t.plate].soChuyen += 1; veTheoBienSo[t.plate].khoiLuong += t.volume; veTheoBienSo[t.plate].thoiGianXucList.push(t.time); });
-    // (Sửa lỗi 09/09, mục 6) Báo cáo theo kỳ/tháng trải nhiều ngày -> ghi kèm
-    // ngày/tháng cho từng giờ xúc (gioVN đầy đủ), không chỉ giờ:phút.
+      .forEach((t) => {
+        const ngayT = dayStrOf(t.time);
+        const key = `${ngayT}|${t.plate}`;
+        veTheoBienSo[key] = veTheoBienSo[key] || { ngay: ngayT, plate: t.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] };
+        veTheoBienSo[key].soChuyen += 1; veTheoBienSo[key].khoiLuong += t.volume; veTheoBienSo[key].thoiGianXucList.push(t.time);
+      });
     const ds = Object.values(veTheoBienSo).map((b) => ({
       ...b,
       thoiGianXucList: b.thoiGianXucList.slice().sort(),
-      thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioVN).join('; '),
-    }));
+      thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioNgan).join(', '),
+    })).sort((a, b) => a.ngay.localeCompare(b.ngay) || a.plate.localeCompare(b.plate));
     const tong = ds.reduce((s, b) => ({ soChuyen: s.soChuyen + b.soChuyen, khoiLuong: s.khoiLuong + b.khoiLuong }), { soChuyen: 0, khoiLuong: 0 });
     return { ds, tong };
   };
@@ -2581,22 +2603,22 @@ function BaoCaoMayXuc({ events }) {
     const { ds, tong } = layChiTietTheoBienSo(m.excavatorId);
     xuatExcel({ 'Chi tiết': [
       ['Máy xúc', m.excavatorName], ['Lái máy xúc', Array.from(m.laiXe).join(', ')], ['Từ ngày', ngayVN(tuThang)], ['Đến ngày', ngayVN(denThang)], [],
-      ['STT', 'Biển số xe', 'Thời gian xúc', 'Số chuyến', 'Khối lượng (m3)'],
-      ...ds.map((b, i) => [i + 1, b.plate, b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
-      ['', 'Cộng', '', tong.soChuyen, tong.khoiLuong],
+      ['STT', 'Ngày tháng', 'Biển số xe', 'Thời gian xúc', 'Số chuyến', 'Khối lượng (m3)'],
+      ...ds.map((b, i) => [i + 1, ngayVN(b.ngay), b.plate, b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
+      ['', '', 'Cộng', '', tong.soChuyen, tong.khoiLuong],
     ] }, `chi-tiet-${m.excavatorName}-${tuThang}_${denThang}`);
   };
   const mayDangXem = dsMayThang.find((m) => m.excavatorId === xemChiTietMay);
   const { ds: dsBienSo, tong: tongBienSo } = mayDangXem ? layChiTietTheoBienSo(mayDangXem.excavatorId) : { ds: [], tong: { soChuyen: 0, khoiLuong: 0 } };
   const chiTietMayHTML = () => {
-    const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
+    const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${ngayVN(b.ngay)}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
     return `
       <p><b>Công ty Cp DV và TM Thống Nhất</b></p><p>Mỏ khuôn giàn 3</p>
       <h2 class="ct">BÁO CÁO CHI TIẾT KHỐI LƯỢNG MÁY XÚC</h2>
       <p>máy xúc:....${mayDangXem?.excavatorName || ''}.... &nbsp;&nbsp; Lái máy xúc:....${Array.from(mayDangXem?.laiXe || []).join(', ')}....</p>
       <p class="ct">Từ ngày ${ngayVN(tuThang)} đến ngày ${ngayVN(denThang)}</p>
-      <table><tr><th>STT</th><th>Biển số xe</th><th>Thời gian xúc</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${hang}
-      <tr><td colspan="3"><b>Cộng</b></td><td>${soVN(tongBienSo.soChuyen)}</td><td>${soVN(tongBienSo.khoiLuong)}</td></tr></table>
+      <table><tr><th>STT</th><th>Ngày tháng</th><th>Biển số xe</th><th>Thời gian xúc</th><th>Số chuyến</th><th>Khối lượng (m3)</th></tr>${hang}
+      <tr><td colspan="4"><b>Cộng</b></td><td>${soVN(tongBienSo.soChuyen)}</td><td>${soVN(tongBienSo.khoiLuong)}</td></tr></table>
       <br/><table class="khonvien"><tr><td class="khonvien ct"><b>Xác nhận của lái máy</b></td><td class="khonvien ct"><b>Kế toán mỏ</b></td><td class="khonvien ct"><b>Kỹ thuật</b></td></tr></table>`;
   };
 
@@ -2681,8 +2703,8 @@ function BaoCaoMayXuc({ events }) {
               </div>
             </div>
             {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : (
-              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th></tr></thead>
-                <tbody>{dsBienSo.map((b) => (<tr key={b.plate} className="border-t border-slate-700"><td className="py-1.5 text-white font-bold">{b.plate}</td><td className="py-1.5 text-slate-400 text-xs">{b.thoiGianXuc}</td><td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td><td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td></tr>))}</tbody>
+              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th></tr></thead>
+                <tbody>{dsBienSo.map((b) => (<tr key={`${b.ngay}-${b.plate}`} className="border-t border-slate-700"><td className="py-1.5 text-slate-400 text-xs">{ngayVN(b.ngay)}</td><td className="py-1.5 text-white font-bold">{b.plate}</td><td className="py-1.5 text-slate-400 text-xs">{b.thoiGianXuc}</td><td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td><td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td></tr>))}</tbody>
               </table>
             )}
             <button onClick={() => setXemChiTietMay(null)} className="w-full mt-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm">Đóng</button>
