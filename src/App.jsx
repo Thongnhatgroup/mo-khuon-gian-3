@@ -85,6 +85,10 @@ const HAN_KIEM_TRA_NGAY = 3;
 // ---------------------------------------------------------------------------
 function genId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
 function soVN(n) { return Number(n || 0).toLocaleString('vi-VN'); }
+// (Yêu cầu 16/09) Khối lượng (thùng xe / cộng thêm do ngọn / tổng) chỉ lấy 1
+// chữ số sau dấu phẩy (VD: 21,7 m3) — dùng khi tính từ công thức Dài×Rộng×Cao
+// và khi lưu khai báo, để tránh số lẻ dài do nhân 3 số thập phân với nhau.
+function lamTron1(n) { return Math.round((Number(n) || 0) * 10) / 10; }
 function tienVN(n) { return Number(n || 0).toLocaleString('vi-VN') + ' đ'; }
 function todayStr() { const d = new Date(Date.now() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); }
 function dayStrOf(iso) { const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); }
@@ -1291,6 +1295,10 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
   const [xuLyXeLa, setXuLyXeLa] = useState(null); // {alert, khoiLuong, customerId}
   const [dangXuLyKhongRa, setDangXuLyKhongRa] = useState(null); // plate đang lập biên bản không ra
   const [dangSuaBienSo, setDangSuaBienSo] = useState(null); // id gate_in đang sửa biển số + giá trị nhập
+  // (Yêu cầu 16/09) Tra cứu lại biên bản kỹ thuật (kiểm tra kích thước lại +
+  // vi phạm cơi nới) theo khoảng thời gian tự chọn — mặc định tháng hiện tại.
+  const [tuNgayBB, setTuNgayBB] = useState(todayStr().slice(0, 8) + '01');
+  const [denNgayBB, setDenNgayBB] = useState(todayStr());
 
   const today = todayStr();
   // (Sửa lỗi 09/09) Xe đã được Bảo vệ xác nhận RA CỔNG KHÔNG CÓ HÀNG thì
@@ -1300,6 +1308,13 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
   const khaiBaos = events.filter((e) => e.type === 'ky_thuat_khai_bao');
   const bienBans = events.filter((e) => e.type === 'bien_ban');
   const daLapBienBanIds = new Set(bienBans.flatMap((b) => b.khaiBaoIds));
+  // (Yêu cầu 16/09) Mỗi lần Kỹ thuật khai báo/kiểm tra lại đều sinh ra được 1
+  // "biên bản kiểm tra khối lượng" (xem bienBanHTML) — kể cả lần vi phạm cơi
+  // nới. Trước đây chỉ xem lại được biên bản của xe đang hiển thị trong danh
+  // sách HÔM NAY; nay cho tra cứu mọi biên bản (mọi ngày) theo khoảng thời gian.
+  const dsBienBanTraCuu = khaiBaos
+    .filter((k) => dayStrOf(k.time) >= tuNgayBB && dayStrOf(k.time) <= denNgayBB)
+    .slice().sort((a, b) => b.time.localeCompare(a.time));
 
   const kichThuocBanDauTheoPlate = {};
   khaiBaos.slice().sort((a, b) => a.time.localeCompare(b.time)).forEach((k) => { if (!kichThuocBanDauTheoPlate[k.plate]) kichThuocBanDauTheoPlate[k.plate] = k; });
@@ -1335,13 +1350,14 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
     // (Yêu cầu 14/09) Kích thước phần ngọn — riêng, không bắt buộc, ghi thêm khi
     // xe chất đất cao hơn thành thùng (không cộng dồn tự động vào dai/rong/cao ở trên).
     const ngonDai = Number(f.ngonDai) || goiY?.ngonDai || null, ngonRong = Number(f.ngonRong) || goiY?.ngonRong || null, ngonCao = Number(f.ngonCao) || goiY?.ngonCao || null;
-    // (Bổ sung 14/09 lần 2) Phần ngọn chỉ ghi chú kích thước (không tự động tính
-    // ra khối lượng theo công thức) — nhưng có thêm ô để Kỹ thuật TỰ ĐÁNH khối
-    // lượng cộng thêm do ngọn, cộng vào khối lượng gốc (khối lượng khi chưa có
-    // ngọn) để ra tổng khối lượng thực xác nhận cho xe.
-    const khoiLuongGoc = khoiLuong;
-    const ngonKhoiLuong = Number(f.ngonKhoiLuong) || goiY?.ngonKhoiLuong || 0;
-    const tongKhoiLuong = khoiLuongGoc + ngonKhoiLuong;
+    // (Yêu cầu 16/09) Khối lượng thùng xe = Dài×Rộng×Cao (thành thùng) và khối
+    // lượng cộng thêm = Dài×Rộng×Cao (phần ngọn) đã được tự động tính & điền
+    // sẵn vào ô tương ứng ngay khi nhập đủ 3 kích thước (xem capNhatKichThuoc ở
+    // trên) — Kỹ thuật có thể sửa tay lại nếu cần. Ở đây chỉ làm tròn 1 chữ số
+    // thập phân trước khi lưu, tránh số lẻ dài do nhân 3 số thập phân.
+    const khoiLuongGoc = lamTron1(khoiLuong);
+    const ngonKhoiLuong = lamTron1(Number(f.ngonKhoiLuong) || goiY?.ngonKhoiLuong || 0);
+    const tongKhoiLuong = lamTron1(khoiLuongGoc + ngonKhoiLuong);
     const customerId = f.customerId || goiYKhachHangTheoPlate(g.plate, events) || config.customers[0]?.id;
     const customer = config.customers.find((c) => c.id === customerId);
     if (!customer) return notify('Chưa có khách hàng nào trong hệ thống — Kế toán/Giám đốc cần thêm khách hàng trước', true);
@@ -1469,12 +1485,29 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
         // (Bổ sung 10/09) Gợi ý điền sẵn theo lần khai báo gần nhất của biển số
         // này (nếu có) — chỉ có ý nghĩa khi xe CHƯA khai báo cho lượt vào cổng lần này.
         const khaiBaoGoiY = !g.khaiBao ? khaiBaoGanNhatTheoPlate(g.plate, events) : null;
-        // (Yêu cầu 15/09) "Khối lượng dự kiến" đổi thành "Tổng khối lượng", tự
-        // tính = khối lượng thùng xe (đo/đánh theo kích thước thành thùng) +
-        // khối lượng cộng thêm do ngọn — không cho gõ tay trực tiếp vào tổng nữa.
-        const thungXeVal = Number(form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong) || 0;
-        const ngonVal = Number(form[g.id]?.ngonKhoiLuong ?? khaiBaoGoiY?.ngonKhoiLuong) || 0;
-        const tongKhoiLuongForm = thungXeVal + ngonVal;
+        // (Yêu cầu 16/09) Khi Kỹ thuật nhập đủ Dài/Rộng/Cao (thành thùng xe hoặc
+        // phần ngọn), tự động áp công thức Dài×Rộng×Cao để điền vào ô khối lượng
+        // tương ứng (làm tròn 1 chữ số thập phân). Ô khối lượng vẫn là input bình
+        // thường nên Kỹ thuật vẫn sửa tay lại được nếu số đo thực tế khác đi.
+        const capNhatKichThuoc = (nhom, field, value) => {
+          const f = form[g.id] || {};
+          const upd = { ...f, [field]: value };
+          if (nhom === 'thung') {
+            const dai = Number(field === 'dai' ? value : (f.dai ?? khaiBaoGoiY?.dai));
+            const rong = Number(field === 'rong' ? value : (f.rong ?? khaiBaoGoiY?.rong));
+            const cao = Number(field === 'cao' ? value : (f.cao ?? khaiBaoGoiY?.cao));
+            if (dai > 0 && rong > 0 && cao > 0) upd.khoiLuong = lamTron1(dai * rong * cao);
+          } else {
+            const dai = Number(field === 'ngonDai' ? value : (f.ngonDai ?? khaiBaoGoiY?.ngonDai));
+            const rong = Number(field === 'ngonRong' ? value : (f.ngonRong ?? khaiBaoGoiY?.ngonRong));
+            const cao = Number(field === 'ngonCao' ? value : (f.ngonCao ?? khaiBaoGoiY?.ngonCao));
+            if (dai > 0 && rong > 0 && cao > 0) upd.ngonKhoiLuong = lamTron1(dai * rong * cao);
+          }
+          setForm({ ...form, [g.id]: upd });
+        };
+        const thungXeVal = lamTron1(form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong);
+        const ngonVal = lamTron1(form[g.id]?.ngonKhoiLuong ?? khaiBaoGoiY?.ngonKhoiLuong);
+        const tongKhoiLuongForm = lamTron1(thungXeVal + ngonVal);
         return (
         <Card key={g.id} className={`mb-3 border ${mauTrangThai[g.trangThai]}`}>
           <div className="flex justify-between items-start gap-2">
@@ -1526,9 +1559,9 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
               </div>
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước thành thùng xe (m) — không bắt buộc</label>
               <div className="grid grid-cols-3 gap-2">
-                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.dai || khaiBaoGoiY?.dai || ''} onChange={(e) => capNhatForm(g.id, 'dai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong || khaiBaoGoiY?.rong || ''} onChange={(e) => capNhatForm(g.id, 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao || khaiBaoGoiY?.cao || ''} onChange={(e) => capNhatForm(g.id, 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.dai || khaiBaoGoiY?.dai || ''} onChange={(e) => capNhatKichThuoc('thung', 'dai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong || khaiBaoGoiY?.rong || ''} onChange={(e) => capNhatKichThuoc('thung', 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao || khaiBaoGoiY?.cao || ''} onChange={(e) => capNhatKichThuoc('thung', 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               </div>
               {/* (Yêu cầu 15/09) Thêm dòng "Khối lượng thùng xe" ngay trong mục kích
                   thước thành thùng — đây là số Kỹ thuật TỰ ĐÁNH (không tự tính theo
@@ -1543,9 +1576,9 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                   vụ đối chiếu khi lập biên bản vi phạm vượt khối lượng. */}
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước phần ngọn (khối đất cao hơn thành thùng, m) — không bắt buộc, chỉ để ghi chú</label>
               <div className="grid grid-cols-3 gap-2">
-                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.ngonDai || khaiBaoGoiY?.ngonDai || ''} onChange={(e) => capNhatForm(g.id, 'ngonDai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.ngonRong || khaiBaoGoiY?.ngonRong || ''} onChange={(e) => capNhatForm(g.id, 'ngonRong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.ngonCao || khaiBaoGoiY?.ngonCao || ''} onChange={(e) => capNhatForm(g.id, 'ngonCao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.ngonDai || khaiBaoGoiY?.ngonDai || ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonDai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.ngonRong || khaiBaoGoiY?.ngonRong || ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonRong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.ngonCao || khaiBaoGoiY?.ngonCao || ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonCao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               </div>
               {/* (Bổ sung 14/09 lần 2) Phần ngọn chỉ ghi chú kích thước ở trên (không
                   tự tính ra m³ theo công thức) — ô riêng này để Kỹ thuật TỰ ĐÁNH số
@@ -1607,6 +1640,34 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
         {homNayBienBan.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Chưa lập biên bản nào.</div> : (
           <div className="divide-y divide-slate-700 text-sm">
             {homNayBienBan.map((b) => <div key={b.id} className="py-2 flex justify-between"><span className="text-white">{b.soLuongXe} xe · {b.inspectorName}</span><span className="text-slate-400">{gioVN(b.time)}</span></div>)}
+          </div>
+        )}
+      </Card>
+
+      {/* (Yêu cầu 16/09) Tra cứu lại biên bản kỹ thuật đã lập (kiểm tra kích
+          thước lại + vi phạm cơi nới/vượt khối lượng) theo khoảng thời gian tự
+          chọn — dữ liệu các khai báo được lưu vĩnh viễn trong hệ thống, chỉ cần
+          chọn từ ngày/đến ngày là tìm lại được, không giới hạn trong hôm nay. */}
+      <SectionTitle>Tra cứu biên bản kỹ thuật ({dsBienBanTraCuu.length})</SectionTitle>
+      <Card className="mb-4">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <InputNgayVN value={tuNgayBB} onChange={(e) => setTuNgayBB(e.target.value)} />
+          <span className="text-slate-400">→</span>
+          <InputNgayVN value={denNgayBB} onChange={(e) => setDenNgayBB(e.target.value)} />
+        </div>
+        {dsBienBanTraCuu.length === 0 ? (
+          <div className="text-slate-500 text-sm text-center py-4">Không có biên bản nào trong khoảng thời gian này.</div>
+        ) : (
+          <div className="divide-y divide-slate-700 text-sm max-h-96 overflow-y-auto">
+            {dsBienBanTraCuu.map((k) => (
+              <div key={k.id} className="py-2 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-white font-semibold tabular-nums truncate">{k.plate} · {gioVN(k.time)}</div>
+                  <div className="text-slate-400 text-xs truncate">{k.khoiLuong} m³ · KH: {k.customerName || '—'} · {k.viPham ? <span className="text-amber-400">⚠ Vi phạm cơi nới</span> : 'Kiểm tra kích thước/khối lượng'} · {k.inspectorName}</div>
+                </div>
+                <button onClick={() => setXemBienBanViPham(k)} className="text-[11px] bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded-full font-semibold flex-shrink-0">Xem / In</button>
+              </div>
+            ))}
           </div>
         )}
       </Card>
