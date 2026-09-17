@@ -1307,6 +1307,11 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   const [denNgayBB, setDenNgayBB] = useState(todayStr());
   // (Yêu cầu 17/09) Đang mở form thêm loại xe mới cho xe nào — { gateId, ten, khoiLuong }.
   const [dangThemLoaiXe, setDangThemLoaiXe] = useState(null);
+  // (Yêu cầu 17/09) Xe đang trong hạn "Miễn" (đã kiểm tra trong 3 ngày gần
+  // đây) nhưng Kỹ thuật nghi ngờ bị cơi nới thùng thì vẫn kiểm tra bất chợt
+  // được ngay, không phải chờ đến đúng định kỳ 3 ngày — object {[gateId]: true}
+  // đánh dấu những xe đang mở form kiểm tra bất chợt này.
+  const [dangKiemTraBatChot, setDangKiemTraBatChot] = useState({});
 
   const today = todayStr();
   // (Yêu cầu 17/09) Danh sách loại xe lấy từ config (dùng chung, đồng bộ mọi
@@ -1572,11 +1577,22 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
             <span className={`text-[11px] px-2 py-1 rounded-full font-bold whitespace-nowrap ${mauNhan[g.trangThai]}`}>{nhanTrangThai[g.trangThai]}{g.trangThai === 'vang' && ` (còn ${g.conLai} ngày)`}</span>
           </div>
 
-          {g.trangThai === 'mien' && (
-            <div className="mt-3 text-sm text-slate-300">Dùng khai báo trước đó: {g.hopLe.khoiLuong} m³ · KH: <b className="text-white">{g.hopLe.customerName}</b> — lái máy xúc có thể xúc ngay, không cần thao tác thêm.</div>
+          {/* (Yêu cầu 17/09) Xe đang trong hạn Miễn vẫn kiểm tra bất chợt được ngay
+              nếu nghi ngờ cơi nới thùng — không cần đợi đúng định kỳ 3 ngày mới
+              được kiểm tra lại. Quy định kiểm tra định kỳ 3 ngày (khaiBaoHopLe)
+              không đổi — nút này chỉ mở thêm 1 đường để Kỹ thuật CHỦ ĐỘNG kiểm
+              tra sớm hơn, giống hệt cơ chế lái máy xúc "Báo cơi nới" đã có, nhưng
+              do chính Kỹ thuật phát hiện & thực hiện ngay tại chỗ. */}
+          {g.trangThai === 'mien' && !dangKiemTraBatChot[g.id] && (
+            <div className="mt-3 text-sm text-slate-300">
+              Dùng khai báo trước đó: {g.hopLe.khoiLuong} m³ · KH: <b className="text-white">{g.hopLe.customerName}</b> — lái máy xúc có thể xúc ngay, không cần thao tác thêm.
+              <div className="mt-2">
+                <button onClick={() => setDangKiemTraBatChot((prev) => ({ ...prev, [g.id]: true }))} className="text-[11px] bg-amber-600/20 hover:bg-amber-600/30 border border-amber-600/50 text-amber-400 px-2.5 py-1 rounded-full font-semibold">🔍 Kiểm tra bất chợt (nghi cơi nới thùng)</button>
+              </div>
+            </div>
           )}
 
-          {!g.khaiBao && g.trangThai !== 'mien' ? (
+          {(!g.khaiBao && g.trangThai !== 'mien') || (g.trangThai === 'mien' && dangKiemTraBatChot[g.id]) ? (
             <>
               {khaiBaoGoiY && (
                 <div className="mt-3 text-[11px] text-brand-400 bg-brand-500/10 border border-brand-600/30 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
@@ -1665,9 +1681,15 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
                 <input value={form[g.id]?.ghiChuViPham || ''} onChange={(e) => capNhatForm(g.id, 'ghiChuViPham', e.target.value)} placeholder="Ghi chú vi phạm (VD: cơi nới thêm 0.3m thành thùng)"
                   className="w-full mt-2 bg-slate-950 border border-amber-600 rounded-lg px-2 py-2 text-white text-sm" />
               )}
-              <button onClick={() => khaiBao(g)} className={`w-full mt-2 font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 text-white ${form[g.id]?.viPham ? 'bg-amber-600 hover:bg-amber-700' : 'bg-brand-600 hover:bg-brand-700'}`}>
+              <button onClick={() => { khaiBao(g); setDangKiemTraBatChot((prev) => ({ ...prev, [g.id]: false })); }} className={`w-full mt-2 font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 text-white ${form[g.id]?.viPham ? 'bg-amber-600 hover:bg-amber-700' : 'bg-brand-600 hover:bg-brand-700'}`}>
                 <CheckCircle2 className="w-4 h-4" /> {form[g.id]?.viPham ? 'Lập biên bản vi phạm & xác nhận lại' : 'Xác nhận khai báo'}
               </button>
+              {/* (Yêu cầu 17/09) Đang kiểm tra bất chợt xe trong hạn Miễn — cho phép
+                  hủy quay lại dùng khai báo cũ nếu bấm nhầm hoặc kiểm tra xong thấy
+                  không có vấn đề gì, không cần lập biên bản mới. */}
+              {g.trangThai === 'mien' && (
+                <button onClick={() => setDangKiemTraBatChot((prev) => ({ ...prev, [g.id]: false }))} className="w-full mt-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold py-2 rounded-lg">Hủy kiểm tra bất chợt, dùng lại khai báo cũ</button>
+              )}
             </>
           ) : g.khaiBao ? (
             <>
