@@ -49,6 +49,12 @@ const LOAI_XE_MAP = Object.fromEntries(LOAI_XE.map((x) => [x.id, x]));
 
 const DEFAULT_CONFIG = {
   vehicleCapacity: 25,
+  // (Yêu cầu 17/09) Danh sách loại xe KHÔNG còn cố định trong code — Kỹ thuật
+  // có thể thêm loại xe mới ngay khi gặp xe vào mỏ thuộc loại chưa có trong
+  // danh sách (xem KyThuatScreen). Mặc định vẫn lấy từ LOAI_XE ở trên, nhưng
+  // được lưu vào config (dùng chung, đồng bộ mọi máy) để các loại xe thêm mới
+  // không bị mất và chọn lại được luôn ở lần sau.
+  vehicleTypes: LOAI_XE,
   excavators: [
     { id: 'XUC-01', name: 'Máy xúc 01' }, { id: 'XUC-02', name: 'Máy xúc 02' },
     { id: 'XUC-03', name: 'Máy xúc 03' }, { id: 'XUC-04', name: 'Máy xúc 04' },
@@ -1286,7 +1292,7 @@ function BienBanModal({ khaiBao, events, onClose }) {
   );
 }
 
-function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
+function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName }) {
   const [toast, notify] = useToast();
   const [form, setForm] = useState({});
   const [checked, setChecked] = useState({});
@@ -1299,8 +1305,16 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
   // vi phạm cơi nới) theo khoảng thời gian tự chọn — mặc định tháng hiện tại.
   const [tuNgayBB, setTuNgayBB] = useState(todayStr().slice(0, 8) + '01');
   const [denNgayBB, setDenNgayBB] = useState(todayStr());
+  // (Yêu cầu 17/09) Đang mở form thêm loại xe mới cho xe nào — { gateId, ten, khoiLuong }.
+  const [dangThemLoaiXe, setDangThemLoaiXe] = useState(null);
 
   const today = todayStr();
+  // (Yêu cầu 17/09) Danh sách loại xe lấy từ config (dùng chung, đồng bộ mọi
+  // máy) — nếu config chưa có (dữ liệu cũ) thì dùng mặc định LOAI_XE. LUÔN
+  // dùng danhSachLoaiXe/danhSachLoaiXeMap thay vì LOAI_XE/LOAI_XE_MAP tĩnh ở
+  // bên dưới, để loại xe Kỹ thuật vừa thêm mới cũng tra cứu được ngay.
+  const danhSachLoaiXe = (config.vehicleTypes && config.vehicleTypes.length) ? config.vehicleTypes : LOAI_XE;
+  const danhSachLoaiXeMap = Object.fromEntries(danhSachLoaiXe.map((x) => [x.id, x]));
   // (Sửa lỗi 09/09) Xe đã được Bảo vệ xác nhận RA CỔNG KHÔNG CÓ HÀNG thì
   // không cần khai báo khối lượng nữa -> loại khỏi danh sách ngay.
   const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate && dayStrOf(e.time) === today
@@ -1333,7 +1347,31 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
     return { ...g, khaiBao: khaiBaoRieng, hopLe, trangThai, conLai, soLanKiemTraTruoc };
   }).sort((a, b) => (a.trangThai === 'do' ? -1 : 1) - (b.trangThai === 'do' ? -1 : 1) || b.time.localeCompare(a.time));
 
-  const capNhatForm = (id, field, value) => setForm({ ...form, [id]: { ...form[id], [field]: value } });
+  // (Sửa lỗi 17/09) TRƯỚC ĐÂY dùng setForm({ ...form, ... }) — lấy trực tiếp
+  // biến `form` đóng gói lúc render (closure cũ). Ô "Loại xe" gọi capNhatForm
+  // 2 LẦN liên tiếp trong cùng 1 sự kiện onChange (1 lần lưu loaiXe, 1 lần lưu
+  // khoiLuong gợi ý) — lần gọi thứ 2 vẫn dùng `form` CŨ (chưa có thay đổi của
+  // lần gọi thứ nhất) nên đã GHI ĐÈ mất lựa chọn loại xe, khiến ô chọn bị bật
+  // ngược lại giá trị cũ ngay sau khi chọn — TƯỞNG NHƯ không chọn được loại
+  // xe. Sửa bằng cách dùng hàm cập nhật (updater) setForm(prev => ...) để mỗi
+  // lần gọi luôn cộng dồn đúng trên kết quả mới nhất, kể cả gọi nhiều lần liền.
+  const capNhatForm = (id, field, value) => setForm((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+
+  // (Yêu cầu 17/09) Cho phép Kỹ thuật thêm loại xe mới ngay khi gặp xe vào mỏ
+  // thuộc loại chưa có trong danh sách — lưu vào config.vehicleTypes (dùng
+  // chung toàn hệ thống) để lần sau chọn lại được luôn, không phải thêm lại.
+  const themLoaiXeMoi = (g) => {
+    const ten = (dangThemLoaiXe?.ten || '').trim();
+    if (!ten) return notify('Nhập tên loại xe trước khi thêm', true);
+    if (danhSachLoaiXe.some((x) => x.ten.trim().toLowerCase() === ten.toLowerCase())) return notify('Loại xe này đã có trong danh sách', true);
+    const khoiLuongGoiY = Number(dangThemLoaiXe?.khoiLuong) || 20;
+    const xeMoi = { id: genId('LX'), ten, khoiLuong: khoiLuongGoiY };
+    setConfig({ ...config, vehicleTypes: [...danhSachLoaiXe, xeMoi] });
+    capNhatForm(g.id, 'loaiXe', xeMoi.id);
+    capNhatForm(g.id, 'khoiLuong', khoiLuongGoiY);
+    setDangThemLoaiXe(null);
+    notify(`Đã thêm loại xe mới "${ten}" và chọn cho xe ${g.plate}`);
+  };
 
   const khaiBao = (g) => {
     const f = form[g.id] || {};
@@ -1341,11 +1379,11 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
     // theo lần khai báo gần nhất của biển số này), thì khi lưu vẫn phải LẤY
     // ĐÚNG giá trị gợi ý đó — không được rơi về mặc định chuẩn của loại xe.
     const goiY = khaiBaoGanNhatTheoPlate(g.plate, events);
-    const loaiXeId = f.loaiXe || goiY?.loaiXe || LOAI_XE[0].id;
+    const loaiXeId = f.loaiXe || goiY?.loaiXe || danhSachLoaiXe[0].id;
     // Lưu ý: nếu lần khai báo gần nhất (goiY) có cộng thêm khối lượng ngọn thì
     // goiY.khoiLuong là TỔNG (đã gồm ngọn) — phải lấy goiY.khoiLuongGoc (khối
     // lượng gốc, chưa có ngọn) làm giá trị gợi ý cho ô này, tránh cộng ngọn 2 lần.
-    const khoiLuong = Number(f.khoiLuong) || goiY?.khoiLuongGoc || goiY?.khoiLuong || LOAI_XE_MAP[loaiXeId].khoiLuong;
+    const khoiLuong = Number(f.khoiLuong) || goiY?.khoiLuongGoc || goiY?.khoiLuong || danhSachLoaiXeMap[loaiXeId]?.khoiLuong || 20;
     const dai = Number(f.dai) || goiY?.dai || null, rong = Number(f.rong) || goiY?.rong || null, cao = Number(f.cao) || goiY?.cao || null;
     // (Yêu cầu 14/09) Kích thước phần ngọn — riêng, không bắt buộc, ghi thêm khi
     // xe chất đất cao hơn thành thùng (không cộng dồn tự động vào dai/rong/cao ở trên).
@@ -1503,9 +1541,9 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
             const cao = Number(field === 'ngonCao' ? value : (f.ngonCao ?? khaiBaoGoiY?.ngonCao));
             if (dai > 0 && rong > 0 && cao > 0) upd.ngonKhoiLuong = lamTron1(dai * rong * cao);
           }
-          setForm({ ...form, [g.id]: upd });
+          setForm((prev) => ({ ...prev, [g.id]: { ...prev[g.id], ...upd } }));
         };
-        const thungXeVal = lamTron1(form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong);
+        const thungXeVal = lamTron1(form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? danhSachLoaiXeMap[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || danhSachLoaiXe[0].id]?.khoiLuong ?? 20);
         const ngonVal = lamTron1(form[g.id]?.ngonKhoiLuong ?? khaiBaoGoiY?.ngonKhoiLuong);
         const tongKhoiLuongForm = lamTron1(thungXeVal + ngonVal);
         return (
@@ -1548,9 +1586,29 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <div>
                   <label className="block text-slate-400 text-xs mb-1">Loại xe (gợi ý nhanh)</label>
-                  <select value={form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id} onChange={(e) => { capNhatForm(g.id, 'loaiXe', e.target.value); capNhatForm(g.id, 'khoiLuong', LOAI_XE_MAP[e.target.value].khoiLuong); }} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm">
-                    {LOAI_XE.map((x) => <option key={x.id} value={x.id}>{x.ten}</option>)}
+                  <select value={form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || danhSachLoaiXe[0].id} onChange={(e) => {
+                    if (e.target.value === '__them_moi__') { setDangThemLoaiXe({ gateId: g.id, ten: '', khoiLuong: '' }); return; }
+                    capNhatForm(g.id, 'loaiXe', e.target.value);
+                    capNhatForm(g.id, 'khoiLuong', danhSachLoaiXeMap[e.target.value].khoiLuong);
+                  }} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm">
+                    {danhSachLoaiXe.map((x) => <option key={x.id} value={x.id}>{x.ten}</option>)}
+                    <option value="__them_moi__">+ Thêm loại xe khác…</option>
                   </select>
+                  {/* (Yêu cầu 17/09) Xe vào mỏ thuộc loại chưa có trong danh sách —
+                      Kỹ thuật thêm ngay tại đây, không cần rời màn hình. Loại xe mới
+                      được lưu chung (config) nên lần sau mọi máy đều chọn lại được. */}
+                  {dangThemLoaiXe?.gateId === g.id && (
+                    <div className="mt-2 bg-slate-950 border border-brand-600/50 rounded-lg p-2.5">
+                      <label className="block text-slate-400 text-xs mb-1">Tên loại xe mới</label>
+                      <input value={dangThemLoaiXe.ten} onChange={(e) => setDangThemLoaiXe({ ...dangThemLoaiXe, ten: e.target.value })} placeholder="VD: Xe ben 3 chân" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm mb-2" autoFocus />
+                      <label className="block text-slate-400 text-xs mb-1">Khối lượng gợi ý (m³) — không bắt buộc</label>
+                      <input type="number" step="0.1" value={dangThemLoaiXe.khoiLuong} onChange={(e) => setDangThemLoaiXe({ ...dangThemLoaiXe, khoiLuong: e.target.value })} placeholder="VD: 20" className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm" />
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <button onClick={() => setDangThemLoaiXe(null)} className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold py-1.5 rounded-lg">Hủy</button>
+                        <button onClick={() => themLoaiXeMoi(g)} className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold py-1.5 rounded-lg">Thêm &amp; chọn</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-slate-400 text-xs mb-1">Tổng khối lượng (m³)</label>
@@ -1569,7 +1627,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
                   tuyệt đối), dùng làm thành phần "khối lượng gốc" để cộng với khối
                   lượng ngọn ra Tổng khối lượng ở khung phía trên. */}
               <label className="block text-slate-400 text-xs mb-1 mt-2">Khối lượng thùng xe (m³)</label>
-              <input type="number" value={form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? LOAI_XE_MAP[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || LOAI_XE[0].id].khoiLuong} onChange={(e) => capNhatForm(g.id, 'khoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+              <input type="number" value={form[g.id]?.khoiLuong ?? khaiBaoGoiY?.khoiLuongGoc ?? khaiBaoGoiY?.khoiLuong ?? danhSachLoaiXeMap[form[g.id]?.loaiXe || khaiBaoGoiY?.loaiXe || danhSachLoaiXe[0].id]?.khoiLuong ?? 20} onChange={(e) => capNhatForm(g.id, 'khoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               {/* (Yêu cầu 14/09) Thêm dòng kích thước RIÊNG cho "phần ngọn" — phần đất
                   chất cao hơn thành thùng xe (không tính được bằng kích thước thành
                   thùng ở trên) — để Kỹ thuật ghi nhận đầy đủ khi xe có ngọn cao, phục
@@ -1613,7 +1671,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, myName }) {
             </>
           ) : g.khaiBao ? (
             <>
-              <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³{g.khaiBao.ngonKhoiLuong ? ` (thùng xe ${g.khaiBao.khoiLuongGoc} + ngọn ${g.khaiBao.ngonKhoiLuong})` : ''} · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {LOAI_XE_MAP[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · Thành thùng: ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}{g.khaiBao.ngonDai ? ` · Kích thước ngọn: ${g.khaiBao.ngonDai}×${g.khaiBao.ngonRong}×${g.khaiBao.ngonCao}m` : ''}</div>
+              <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³{g.khaiBao.ngonKhoiLuong ? ` (thùng xe ${g.khaiBao.khoiLuongGoc} + ngọn ${g.khaiBao.ngonKhoiLuong})` : ''} · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {danhSachLoaiXeMap[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · Thành thùng: ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}{g.khaiBao.ngonDai ? ` · Kích thước ngọn: ${g.khaiBao.ngonDai}×${g.khaiBao.ngonRong}×${g.khaiBao.ngonCao}m` : ''}</div>
               {g.khaiBao.viPham && <div className="mt-2 text-amber-400 text-xs">⚠ Biên bản vi phạm: {g.khaiBao.ghiChuViPham || 'cơi nới thùng không báo trước'}</div>}
               <div className="flex items-center gap-3 mt-2">
                 <button onClick={() => setXemBienBanViPham(g.khaiBao)} className="text-[11px] bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In biên bản</button>
@@ -1739,6 +1797,9 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
   const traMay = () => { addEvent({ id: genId('SE'), type: 'shift_end', sessionId: session.sessionId, time: new Date().toISOString() }); setSession(null); };
 
   const today = todayStr();
+  // (Yêu cầu 17/09) Loại xe Kỹ thuật thêm mới cũng cần hiện đúng tên ở đây —
+  // dùng chung config.vehicleTypes thay vì chỉ tra LOAI_XE_MAP tĩnh.
+  const danhSachLoaiXeMap = (config.vehicleTypes && config.vehicleTypes.length) ? Object.fromEntries(config.vehicleTypes.map((x) => [x.id, x])) : LOAI_XE_MAP;
   // (Sửa lỗi 09/09) Xe đã được Bảo vệ xác nhận RA CỔNG KHÔNG CÓ HÀNG thì
   // không còn chờ xúc nữa -> loại khỏi danh sách chờ xúc của lái máy xúc.
   const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate && dayStrOf(e.time) === today
@@ -1861,7 +1922,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
             {xeDangChon.photo && <img src={xeDangChon.photo} alt="" className="rounded-lg mb-2 max-h-32 w-full object-cover" />}
             {khaiBaoCuaXeDangChon ? (
               <>
-                <div className="text-emerald-400 text-xs">✅ Đã xác nhận kỹ thuật: {LOAI_XE_MAP[khaiBaoCuaXeDangChon.loaiXe]?.ten} — Khách hàng: {khaiBaoCuaXeDangChon.customerName}</div>
+                <div className="text-emerald-400 text-xs">✅ Đã xác nhận kỹ thuật: {danhSachLoaiXeMap[khaiBaoCuaXeDangChon.loaiXe]?.ten} — Khách hàng: {khaiBaoCuaXeDangChon.customerName}</div>
                 <button onClick={baoCoiNoi} className="mt-2 text-[11px] text-amber-400 underline">🚩 Báo xe này bị cơi nới thùng (yêu cầu Kỹ thuật kiểm tra lại)</button>
               </>
             ) : (
@@ -3466,7 +3527,7 @@ export default function App() {
       <TopBar session={session} onLogout={dangXuat} onChangePassword={() => setDoiMK(true)} onlineCount={onlineCount} syncing={syncing} />
       {role === 'baove' && <GateScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} />}
       {role === 'laixuc' && <DriverScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} myUsername={session.username} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
-      {role === 'kythuat' && <KyThuatScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} />}
+      {role === 'kythuat' && <KyThuatScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} myName={session.name} />}
       {role === 'ketoan' && <AccountantScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} />}
       {role === 'giamdoc' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="giamdoc" />}
       {role === 'ketoancongty' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="ketoancongty" />}
