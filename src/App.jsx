@@ -106,6 +106,33 @@ function dayStrOf(iso) { const d = new Date(new Date(iso).getTime() + 7 * 60 * 6
 function daLapBienBanKhongRa(events, plate, tuThoiDiem) {
   return events.some((b) => b.type === 'bien_ban_khong_ra' && b.plate === plate && b.time > tuThoiDiem);
 }
+// (Sửa lỗi 18/09) Ghép mỗi lượt "vào cổng" với lượt "ra cổng" SỚM NHẤT còn
+// chưa được dùng của cùng biển số (theo đúng thứ tự thời gian) — dùng CHUNG
+// cho cả màn Bảo vệ (danh sách "đang trong mỏ", để hiện nút xác nhận ra cổng)
+// và báo cáo "Chi tiết xe ra vào cổng", tránh lệch nhau giữa 2 nơi.
+// TRƯỚC ĐÂY "đang trong mỏ" chỉ kiểm tra kiểu "có tồn tại lượt ra nào sau lượt
+// vào này không" — với xe chạy NHIỀU CHUYẾN trong ngày (rất phổ biến ở mỏ),
+// hễ có 1 lượt ra bất kỳ của biển số đó xảy ra sau là các lượt vào TRƯỚC ĐÓ
+// cũng bị coi như đã ra hết, biến mất khỏi danh sách cần xác nhận ra cổng của
+// Bảo vệ -> các lượt ra cổng đó (nhất là "không có hàng" — ít được ưu tiên ghi
+// nhận hơn "có hàng" vì không gắn với cấp phiếu) không bao giờ có được ghi
+// nhận "ra cổng" tương ứng -> báo cáo xe ra vào cổng bị trống cột Giờ ra.
+function ghepVaoRaTheoXe(events) {
+  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate).sort((a, b) => a.time.localeCompare(b.time));
+  const gateOuts = events.filter((e) => e.type === 'gate_out' && e.plate).sort((a, b) => a.time.localeCompare(b.time));
+  const gateOutsByPlate = {};
+  gateOuts.forEach((e) => { (gateOutsByPlate[e.plate] = gateOutsByPlate[e.plate] || []).push(e); });
+  const daDungOutId = new Set();
+  const cap = gateIns.map((g) => {
+    const outs = gateOutsByPlate[g.plate] || [];
+    const matchOut = outs.find((o) => o.time > g.time && !daDungOutId.has(o.id));
+    if (matchOut) daDungOutId.add(matchOut.id);
+    return { gateIn: g, gateOut: matchOut || null };
+  });
+  // Lượt ra cổng không khớp được với lượt vào nào (bất thường / thiếu dữ liệu)
+  const chuaGhepOut = gateOuts.filter((o) => !daDungOutId.has(o.id));
+  return { cap, chuaGhepOut };
+}
 // Chuyển "YYYY-MM-DD" -> "DD/MM/YYYY" đúng chuẩn Việt Nam — sửa lỗi ngày bị
 // hiển thị ngược theo Bảng hiệu chỉnh V7.0 (mục IV, VI).
 function ngayVN(yyyyMmDd) {
@@ -939,9 +966,11 @@ function GateScreen({ events, addEvent, addEvents }) {
     notify(`Đã bổ sung ghi nhận xe ${p} vào cổng`);
   };
 
-  // Xe đang trong mỏ (đã vào, chưa ra) — để gợi ý khi ghi xe ra cổng
-  const tatCaGateIn = events.filter((e) => e.type === 'gate_in' && e.plate);
-  const dangTrongMo = tatCaGateIn.filter((g) => !events.some((o) => o.type === 'gate_out' && o.plate === g.plate && o.time > g.time));
+  // Xe đang trong mỏ (đã vào, chưa ra) — để gợi ý khi ghi xe ra cổng.
+  // (Sửa lỗi 18/09) Ghép vào/ra theo ĐÚNG từng lượt (xem hàm ghepVaoRaTheoXe)
+  // thay vì chỉ kiểm tra "có lượt ra nào sau đó không", để xe chạy nhiều
+  // chuyến/ngày không bị mất lượt vào khỏi danh sách cần xác nhận ra cổng.
+  const dangTrongMo = ghepVaoRaTheoXe(events).cap.filter((r) => !r.gateOut).map((r) => r.gateIn);
   // (I.1) Camera tự động đối chiếu: xe vào cổng từ NGÀY TRƯỚC mà vẫn chưa ra -> cảnh báo ĐỎ
   const xeQuaHanChuaRa = dangTrongMo.filter((g) => dayStrOf(g.time) !== today);
 
@@ -2552,20 +2581,13 @@ function BaoCaoXeKhongHangModal({ open, onClose, danhSach, events, tuNgay, denNg
 // bị bỏ sót khỏi báo cáo.
 function layDongXeRaVaoCong(tuNgay, denNgay, events) {
   const trongKy = (e) => dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay;
-  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate).sort((a, b) => a.time.localeCompare(b.time));
-  const gateOuts = events.filter((e) => e.type === 'gate_out' && e.plate).sort((a, b) => a.time.localeCompare(b.time));
-  const gateOutsByPlate = {};
-  gateOuts.forEach((e) => { (gateOutsByPlate[e.plate] = gateOutsByPlate[e.plate] || []).push(e); });
-
-  const daDungOutId = new Set();
-  const cap = gateIns.map((g) => {
-    const outs = gateOutsByPlate[g.plate] || [];
-    const matchOut = outs.find((o) => o.time > g.time && !daDungOutId.has(o.id));
-    if (matchOut) daDungOutId.add(matchOut.id);
-    return { gateIn: g, gateOut: matchOut || null };
-  });
+  // (Sửa lỗi 18/09) Dùng CHUNG hàm ghép vào/ra với màn Bảo vệ (ghepVaoRaTheoXe)
+  // để báo cáo và danh sách "đang trong mỏ" luôn khớp nhau — trước đây 2 nơi
+  // ghép khác thuật toán, khiến nhiều lượt ra cổng có ghi nhận nhưng không bao
+  // giờ tới tay Bảo vệ để xác nhận (xem chi tiết trong ghepVaoRaTheoXe).
+  const { cap, chuaGhepOut } = ghepVaoRaTheoXe(events);
   // Xe ra cổng nhưng KHÔNG khớp được với lượt vào nào (bất thường / thiếu dữ liệu)
-  gateOuts.filter((o) => !daDungOutId.has(o.id)).forEach((o) => cap.push({ gateIn: null, gateOut: o }));
+  chuaGhepOut.forEach((o) => cap.push({ gateIn: null, gateOut: o }));
 
   return cap
     .filter((r) => trongKy(r.gateIn || r.gateOut))
