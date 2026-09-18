@@ -890,6 +890,11 @@ function GateScreen({ events, addEvent, addEvents }) {
   const [xemHuongDanCamHikNangCao, setXemHuongDanCamHikNangCao] = useState(false);
   const [xemLogCam, setXemLogCam] = useState(false);
   const [logCamera, setLogCamera] = useState(null);
+  // (Bổ sung 18/09) Báo cáo chi tiết xe ra vào cổng — chọn khoảng ngày, mặc
+  // định hôm nay, xem trước rồi mới in/xuất (xem BaoCaoXeRaVaoCongModal).
+  const [tuNgayBaoCaoCong, setTuNgayBaoCaoCong] = useState(todayStr());
+  const [denNgayBaoCaoCong, setDenNgayBaoCaoCong] = useState(todayStr());
+  const [xemBaoCaoRaVaoCong, setXemBaoCaoRaVaoCong] = useState(false);
   const taiLogCamera = async () => { setLogCamera(await storageGet('camera_log', true, [])); };
   useEffect(() => { if (xemLogCam && logCamera === null) taiLogCamera(); }, [xemLogCam]);
   const [toast, notify] = useToast();
@@ -1211,6 +1216,17 @@ function GateScreen({ events, addEvent, addEvents }) {
         {xeRaHomNay.length > 0 && <div className="text-slate-500 text-xs mt-2">{xeRaHomNay.length} xe đã ra cổng hôm nay</div>}
       </Card>
 
+      <Card className="mt-4 border-brand-600/50">
+        <div className="font-bold text-white text-sm mb-1 flex items-center gap-1.5"><FileText className="w-4 h-4 text-brand-400" /> Báo cáo chi tiết xe ra vào cổng</div>
+        <p className="text-slate-400 text-xs mb-2">Chọn khoảng ngày cần báo cáo — xem trước, in trực tiếp (A4) hoặc xuất file Excel.</p>
+        <div className="flex items-center gap-2 flex-wrap mb-2">
+          <InputNgayVN value={tuNgayBaoCaoCong} onChange={(e) => setTuNgayBaoCaoCong(e.target.value)} />
+          <span className="text-slate-400">→</span>
+          <InputNgayVN value={denNgayBaoCaoCong} onChange={(e) => setDenNgayBaoCaoCong(e.target.value)} />
+        </div>
+        <button onClick={() => setXemBaoCaoRaVaoCong(true)} className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xem / In / Xuất báo cáo</button>
+      </Card>
+
       <SectionTitle>Xe vào cổng hôm nay ({daXacDinh.length}) · đang trong mỏ ({dangTrongMo.length})</SectionTitle>
       {daXacDinh.length === 0 ? <Card><div className="text-slate-500 text-sm text-center py-6">Chưa có xe nào.</div></Card> : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1230,6 +1246,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         </div>
       )}
       <Toast msg={toast?.msg} err={toast?.err} />
+      <BaoCaoXeRaVaoCongModal open={xemBaoCaoRaVaoCong} onClose={() => setXemBaoCaoRaVaoCong(false)} events={events} tuNgay={tuNgayBaoCaoCong} denNgay={denNgayBaoCaoCong} />
     </div>
   );
 }
@@ -2514,6 +2531,106 @@ function BaoCaoXeKhongHangModal({ open, onClose, danhSach, events, tuNgay, denNg
         <button onClick={() => xuatExcelXeKhongHang(danhSach, events, tuNgay, denNgay)} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất Excel</button>
         <button onClick={() => xuatWord(html, `bao-cao-xe-khong-hang-${tuNgay}`)} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xuất Word</button>
         <button onClick={() => inTrucTiep(html, 'Báo cáo xe ra cổng không có hàng')} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg">🖨️ In (A4)</button>
+        <button onClick={onClose} className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2.5 rounded-lg">Đóng</button>
+      </div>
+    </div>
+  );
+}
+// (Bổ sung 18/09) Báo cáo CHI TIẾT XE RA VÀO CỔNG cho Bảo vệ — khác với báo
+// cáo "xe ra cổng không có hàng" ở trên (chỉ liệt kê 1 nhóm nhỏ), báo cáo này
+// liệt kê ĐẦY ĐỦ mọi xe đã VÀO cổng trong khoảng thời gian chọn, kèm giờ ra
+// tương ứng (để trống nếu xe còn trong mỏ, chưa ra) — đúng theo mẫu giấy hiện
+// có của mỏ (Bảo vệ / Kỹ thuật / Kế toán ký cuối trang). Cột "Ghi chú" CHỈ
+// hiện nội dung khi xe đó ra cổng KHÔNG CÓ HÀNG (đúng theo chú thích trên mẫu
+// giấy: "Cột ghi chú này sẽ là ghi chú của các xe ra cổng không có hàng") — xe
+// ra có hàng (đã có phiếu) để trống, không lặp lại thông tin phiếu ở đây.
+// Ghép ĐÚNG cặp vào/ra theo thứ tự thời gian trên TOÀN BỘ lịch sử sự kiện
+// (không chỉ trong kỳ báo cáo) — để 1 xe ra/vào nhiều lần trong ngày không bị
+// ghép nhầm giờ ra của lượt khác, và xe vào cuối kỳ nhưng ra sau khi qua mốc
+// "đến ngày" vẫn hiện đúng giờ ra thực tế. Xe ra cổng mà KHÔNG khớp được với
+// lượt vào nào (bất thường / thiếu dữ liệu vào) vẫn được liệt kê riêng, không
+// bị bỏ sót khỏi báo cáo.
+function layDongXeRaVaoCong(tuNgay, denNgay, events) {
+  const trongKy = (e) => dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay;
+  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate).sort((a, b) => a.time.localeCompare(b.time));
+  const gateOuts = events.filter((e) => e.type === 'gate_out' && e.plate).sort((a, b) => a.time.localeCompare(b.time));
+  const gateOutsByPlate = {};
+  gateOuts.forEach((e) => { (gateOutsByPlate[e.plate] = gateOutsByPlate[e.plate] || []).push(e); });
+
+  const daDungOutId = new Set();
+  const cap = gateIns.map((g) => {
+    const outs = gateOutsByPlate[g.plate] || [];
+    const matchOut = outs.find((o) => o.time > g.time && !daDungOutId.has(o.id));
+    if (matchOut) daDungOutId.add(matchOut.id);
+    return { gateIn: g, gateOut: matchOut || null };
+  });
+  // Xe ra cổng nhưng KHÔNG khớp được với lượt vào nào (bất thường / thiếu dữ liệu)
+  gateOuts.filter((o) => !daDungOutId.has(o.id)).forEach((o) => cap.push({ gateIn: null, gateOut: o }));
+
+  return cap
+    .filter((r) => trongKy(r.gateIn || r.gateOut))
+    .sort((a, b) => (a.gateIn || a.gateOut).time.localeCompare((b.gateIn || b.gateOut).time))
+    .map((r) => ({
+      ngayThang: ngayVN(dayStrOf((r.gateIn || r.gateOut).time)),
+      plate: (r.gateIn || r.gateOut).plate,
+      gioVao: r.gateIn ? gioNgan(r.gateIn.time) : '',
+      gioRa: r.gateOut ? gioNgan(r.gateOut.time) : '',
+      ghiChu: r.gateOut && r.gateOut.coHang === false ? (r.gateOut.ghiChu || '') : (r.gateOut?.anomaly ? '⚠ Ra cổng không có ghi nhận vào trước đó' : ''),
+    }));
+}
+function baoCaoXeRaVaoCongHTML(tuNgay, denNgay, events) {
+  const dong = layDongXeRaVaoCong(tuNgay, denNgay, events);
+  const rows = dong.map((d, idx) => `
+    <tr>
+      <td class="ct">${idx + 1}</td>
+      <td class="ct">${d.ngayThang}</td>
+      <td class="ct"><b>${d.plate}</b></td>
+      <td class="ct">${d.gioVao}</td>
+      <td class="ct">${d.gioRa}</td>
+      <td>${d.ghiChu}</td>
+    </tr>`).join('');
+  const khoangThoiGian = tuNgay === denNgay ? `Ngày ${ngayVN(tuNgay)}` : `Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`;
+  return `
+    <table class="khonvien" style="margin-bottom:16px"><tr>
+      <td class="khonvien" style="width:50%"><b>CÔNG TY CỔ PHẦN DỊCH VỤ<br/>VÀ THƯƠNG MẠI THỐNG NHẤT<br/>MỎ KHUÔN GIÀN 3</b></td>
+      <td class="khonvien ct" style="width:50%"><b>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</b><br/><b>Độc lập – Tự do – Hạnh phúc</b></td>
+    </tr></table>
+    <h2 class="ct">BÁO CÁO CHI TIẾT XE RA VÀO CỔNG</h2>
+    <p class="ct">${khoangThoiGian}</p>
+    <table>
+      <tr><th>STT</th><th>Ngày tháng</th><th>Biển số xe</th><th>Giờ vào</th><th>Giờ ra</th><th>Ghi chú</th></tr>
+      ${rows || '<tr><td colspan="6" class="ct">Không có xe nào ra/vào cổng trong khoảng thời gian này</td></tr>'}
+      <tr><td colspan="2" class="ct"><b>Cộng</b></td><td class="ct"><b>${dong.length}</b></td><td colspan="3"></td></tr>
+    </table>
+    <br/>
+    <table class="khonvien"><tr>
+      <td class="khonvien ct"><b>BẢO VỆ</b></td><td class="khonvien ct"><b>KỸ THUẬT</b></td><td class="khonvien ct"><b>KẾ TOÁN</b></td>
+    </tr><tr><td class="khonvien" style="height:60px"></td><td class="khonvien"></td><td class="khonvien"></td></tr></table>
+  `;
+}
+function xuatExcelXeRaVaoCong(tuNgay, denNgay, events) {
+  const dong = layDongXeRaVaoCong(tuNgay, denNgay, events);
+  const khoangThoiGian = tuNgay === denNgay ? `Ngày ${ngayVN(tuNgay)}` : `Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`;
+  const rows = [
+    ['CÔNG TY CỔ PHẦN DỊCH VỤ VÀ THƯƠNG MẠI THỐNG NHẤT — MỎ KHUÔN GIÀN 3'],
+    ['BÁO CÁO CHI TIẾT XE RA VÀO CỔNG'],
+    [khoangThoiGian], [],
+    ['STT', 'Ngày tháng', 'Biển số xe', 'Giờ vào', 'Giờ ra', 'Ghi chú'],
+    ...dong.map((d, i) => [i + 1, d.ngayThang, d.plate, d.gioVao, d.gioRa, d.ghiChu]),
+    [], ['', 'Cộng', dong.length],
+  ];
+  xuatExcel({ 'Xe ra vào cổng': rows }, `bao-cao-xe-ra-vao-cong-${tuNgay}_${denNgay}`);
+}
+function BaoCaoXeRaVaoCongModal({ open, onClose, events, tuNgay, denNgay }) {
+  if (!open) return null;
+  const html = baoCaoXeRaVaoCongHTML(tuNgay, denNgay, events);
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white text-black rounded-lg p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto text-sm" onClick={(e) => e.stopPropagation()} dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="fixed bottom-6 flex gap-2 flex-wrap justify-center" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => xuatExcelXeRaVaoCong(tuNgay, denNgay, events)} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất Excel</button>
+        <button onClick={() => xuatWord(html, `bao-cao-xe-ra-vao-cong-${tuNgay}_${denNgay}`)} className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xuất Word</button>
+        <button onClick={() => inTrucTiep(html, 'Báo cáo chi tiết xe ra vào cổng')} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg">🖨️ In (A4)</button>
         <button onClick={onClose} className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2.5 rounded-lg">Đóng</button>
       </div>
     </div>
