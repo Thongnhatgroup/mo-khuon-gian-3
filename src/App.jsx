@@ -3554,6 +3554,11 @@ function QuanLyTaiKhoan() {
 
 function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
   const [range, setRange] = useState('day');
+  // (Bổ sung 18/09) Khoảng ngày cho lựa chọn "Tùy chọn" — cho phép Giám đốc mỏ
+  // (và các vai trò dùng chung màn hình này) tự chọn khoảng thời gian muốn
+  // kiểm tra, thay vì chỉ có các mốc cố định (Hôm nay/Tuần này/Tháng này/...).
+  const [tuTuyChinh, setTuTuyChinh] = useState(todayStr());
+  const [denTuyChinh, setDenTuyChinh] = useState(todayStr());
   const [donGia, setDonGia] = useState(config.donGiaBanDat);
   const [tab, setTab] = useState('tongquan');
   const [toast, notify] = useToast();
@@ -3569,6 +3574,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
     if (r === 'week') { const day = now.getUTCDay() || 7; const mon = new Date(now); mon.setUTCDate(now.getUTCDate() - day + 1); return d >= mon.toISOString().slice(0, 10) && d <= todayStr(); }
     if (r === 'month') return d.slice(0, 7) === todayStr().slice(0, 7);
     if (r === 'year') return d.slice(0, 4) === todayStr().slice(0, 4);
+    if (r === 'tuychinh') return d >= tuTuyChinh && d <= denTuyChinh;
     return true;
   };
 
@@ -3587,7 +3593,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
   const tongLuyKeNguyenKhoi = tongLuyKeM3 / thietKe.heSoNoRoi;
   const phanTram = Math.min(100, Math.round((tongLuyKeNguyenKhoi / thietKe.tongTruLuongNguyenKhoi) * 1000) / 10);
 
-  const days = lastNDays(range === 'all' ? 30 : 14);
+  const days = lastNDays(range === 'all' || range === 'tuychinh' ? 30 : 14);
   const chartData = days.map((d) => { const dayLoads = events.filter((e) => e.type === 'load_confirm' && dayStrOf(e.time) === d); return { ngay: d.slice(5), m3: dayLoads.reduce((s, l) => s + l.estVolume, 0) }; });
 
   const xuatCSV = () => {
@@ -3637,10 +3643,18 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro }) {
       {tab === 'tongquan' && (
         <>
           <div className="flex gap-2 mb-4 flex-wrap">
-            {[['day','Hôm nay'],['week','Tuần này'],['month','Tháng này'],['year','Năm nay'],['all','📌 Từ đầu dự án']].map(([id,label]) => (
+            {[['day','Hôm nay'],['week','Tuần này'],['month','Tháng này'],['year','Năm nay'],['tuychinh','🗓️ Tùy chọn'],['all','📌 Từ đầu dự án']].map(([id,label]) => (
               <button key={id} onClick={() => setRange(id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${range === id ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 border border-slate-700'}`}>{label}</button>
             ))}
           </div>
+          {range === 'tuychinh' && (
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <span className="text-slate-400 text-xs">Từ ngày</span>
+              <InputNgayVN value={tuTuyChinh} onChange={(e) => setTuTuyChinh(e.target.value)} />
+              <span className="text-slate-400 text-xs">đến ngày</span>
+              <InputNgayVN value={denTuyChinh} onChange={(e) => setDenTuyChinh(e.target.value)} />
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatBox label="Lượt xúc" value={soVN(loads.length)} />
             <StatBox label="m³ đã xúc" value={soVN(tongKhoiLuongXuc)} />
