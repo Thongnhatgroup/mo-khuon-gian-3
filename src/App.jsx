@@ -2043,7 +2043,12 @@ function bangKhachHang(tickets, config) {
 function tinhSoDuKhachHang(customerId, events, config) {
   const cus = config.customers.find((c) => c.id === customerId);
   const donGia = cus?.donGia || 0;
-  const thanhTien = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId).reduce((s, e) => s + e.volume * donGia, 0);
+  // (Bổ sung 18/09) Cộng thêm khối lượng bổ sung công nợ do phát hiện xe cơi
+  // nới thành thùng (Kế toán mỏ khai báo) — tính theo đơn giá HIỆN TẠI của
+  // khách hàng, cùng cách tính như ticket_print, để không bị lệch nếu đơn giá
+  // được sửa lại sau này (đúng nguyên tắc đang áp dụng cho toàn bộ công nợ).
+  const thanhTien = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId).reduce((s, e) => s + e.volume * donGia, 0)
+    + events.filter((e) => e.type === 'bo_sung_cong_no_coi_noi' && e.customerId === customerId).reduce((s, e) => s + e.tongKhoiLuong * donGia, 0);
   const daThanhToan = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId).reduce((s, e) => s + e.amount, 0);
   return thanhTien - daThanhToan;
 }
@@ -2055,11 +2060,17 @@ function tinhCongNoTheoKy(customerId, tuNgay, denNgay, events, config) {
   const donGia = cus?.donGia || 0;
   const truoc = (e) => dayStrOf(e.time) < tuNgay;
   const trongKy = (e) => dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay;
-  const thanhTienTruocKy = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.volume * donGia, 0);
+  // (Bổ sung 18/09) Cộng thêm phần bổ sung công nợ do xe cơi nới thành thùng
+  // (xem tinhSoDuKhachHang) vào cả dư đầu kỳ và khối lượng/thành tiền phát
+  // sinh trong kỳ, để "Báo cáo công nợ khách hàng" và "Chi tiết công nợ" luôn
+  // khớp nhau, không cần Kế toán phải cộng tay ở đâu khác.
+  const thanhTienTruocKy = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.volume * donGia, 0)
+    + events.filter((e) => e.type === 'bo_sung_cong_no_coi_noi' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.tongKhoiLuong * donGia, 0);
   const thanhToanTruocKy = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId && truoc(e)).reduce((s, e) => s + e.amount, 0);
   const duDauKy = thanhTienTruocKy - thanhToanTruocKy;
   const ticketsTrongKy = events.filter((e) => e.type === 'ticket_print' && e.customerId === customerId && trongKy(e));
-  const khoiLuong = ticketsTrongKy.reduce((s, e) => s + e.volume, 0);
+  const boSungTrongKy = events.filter((e) => e.type === 'bo_sung_cong_no_coi_noi' && e.customerId === customerId && trongKy(e));
+  const khoiLuong = ticketsTrongKy.reduce((s, e) => s + e.volume, 0) + boSungTrongKy.reduce((s, e) => s + e.tongKhoiLuong, 0);
   const thanhTien = khoiLuong * donGia;
   const daThanhToan = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId && trongKy(e)).reduce((s, e) => s + e.amount, 0);
   const duCuoiKy = duDauKy + thanhTien - daThanhToan;
@@ -2093,7 +2104,109 @@ function goiYKhachHangTheoPlate(plate, events) {
   return null;
 }
 
-function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
+// (Bổ sung 18/09) Khi Kỹ thuật lập biên bản phát hiện 1 xe cơi nới thành
+// thùng, khối lượng thực tế các chuyến xe ĐÃ CHẠY TRƯỚC ĐÓ của đúng biển số
+// này (khi chưa bị phát hiện) bị khai thiếu — cần tính bù theo biên bản và
+// cộng bổ sung vào công nợ khách hàng. Kế toán mỏ nhập: khối lượng bổ sung
+// cho MỖI chuyến (theo số đo trong biên bản) và số chuyến xe đã chạy trước
+// đó (theo biên bản của Kỹ thuật) — hệ thống tự tính tổng khối lượng và
+// thành tiền (theo đơn giá hiện tại của khách hàng), rồi ghi thành 1 sự kiện
+// duy nhất "bo_sung_cong_no_coi_noi". Sự kiện này được cộng thẳng vào công nợ
+// khách hàng ở tinhSoDuKhachHang/tinhCongNoTheoKy — không có thao tác nào
+// khác cần làm thêm. Cũng lưu thêm "volume"/"ticketNo" trùng giá trị để toàn
+// bộ chỗ hiển thị/xuất báo cáo chi tiết vốn đang đọc theo ticket_print (dùng
+// t.volume, t.ticketNo) hiển thị được luôn mà không phải sửa thêm nơi khác.
+function KhaiBaoBoSungCongNoCoiNoi({ config, events, addEvent, myName }) {
+  const [ngay, setNgay] = useState(todayStr());
+  const [plate, setPlate] = useState('');
+  const [customerId, setCustomerId] = useState(config.customers[0]?.id || '');
+  const [khoiLuongBoSung, setKhoiLuongBoSung] = useState('');
+  const [soChuyen, setSoChuyen] = useState('');
+  const [toast, notify] = useToast();
+
+  const khach = config.customers.find((c) => c.id === customerId) || null;
+  const donGia = khach?.donGia || 0;
+  const soKhoiLuong = Number(khoiLuongBoSung) || 0;
+  const soSoChuyen = Number(soChuyen) || 0;
+  const tongKhoiLuong = soKhoiLuong * soSoChuyen;
+  const thanhTien = tongKhoiLuong * donGia;
+
+  const xacNhan = () => {
+    const p = plate.trim().toUpperCase();
+    if (!p) return notify('Chưa nhập biển số xe', true);
+    if (!khach) return notify('Chưa chọn khách hàng', true);
+    if (!soKhoiLuong || soKhoiLuong <= 0) return notify('Khối lượng bổ sung phải lớn hơn 0', true);
+    if (!soSoChuyen || soSoChuyen <= 0) return notify('Số chuyến phải lớn hơn 0', true);
+    addEvent({
+      id: genId('BSCN'), type: 'bo_sung_cong_no_coi_noi',
+      time: `${ngay}T12:00:00+07:00`,
+      plate: p, customerId: khach.id, customerName: khach.name,
+      khoiLuongBoSung: soKhoiLuong, soChuyen: soSoChuyen, tongKhoiLuong,
+      volume: tongKhoiLuong, ticketNo: '⚠ Bổ sung cơi nới thùng',
+      declaredBy: myName || '',
+    });
+    notify(`Đã ghi bổ sung công nợ ${tienVN(thanhTien)} cho ${khach.name} — xe ${p} (${soSoChuyen} chuyến × ${soVN(soKhoiLuong)} m³)`);
+    setPlate(''); setKhoiLuongBoSung(''); setSoChuyen('');
+  };
+
+  const boSungGanDay = events.filter((e) => e.type === 'bo_sung_cong_no_coi_noi').slice().reverse().slice(0, 8);
+
+  return (
+    <Card className="mt-3 border border-amber-700/40">
+      <div className="text-amber-400 font-bold text-sm mb-1 flex items-center gap-1.5">🚧 Khai báo bổ sung công nợ — xe cơi nới thành thùng</div>
+      <p className="text-slate-400 text-xs mb-3">Dùng khi Kỹ thuật đã lập biên bản phát hiện xe cơi nới thùng, cần tính bù khối lượng cho các chuyến xe đã chạy trước đó của đúng biển số này theo biên bản. Sau khi xác nhận, khối lượng bổ sung tự động cộng vào công nợ của khách hàng.</p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-slate-400 text-xs">Ngày tháng</label>
+          <InputNgayVN value={ngay} onChange={(e) => setNgay(e.target.value)} className="w-full mt-1" />
+        </div>
+        <div>
+          <label className="text-slate-400 text-xs">Biển số xe</label>
+          <input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} placeholder="VD: 98A-123.45" className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
+        </div>
+        <div>
+          <label className="text-slate-400 text-xs">Khách hàng</label>
+          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+            {config.customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-slate-400 text-xs">Đơn giá (theo đơn giá của khách hàng)</label>
+          <div className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-300 text-sm">{tienVN(donGia)}/m³</div>
+        </div>
+        <div>
+          <label className="text-slate-400 text-xs">Khối lượng bổ sung (m³ / chuyến)</label>
+          <input type="number" value={khoiLuongBoSung} onChange={(e) => setKhoiLuongBoSung(e.target.value)} placeholder="VD: 3" className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
+        </div>
+        <div>
+          <label className="text-slate-400 text-xs">Số chuyến</label>
+          <input type="number" value={soChuyen} onChange={(e) => setSoChuyen(e.target.value)} placeholder="Số chuyến đã chạy trước đó (theo biên bản)" className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
+        </div>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3 mt-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2"><div className="text-slate-500 text-xs">Tổng khối lượng bổ sung = Khối lượng bổ sung × Số chuyến</div><div className="text-white font-bold">{soVN(tongKhoiLuong)} m³</div></div>
+        <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2"><div className="text-slate-500 text-xs">Thành tiền = Tổng khối lượng × Đơn giá</div><div className="text-amber-400 font-bold">{tienVN(thanhTien)}</div></div>
+      </div>
+      <button onClick={xacNhan} className="w-full mt-3 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-lg text-sm">✔ Xác nhận — ghi vào công nợ khách hàng</button>
+      {boSungGanDay.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-slate-700">
+          <div className="text-slate-400 text-xs font-semibold mb-2">Đã khai báo gần đây</div>
+          <div className="divide-y divide-slate-800 text-xs">
+            {boSungGanDay.map((b) => (
+              <div key={b.id} className="py-1.5 flex justify-between gap-2">
+                <div className="min-w-0"><span className="text-white font-bold tabular-nums">{b.plate}</span><span className="text-slate-500"> · {b.customerName} · {ngayVN(dayStrOf(b.time))}</span></div>
+                <span className="text-slate-300 whitespace-nowrap">{soVN(b.tongKhoiLuong)} m³ · {tienVN(b.tongKhoiLuong * ((config.customers.find((c) => c.id === b.customerId)?.donGia) || 0))}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <Toast msg={toast?.msg} err={toast?.err} />
+    </Card>
+  );
+}
+
+function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, addEvent, myName, choKhaiBaoBoSung }) {
   const [range, setRange] = useState('day');
   const [search, setSearch] = useState('');
   const [xemChiTiet, setXemChiTiet] = useState(null); // customerId đang xem chi tiết
@@ -2137,7 +2250,10 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
   Object.values(theoMayXuc).forEach((m) => { m.soCa = caLamViecTrongKy.filter((c) => c.excavatorName === m.name).length; });
 
   // Chi tiết theo khách hàng đang xem: từng ngày/biển số trong kỳ
-  const chiTietKH = xemChiTiet ? events.filter((e) => e.type === 'ticket_print' && e.customerId === xemChiTiet && inRange(e, range)).slice().reverse() : [];
+  // (Bổ sung 18/09) Gộp thêm các khoản "bổ sung công nợ do cơi nới thùng" vào
+  // đúng khách hàng đó, để tổng chi tiết luôn khớp với tổng trên bảng công nợ
+  // ở trên (2 khoản này được cộng chung vào "Thành tiền" phát sinh).
+  const chiTietKH = xemChiTiet ? events.filter((e) => (e.type === 'ticket_print' || e.type === 'bo_sung_cong_no_coi_noi') && e.customerId === xemChiTiet && inRange(e, range)).slice().reverse() : [];
   const khDangXem = config.customers.find((c) => c.id === xemChiTiet);
   const donGiaXem = khDangXem?.donGia || 0;
 
@@ -2244,6 +2360,10 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia }) {
           </table></div>
         )}
       </Card>
+
+      {choKhaiBaoBoSung && addEvent && (
+        <KhaiBaoBoSungCongNoCoiNoi config={config} events={events} addEvent={addEvent} myName={myName} />
+      )}
 
       {xemChiTiet && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemChiTiet(null)}>
@@ -2382,7 +2502,7 @@ function BaoCaoXeKhongHangModal({ open, onClose, danhSach, events, tuNgay, denNg
     </div>
   );
 }
-function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
+function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myName }) {
   const [tab, setTab] = useState('phieu');
   const [xemLai, setXemLai] = useState(null);
   const [xemBienBan, setXemBienBan] = useState(null);
@@ -2574,7 +2694,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig }) {
               <button onClick={() => setXemBaoCaoKhongHang(true)} className="w-full flex items-center justify-center gap-2 mt-3 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xem / In / Xuất báo cáo chi tiết</button>
             </Card>
           )}
-          <BaoCaoKhachHangVaTraSoat events={events} config={config} setConfig={setConfig} choSuaDonGia={true} />
+          <BaoCaoKhachHangVaTraSoat events={events} config={config} setConfig={setConfig} choSuaDonGia={true} addEvent={addEvent} myName={myName} choKhaiBaoBoSung={true} />
         </>
       )}
       {tab === 'maysuc' && <BaoCaoMayXuc events={events} />}
@@ -3035,6 +3155,7 @@ const NHAN_LOAI_SU_KIEN = {
   shift_end: 'Trả ca', load_confirm: 'Xác nhận xúc đầy xe', ticket_print: 'Tự động lập phiếu',
   phieu_lai_xe_ky: 'Lái xe ký nhận phiếu', customer_deposit: 'Khách hàng thanh toán',
   dang_ky_xe_khach_hang: 'Đăng ký/điều chuyển biển số',
+  bo_sung_cong_no_coi_noi: 'Bổ sung công nợ (cơi nới thùng)',
 };
 function NhatKyHoatDong({ events }) {
   const [tuNgay, setTuNgay] = useState(todayStr());
@@ -3587,7 +3708,7 @@ export default function App() {
       {role === 'baove' && <GateScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} />}
       {role === 'laixuc' && <DriverScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} myUsername={session.username} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
       {role === 'kythuat' && <KyThuatScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} myName={session.name} />}
-      {role === 'ketoan' && <AccountantScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} />}
+      {role === 'ketoan' && <AccountantScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} myName={session.name} />}
       {role === 'giamdoc' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="giamdoc" />}
       {role === 'ketoancongty' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="ketoancongty" />}
       {role === 'banlanhdao' && <DashboardScreen events={eventsHienThi} addEvent={addEvent} config={config} setConfig={setConfig} vaiTro="banlanhdao" />}
