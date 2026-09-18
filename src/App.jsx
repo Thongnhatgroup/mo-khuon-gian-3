@@ -2131,6 +2131,23 @@ function KhaiBaoBoSungCongNoCoiNoi({ config, events, addEvent, myName }) {
   const tongKhoiLuong = soKhoiLuong * soSoChuyen;
   const thanhTien = tongKhoiLuong * donGia;
 
+  // (Bổ sung 18/09 - v2) Tự động chọn khách hàng theo biển số xe: dùng lại đúng
+  // hàm goiYKhachHangTheoPlate() đang dùng ở màn hình Kỹ thuật (ưu tiên bản đăng
+  // ký biển số/khách hàng gần nhất "dang_ky_xe_khach_hang", nếu không có thì lấy
+  // theo lần "ky_thuat_khai_bao" gần nhất của đúng biển số đó) — để khi Kế toán
+  // gõ xong biển số, hệ thống tự nhảy đúng khách hàng đã đăng ký cho xe này,
+  // không phải chọn tay. Không tìm thấy thì để Kế toán tự chọn như trước.
+  const tuDongChonKhachTheoPlate = (giaTriPlate) => {
+    const p = giaTriPlate.trim().toUpperCase();
+    if (!p) return;
+    const goiY = goiYKhachHangTheoPlate(p, events);
+    if (goiY && config.customers.some((c) => c.id === goiY) && goiY !== customerId) {
+      setCustomerId(goiY);
+      const ten = config.customers.find((c) => c.id === goiY)?.name || '';
+      notify(`Đã tự động chọn khách hàng "${ten}" theo biển số ${p}`);
+    }
+  };
+
   const xacNhan = () => {
     const p = plate.trim().toUpperCase();
     if (!p) return notify('Chưa nhập biển số xe', true);
@@ -2162,7 +2179,7 @@ function KhaiBaoBoSungCongNoCoiNoi({ config, events, addEvent, myName }) {
         </div>
         <div>
           <label className="text-slate-400 text-xs">Biển số xe</label>
-          <input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} placeholder="VD: 98A-123.45" className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
+          <input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} onBlur={(e) => tuDongChonKhachTheoPlate(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') tuDongChonKhachTheoPlate(e.target.value); }} placeholder="VD: 98A-123.45" className="w-full mt-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
         </div>
         <div>
           <label className="text-slate-400 text-xs">Khách hàng</label>
