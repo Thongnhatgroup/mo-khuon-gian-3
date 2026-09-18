@@ -2597,11 +2597,19 @@ function layDongXeRaVaoCong(tuNgay, denNgay, events) {
       plate: (r.gateIn || r.gateOut).plate,
       gioVao: r.gateIn ? gioNgan(r.gateIn.time) : '',
       gioRa: r.gateOut ? gioNgan(r.gateOut.time) : '',
+      // (Bổ sung 18/09) 2 cột đánh dấu xe ra cổng CÓ HÀNG / KHÔNG CÓ HÀNG — tự
+      // điền theo đúng lựa chọn Bảo vệ đã tích khi xác nhận ra cổng (coHang
+      // true/false trên sự kiện gate_out); xe chưa ra cổng hoặc ra cổng bất
+      // thường (không khớp được lượt vào) để trống cả 2 cột.
+      coHang: r.gateOut && r.gateOut.coHang === true ? 'X' : '',
+      khongCoHang: r.gateOut && r.gateOut.coHang === false ? 'X' : '',
       ghiChu: r.gateOut && r.gateOut.coHang === false ? (r.gateOut.ghiChu || '') : (r.gateOut?.anomaly ? '⚠ Ra cổng không có ghi nhận vào trước đó' : ''),
     }));
 }
 function baoCaoXeRaVaoCongHTML(tuNgay, denNgay, events) {
   const dong = layDongXeRaVaoCong(tuNgay, denNgay, events);
+  const soCoHang = dong.filter((d) => d.coHang).length;
+  const soKhongCoHang = dong.filter((d) => d.khongCoHang).length;
   const rows = dong.map((d, idx) => `
     <tr>
       <td class="ct">${idx + 1}</td>
@@ -2609,6 +2617,8 @@ function baoCaoXeRaVaoCongHTML(tuNgay, denNgay, events) {
       <td class="ct"><b>${d.plate}</b></td>
       <td class="ct">${d.gioVao}</td>
       <td class="ct">${d.gioRa}</td>
+      <td class="ct"><b>${d.coHang}</b></td>
+      <td class="ct"><b>${d.khongCoHang}</b></td>
       <td>${d.ghiChu}</td>
     </tr>`).join('');
   const khoangThoiGian = tuNgay === denNgay ? `Ngày ${ngayVN(tuNgay)}` : `Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`;
@@ -2620,9 +2630,9 @@ function baoCaoXeRaVaoCongHTML(tuNgay, denNgay, events) {
     <h2 class="ct">BÁO CÁO CHI TIẾT XE RA VÀO CỔNG</h2>
     <p class="ct">${khoangThoiGian}</p>
     <table>
-      <tr><th>STT</th><th>Ngày tháng</th><th>Biển số xe</th><th>Giờ vào</th><th>Giờ ra</th><th>Ghi chú</th></tr>
-      ${rows || '<tr><td colspan="6" class="ct">Không có xe nào ra/vào cổng trong khoảng thời gian này</td></tr>'}
-      <tr><td colspan="2" class="ct"><b>Cộng</b></td><td class="ct"><b>${dong.length}</b></td><td colspan="3"></td></tr>
+      <tr><th>STT</th><th>Ngày tháng</th><th>Biển số xe</th><th>Giờ vào</th><th>Giờ ra</th><th>Xe ra cổng<br/>có hàng</th><th>Xe ra cổng<br/>không có hàng</th><th>Ghi chú</th></tr>
+      ${rows || '<tr><td colspan="8" class="ct">Không có xe nào ra/vào cổng trong khoảng thời gian này</td></tr>'}
+      <tr><td colspan="2" class="ct"><b>Cộng</b></td><td class="ct"><b>${dong.length}</b></td><td colspan="2"></td><td class="ct"><b>${soCoHang}</b></td><td class="ct"><b>${soKhongCoHang}</b></td><td></td></tr>
     </table>
     <br/>
     <table class="khonvien"><tr>
@@ -2632,14 +2642,16 @@ function baoCaoXeRaVaoCongHTML(tuNgay, denNgay, events) {
 }
 function xuatExcelXeRaVaoCong(tuNgay, denNgay, events) {
   const dong = layDongXeRaVaoCong(tuNgay, denNgay, events);
+  const soCoHang = dong.filter((d) => d.coHang).length;
+  const soKhongCoHang = dong.filter((d) => d.khongCoHang).length;
   const khoangThoiGian = tuNgay === denNgay ? `Ngày ${ngayVN(tuNgay)}` : `Từ ngày ${ngayVN(tuNgay)} đến ngày ${ngayVN(denNgay)}`;
   const rows = [
     ['CÔNG TY CỔ PHẦN DỊCH VỤ VÀ THƯƠNG MẠI THỐNG NHẤT — MỎ KHUÔN GIÀN 3'],
     ['BÁO CÁO CHI TIẾT XE RA VÀO CỔNG'],
     [khoangThoiGian], [],
-    ['STT', 'Ngày tháng', 'Biển số xe', 'Giờ vào', 'Giờ ra', 'Ghi chú'],
-    ...dong.map((d, i) => [i + 1, d.ngayThang, d.plate, d.gioVao, d.gioRa, d.ghiChu]),
-    [], ['', 'Cộng', dong.length],
+    ['STT', 'Ngày tháng', 'Biển số xe', 'Giờ vào', 'Giờ ra', 'Xe ra cổng có hàng', 'Xe ra cổng không có hàng', 'Ghi chú'],
+    ...dong.map((d, i) => [i + 1, d.ngayThang, d.plate, d.gioVao, d.gioRa, d.coHang, d.khongCoHang, d.ghiChu]),
+    [], ['', 'Cộng', dong.length, '', '', soCoHang, soKhongCoHang],
   ];
   xuatExcel({ 'Xe ra vào cổng': rows }, `bao-cao-xe-ra-vao-cong-${tuNgay}_${denNgay}`);
 }
