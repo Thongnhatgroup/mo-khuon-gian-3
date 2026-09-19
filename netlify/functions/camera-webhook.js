@@ -18,11 +18,19 @@
 //     tên trường khác (đề phòng một số dòng máy/phiên bản cũ dùng tên khác).
 //   - Một số cấu hình/phần mềm trung gian có thể gửi JSON thay vì multipart+XML —
 //     hàm này vẫn hỗ trợ đọc JSON để không bỏ sót trường hợp đó.
-//   - (Bảng hiệu chỉnh 08/09) Mỏ chủ yếu tiếp nhận xe đầu kéo (biển số đầu xe
-//     và đuôi xe khác nhau) — hàm này chỉ ghi nhận xe VÀO MỎ khi trường
-//     <ANPR><direction> (cột "Driving Direction" trên Control Client) =
-//     "reverse" (đúng chiều đuôi xe), bỏ qua các lượt đọc được biển số nhưng
-//     sai chiều — xem hàm timDirectionTrongXmlHoacText bên dưới.
+//   - (Bảng hiệu chỉnh 08/09, rồi ĐIỀU CHỈNH LẠI 09/2026 sau khi kiểm tra dữ
+//     liệu thật): trước đây hàm này chỉ ghi nhận xe VÀO MỎ khi trường
+//     <ANPR><direction> = "reverse" (do mỏ chủ yếu tiếp nhận xe đầu kéo, biển
+//     đầu xe khác biển đuôi xe). Nhưng kiểm tra log thật cho thấy: (1) có xe
+//     chỉ đọc được đúng 1 chiều (thường là "forward") mà không có lượt
+//     "reverse" nào đi kèm — bị BỎ SÓT HẲN, không có bản ghi nào; (2) trường
+//     "direction" không phải lúc nào cũng phản ánh đúng như kỳ vọng ban đầu.
+//     Vì vậy hàm này KHÔNG còn lọc theo chiều nữa — mọi biển số đọc được hợp
+//     lệ đều được ghi nhận ngay; để tránh ghi trùng khi camera đọc được cả 2
+//     biển số (đầu xe + đuôi xe) của cùng 1 lượt xe đi qua, hàm chỉ bỏ qua khi
+//     CÙNG 1 biển số đã có lượt vào cổng khác trong vòng 30 phút gần nhất (xem
+//     hằng số KHUNG_THOI_GIAN_TRUNG_MS bên dưới) — coi là 2 lượt đọc của cùng
+//     1 lần xe đi qua, không phải 2 lượt xe khác nhau.
 //
 // VÌ SAO CHƯA CHẮC DÙNG ĐƯỢC NGAY: việc đăng ký địa chỉ máy chủ nhận (bước
 // "PUT /ISAPI/Event/notification/httpHosts") cần thực hiện trực tiếp trên từng
@@ -218,16 +226,26 @@ export default async (req) => {
     noiDungGhiLog = raw;
   }
 
-  // (Bảng hiệu chỉnh 08/09) Mỏ chủ yếu tiếp nhận xe đầu kéo — biển số đầu xe và
-  // đuôi xe KHÁC NHAU — nên chỉ ghi nhận xe VÀO MỎ theo đúng biển số ĐUÔI XE,
-  // tương ứng với chiều "reverse" ở trường <direction> (cột "Driving Direction"
-  // trên HikCentral Control Client hiển thị là "Reverse"). Nếu camera trả về
-  // chiều KHÁC "reverse" (VD: "forward" — đầu xe) thì KHÔNG tạo lượt vào cổng,
-  // dù vẫn đọc được biển số — tránh ghi trùng/ghi nhầm theo biển số đầu xe. Nếu
-  // camera/model không trả về trường này thì vẫn ghi nhận như cũ (không lọc).
-  const boQuaDoSaiChieu = !!bienSo && !!direction && direction !== 'reverse';
+  // (Điều chỉnh 09/2026) Không lọc theo chiều "direction" nữa — mọi biển số
+  // đọc được hợp lệ đều được xét ghi nhận, chỉ chống trùng theo thời gian (xem
+  // đầu file). Trường "direction" vẫn được lưu lại trong log/sự kiện để tham
+  // khảo, không dùng để loại bỏ dữ liệu nữa.
+  const KHUNG_THOI_GIAN_TRUNG_MS = 30 * 60 * 1000; // 30 phút
 
-  const store = getStore('mo-khuon-gian-v6');
+  // (Điều chỉnh 09/2026, PHÁT HIỆN QUA KIỂM TRA DỮ LIỆU THẬT) — có trường hợp
+  // xe đọc đúng chiều "reverse", biển số hợp lệ, nhưng VẪN không thấy lượt vào
+  // cổng nào được tạo ra. Nguyên nhân: danh sách "events" là 1 khối dữ liệu
+  // dùng chung cho CẢ ỨNG DỤNG (bảo vệ thao tác trên phần mềm, camera gửi lên,
+  // agent đọc màn hình/Excel...) — mỗi lần ghi đều phải ĐỌC TOÀN BỘ rồi GHI ĐÈ
+  // lại toàn bộ; nếu 2 nơi cùng đọc-sửa-ghi gần như đồng thời (hoặc bản đọc bị
+  // "chậm" 1 nhịp do cơ chế lưu trữ không đảm bảo đọc thấy ngay dữ liệu vừa ghi
+  // — "eventual consistency"), nơi ghi sau sẽ VÔ TÌNH GHI ĐÈ mất dữ liệu nơi
+  // ghi trước, dù cả 2 đều chạy đúng logic. Cách khắc phục: (1) yêu cầu đọc/ghi
+  // theo chế độ "strong" (luôn thấy đúng dữ liệu mới nhất, không dùng bản lưu
+  // tạm/bị trễ); (2) sau khi ghi, ĐỌC LẠI ngay để xác minh đúng lượt xe vừa tạo
+  // còn tồn tại — nếu bị mất (do trùng lúc với 1 nơi ghi khác) thì THỬ LẠI từ
+  // đầu (tối đa 3 lần) thay vì âm thầm chấp nhận mất dữ liệu.
+  const store = getStore({ name: 'mo-khuon-gian-v6', consistency: 'strong' });
 
   // Luôn ghi lại log để chẩn đoán (mục "Xem log camera gần đây" trong phần
   // mềm) — kể cả khi không đọc được biển số, để biết đúng dữ liệu camera gửi
@@ -236,7 +254,7 @@ export default async (req) => {
     const logCu = (await store.get('camera_log', { type: 'json' })) || [];
     const logMoi = [
       ...logCu,
-      { time: new Date().toISOString(), contentType, nhanDangDuoc: !!bienSo, plate: bienSo || null, direction, boQuaDoSaiChieu, raw: noiDungGhiLog.slice(0, 2000) },
+      { time: new Date().toISOString(), contentType, nhanDangDuoc: !!bienSo, plate: bienSo || null, direction, raw: noiDungGhiLog.slice(0, 2000) },
     ].slice(-50); // chỉ giữ 50 log gần nhất, tránh phình dữ liệu
     await store.setJSON('camera_log', logMoi);
   } catch (e) {
@@ -244,30 +262,44 @@ export default async (req) => {
   }
 
   if (!bienSo) return json(200, { nhanDuocNhungKhongThayBienSo: true });
-  if (boQuaDoSaiChieu) return json(200, { boQuaDoSaiChieu: true, direction, plate: bienSo });
 
-  // Tạo 1 lượt xe vào cổng, chống trùng bằng khoá dựa trên biển số + phút
-  // hiện tại (nếu camera gửi lặp lại nhiều lần cho cùng 1 lượt xe trong cùng
-  // khoảng vài giây — thiết bị sẽ gửi lại nếu không nhận được phản hồi 200 OK
-  // đúng lúc — sẽ không bị nhân đôi).
+  // Tạo 1 lượt xe vào cổng, chống trùng theo biển số + thời gian: nếu CÙNG
+  // biển số này đã có lượt vào cổng khác cách đây chưa tới 30 phút (do camera
+  // đọc được cả biển đầu xe lẫn biển đuôi xe của cùng 1 lượt xe đi qua, hoặc
+  // camera gửi lặp lại nhiều lần) thì coi là 1 lượt, không tạo thêm bản ghi.
   const nowIso = new Date().toISOString();
   const excelRowKey = `webhook-${bienSo}-${nowIso.slice(0, 16)}`;
+  const idMoi = `GI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const events = (await store.get('events', { type: 'json' })) || [];
-  const daCo = events.some((e) => e.type === 'gate_in' && e.excelRowKey === excelRowKey);
-  if (!daCo) {
-    events.push({
-      id: `GI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      type: 'gate_in',
-      plate: bienSo,
-      source: 'camera_hikcentral',
-      loaiXe: '25m3',
-      photo: null,
-      excelRowKey,
-      time: nowIso,
-    });
-    await store.setJSON('events', events);
+  const SO_LAN_THU_LAI_GHI = 3;
+  let trungGanDay = false;
+  let daGhiThanhCong = false;
+  for (let lanThu = 0; lanThu < SO_LAN_THU_LAI_GHI && !daGhiThanhCong; lanThu++) {
+    const events = (await store.get('events', { type: 'json' })) || [];
+    const gioHienTai = Date.now();
+    trungGanDay = events.some((e) => e.type === 'gate_in' && e.plate === bienSo && Math.abs(gioHienTai - new Date(e.time).getTime()) < KHUNG_THOI_GIAN_TRUNG_MS);
+    if (trungGanDay) break;
+
+    await store.setJSON('events', [
+      ...events,
+      {
+        id: idMoi,
+        type: 'gate_in',
+        plate: bienSo,
+        source: 'camera_hikcentral',
+        loaiXe: '25m3',
+        photo: null,
+        excelRowKey,
+        time: nowIso,
+        huongDocDuoc: direction || null,
+      },
+    ]);
+
+    // Đọc lại ngay để xác minh lượt xe vừa tạo còn tồn tại (không bị nơi khác
+    // ghi đè mất do trùng thời điểm) — nếu mất thì vòng lặp sẽ thử ghi lại.
+    const kiemTraLai = (await store.get('events', { type: 'json' })) || [];
+    daGhiThanhCong = kiemTraLai.some((e) => e.id === idMoi);
   }
 
-  return json(200, { ok: true, plate: bienSo, added: !daCo });
+  return json(200, { ok: true, plate: bienSo, added: daGhiThanhCong, boQuaDoTrungBienSoGanDay: trungGanDay });
 };
