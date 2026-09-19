@@ -30,7 +30,9 @@ export default async (req) => {
   const rows = Array.isArray(body.plates) ? body.plates : [];
   if (rows.length === 0) return json(200, { added: 0 });
 
-  const store = getStore('mo-khuon-gian-v6');
+  // consistency: 'strong' — tránh đọc phải dữ liệu cũ hơn 1 nhịp rồi ghi đè mất
+  // dữ liệu do nơi khác (camera, phần mềm bảo vệ) vừa ghi gần như cùng lúc.
+  const store = getStore({ name: 'mo-khuon-gian-v6', consistency: 'strong' });
   const events = (await store.get('events', { type: 'json' })) || [];
   const existingKeys = new Set(events.filter((e) => e.type === 'gate_in' && e.excelRowKey).map((e) => e.excelRowKey));
 
