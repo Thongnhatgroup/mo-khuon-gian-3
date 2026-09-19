@@ -23,7 +23,11 @@ function json(statusCode, body) {
 
 export default async (req) => {
   if (req.method === 'OPTIONS') return json(200, {});
-  const store = getStore('mo-khuon-gian-v6');
+  // consistency: 'strong' — đảm bảo luôn đọc đúng dữ liệu mới nhất (không dùng
+  // bản lưu tạm/bị trễ), tránh trường hợp đọc thấy dữ liệu CŨ hơn 1 nhịp so với
+  // ghi gần nhất (có thể xảy ra khi nhiều nơi cùng ghi vào cùng 1 dữ liệu —
+  // camera, agent đọc màn hình, phần mềm bảo vệ) rồi ghi đè mất dữ liệu đó.
+  const store = getStore({ name: 'mo-khuon-gian-v6', consistency: 'strong' });
 
   if (req.method === 'GET') {
     const url = new URL(req.url);
