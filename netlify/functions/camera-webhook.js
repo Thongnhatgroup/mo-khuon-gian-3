@@ -18,17 +18,17 @@
 //     tên trường khác (đề phòng một số dòng máy/phiên bản cũ dùng tên khác).
 //   - Một số cấu hình/phần mềm trung gian có thể gửi JSON thay vì multipart+XML —
 //     hàm này vẫn hỗ trợ đọc JSON để không bỏ sót trường hợp đó.
-//   - (Bảng hiệu chỉnh 08/09, rồi ĐIỀU CHỈNH LẠI 09/2026 sau khi kiểm tra dữ
-//     liệu thật): trước đây hàm này chỉ ghi nhận xe VÀO MỎ khi trường
-//     <ANPR><direction> = "reverse" (do mỏ chủ yếu tiếp nhận xe đầu kéo, biển
-//     đầu xe khác biển đuôi xe). Nhưng kiểm tra log thật cho thấy: (1) có xe
-//     chỉ đọc được đúng 1 chiều (thường là "forward") mà không có lượt
-//     "reverse" nào đi kèm — bị BỎ SÓT HẲN, không có bản ghi nào; (2) trường
-//     "direction" không phải lúc nào cũng phản ánh đúng như kỳ vọng ban đầu.
-//     Vì vậy hàm này KHÔNG còn lọc theo chiều nữa — mọi biển số đọc được hợp
-//     lệ đều được ghi nhận ngay; để tránh ghi trùng khi camera đọc được cả 2
-//     biển số (đầu xe + đuôi xe) của cùng 1 lượt xe đi qua, hàm chỉ bỏ qua khi
-//     CÙNG 1 biển số đã có lượt vào cổng khác trong vòng 30 phút gần nhất (xem
+//   - (Bảng hiệu chỉnh 08/09, rồi ĐIỀU CHỈNH LẠI 09/2026 — theo đúng yêu cầu):
+//     hàm này CHỈ ghi nhận xe VÀO MỎ khi trường <ANPR><direction> = "reverse"
+//     (do mỏ chủ yếu tiếp nhận xe đầu kéo, biển đầu xe khác biển đuôi xe — chỉ
+//     chiều "reverse" mới là biển số tin cậy để ghi nhận xe vào mỏ). Lượt đọc
+//     chiều "forward" (hoặc không xác định được chiều) vẫn được LƯU LẠI trong
+//     "Xem log camera gần đây" để tham khảo/đối chiếu, nhưng KHÔNG tạo lượt
+//     vào cổng. (Có 1 bản trước đã thử bỏ hẳn bộ lọc này — đã ĐẢO LẠI theo
+//     đúng yêu cầu, chỉ giữ đúng bộ lọc chiều "reverse" như quy định gốc.)
+//     Để tránh ghi trùng khi camera gửi lặp lại nhiều lần cho cùng 1 lượt xe
+//     (chiều "reverse" đọc được nhiều lần liên tiếp), hàm chỉ bỏ qua khi CÙNG
+//     1 biển số đã có lượt vào cổng khác trong vòng 30 phút gần nhất (xem
 //     hằng số KHUNG_THOI_GIAN_TRUNG_MS bên dưới) — coi là 2 lượt đọc của cùng
 //     1 lần xe đi qua, không phải 2 lượt xe khác nhau.
 //
@@ -226,10 +226,9 @@ export default async (req) => {
     noiDungGhiLog = raw;
   }
 
-  // (Điều chỉnh 09/2026) Không lọc theo chiều "direction" nữa — mọi biển số
-  // đọc được hợp lệ đều được xét ghi nhận, chỉ chống trùng theo thời gian (xem
-  // đầu file). Trường "direction" vẫn được lưu lại trong log/sự kiện để tham
-  // khảo, không dùng để loại bỏ dữ liệu nữa.
+  // Chỉ chống trùng theo thời gian cho các lượt ĐÃ QUA được bộ lọc chiều
+  // "reverse" (xem đoạn kiểm tra "direction" ngay dưới) — không liên quan tới
+  // việc lọc chiều xe.
   const KHUNG_THOI_GIAN_TRUNG_MS = 30 * 60 * 1000; // 30 phút
 
   // (Điều chỉnh 09/2026, PHÁT HIỆN QUA KIỂM TRA DỮ LIỆU THẬT) — có trường hợp
@@ -262,6 +261,15 @@ export default async (req) => {
   }
 
   if (!bienSo) return json(200, { nhanDuocNhungKhongThayBienSo: true });
+
+  // Chỉ ghi nhận lượt xe khi camera đọc được ĐÚNG chiều "reverse" — theo đúng
+  // yêu cầu (mỏ dùng chiều "reverse" làm biển số tin cậy do đặc thù xe đầu
+  // kéo, biển đầu xe khác biển đuôi xe). Chiều "forward" hoặc không xác định
+  // được chiều: đã lưu vào "Xem log camera gần đây" ở trên để đối chiếu, tại
+  // đây KHÔNG tạo lượt vào cổng.
+  if (direction !== 'reverse') {
+    return json(200, { nhanDuocNhungBoQuaDoSaiChieu: true, plate: bienSo, direction });
+  }
 
   // Tạo 1 lượt xe vào cổng, chống trùng theo biển số + thời gian: nếu CÙNG
   // biển số này đã có lượt vào cổng khác cách đây chưa tới 30 phút (do camera
