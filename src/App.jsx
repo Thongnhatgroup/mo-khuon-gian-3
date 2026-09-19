@@ -1123,7 +1123,7 @@ function GateScreen({ events, addEvent, addEvents }) {
                 <div key={i} className="bg-slate-950 border border-slate-700 rounded-lg p-2 text-[11px]">
                   <div className="text-slate-400">{gioVN(l.time)} · {l.contentType || '(không rõ content-type)'}</div>
                   <div className={l.nhanDangDuoc ? 'text-emerald-400 font-bold' : 'text-red-400'}>{l.nhanDangDuoc ? `Đã nhận diện được biển số: ${l.plate || ''}` : 'KHÔNG nhận diện được biển số'}</div>
-                  {l.direction && <div className={l.boQuaDoSaiChieu ? 'text-amber-400' : 'text-slate-400'}>Chiều (Driving Direction): {l.direction}{l.boQuaDoSaiChieu ? ' — KHÔNG phải "reverse" nên đã BỎ QUA, không ghi xe vào cổng' : ''}</div>}
+                  {l.direction && <div className="text-slate-400">Chiều (Driving Direction): {l.direction} <span className="text-slate-600">(chỉ để tham khảo — không dùng để loại bỏ dữ liệu)</span></div>}
                   <div className="text-slate-500 mt-1 break-all">{l.raw?.slice(0, 300)}</div>
                 </div>
               ))}
