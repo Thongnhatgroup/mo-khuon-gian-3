@@ -3616,15 +3616,46 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
         excavators: [], operators: [], customers: [], donGiaBanDat: 0,
         thietKe: { ...config.thietKe, tongTruLuongNguyenKhoi: 0, theoNam: [] },
       } : config;
-      await Promise.all([
-        storageSet('events', [], true),
-        storageSet('users', usersMoi, true),
-        storageSet('camera_log', [], true),
-        storageSet('claims', {}, true),
-        storageSet('account_requests', [], true),
-        storageSet('presence', {}, true),
-        configMoi ? storageSet('config', configMoi, true) : Promise.resolve(),
+      // (Sửa lỗi 21/09 lần 2 — PHÁT HIỆN QUA THỰC TẾ, sau khi đã chặn được vòng
+      // lặp refresh() ở trên nhưng "sự kiện vận hành" VẪN không xoá được, y
+      // nguyên số lượng cũ mỗi lần thử): storageSet() ở trên, khi ghi thất bại
+      // sau cả 5 lần tự thử lại nội bộ, chỉ in lỗi ra console.error() rồi ÂM
+      // THẦM COI NHƯ XONG (không báo lỗi ra ngoài) — nghĩa là Promise.all() ở
+      // đây vẫn coi là "ghi xong" dù có khoá KHÔNG THỰC SỰ đổi trên máy chủ,
+      // nên phần mềm báo "đã xoá xong" nhưng dữ liệu cũ thật ra vẫn còn nguyên.
+      // Sửa bằng cách ghi xong PHẢI đọc lại để xác minh đúng dữ liệu mới rồi
+      // mới coi là thành công — giống hệt cơ chế "ghi rồi đọc lại xác minh, thử
+      // lại nếu chưa đúng" đã dùng trong netlify/functions/camera-webhook.js.
+      const ghiVaXacMinh = async (key, value, dungRoi) => {
+        for (let lan = 0; lan < 4; lan++) {
+          await storageSet(key, value, true);
+          const kiemTra = await storageGet(key, true, undefined);
+          if (dungRoi(kiemTra)) return true;
+        }
+        return false;
+      };
+      const ketQua = await Promise.all([
+        ghiVaXacMinh('events', [], (v) => Array.isArray(v) && v.length === 0),
+        ghiVaXacMinh('users', usersMoi, (v) => Array.isArray(v) && v.length === usersMoi.length),
+        ghiVaXacMinh('camera_log', [], (v) => Array.isArray(v) && v.length === 0),
+        ghiVaXacMinh('claims', {}, (v) => v && Object.keys(v).length === 0),
+        ghiVaXacMinh('account_requests', [], (v) => Array.isArray(v) && v.length === 0),
+        // "presence" (phiên đang mở): chính tab này có thể tự ghi lại đúng phiên
+        // của mình ngay trong lúc kiểm tra (nhịp đập 15 giây/lần) — chỉ cần còn
+        // lại tối đa 1 phiên (của chính tab đang thao tác) là coi như đã sạch.
+        ghiVaXacMinh('presence', {}, (v) => v && Object.keys(v).length <= 1),
+        configMoi
+          ? ghiVaXacMinh('config', configMoi, (v) => v && (v.excavators || []).length === 0 && (v.customers || []).length === 0 && (v.operators || []).length === 0)
+          : Promise.resolve(true),
       ]);
+      if (!ketQua.every(Boolean)) {
+        const tenKhoa = ['sự kiện vận hành', 'tài khoản', 'log camera', 'xe đang giữ', 'yêu cầu tài khoản', 'phiên đang mở', 'cấu hình'];
+        const chuaXongList = ketQua.map((ok, i) => (ok ? null : tenKhoa[i])).filter(Boolean).join(', ');
+        notify(`Đặt lại KHÔNG hoàn tất — vẫn còn dữ liệu cũ ở: ${chuaXongList}. Vui lòng thử lại (không tải lại trang).`, true);
+        window.__dangDatLaiDuLieuVanHanh = false;
+        setDangXoa(false);
+        return;
+      }
       // (Sửa lỗi 21/09 — PHÁT HIỆN QUA THỰC TẾ) Bắt buộc TẢI LẠI TOÀN BỘ TRANG
       // ngay sau khi xoá xong, KHÔNG chỉ cập nhật lại state trong React như cũ.
       // Lý do: màn hình chính (App) có vòng lặp tự đồng bộ lại "events" mỗi 6
