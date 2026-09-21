@@ -33,6 +33,19 @@ export default async (req) => {
   // consistency: 'strong' — tránh đọc phải dữ liệu cũ hơn 1 nhịp rồi ghi đè mất
   // dữ liệu do nơi khác (camera, phần mềm bảo vệ) vừa ghi gần như cùng lúc.
   const store = getStore({ name: 'mo-khuon-gian-v6', consistency: 'strong' });
+
+  // (Sửa lỗi 21/09 lần 6 — PHÁT HIỆN GỐC RỄ THẬT SỰ, xem giải thích đầy đủ ở
+  // netlify/functions/camera-webhook.js): hàm này cũng đọc-sửa-ghi trực tiếp
+  // lên "events" độc lập với công cụ "Đặt lại dữ liệu vận hành" — nếu chương
+  // trình cầu nối Excel đẩy dữ liệu lên đúng lúc đang xoá, sẽ vô tình ghi đè
+  // lại dữ liệu cũ. Bỏ qua hẳn lượt này nếu đang trong lúc khoá "reset_lock".
+  try {
+    const khoaDatLai = await store.get('reset_lock', { type: 'json' });
+    if (khoaDatLai && Date.now() - khoaDatLai < 90000) {
+      return json(200, { added: 0, boQuaDoDangDatLaiDuLieu: true });
+    }
+  } catch { /* không đọc được khoá thì coi như không khoá, xử lý bình thường */ }
+
   const events = (await store.get('events', { type: 'json' })) || [];
   const existingKeys = new Set(events.filter((e) => e.type === 'gate_in' && e.excelRowKey).map((e) => e.excelRowKey));
 
