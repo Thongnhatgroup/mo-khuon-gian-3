@@ -246,6 +246,23 @@ export default async (req) => {
   // đầu (tối đa 3 lần) thay vì âm thầm chấp nhận mất dữ liệu.
   const store = getStore({ name: 'mo-khuon-gian-v6', consistency: 'strong' });
 
+  // (Sửa lỗi 21/09 lần 6 — PHÁT HIỆN GỐC RỄ THẬT SỰ của việc "sự kiện vận hành"
+  // không bao giờ xoá được dù công cụ "Đặt lại dữ liệu vận hành" đã báo xoá
+  // thành công): hàm này đọc-sửa-ghi trực tiếp lên "events"/"camera_log" hoàn
+  // toàn ĐỘC LẬP với công cụ đặt lại dữ liệu trên phần mềm. Nếu camera gửi dữ
+  // liệu lên đúng lúc đang xoá — đọc được mảng CŨ ngay trước khi bị xoá rồi ghi
+  // đè lại y nguyên (dù không có gì mới) — sẽ vô tình khôi phục lại dữ liệu cũ
+  // ngay sau khi vừa xoá xong. Kiểm tra khoá dùng chung "reset_lock" (do công
+  // cụ đặt lại dữ liệu thiết lập) TRƯỚC MỌI THAO TÁC ghi — nếu đang khoá thì bỏ
+  // qua hẳn lượt này (không ghi events, không ghi camera_log), tự động thử lại
+  // ở lượt camera gửi lên kế tiếp.
+  try {
+    const khoaDatLai = await store.get('reset_lock', { type: 'json' });
+    if (khoaDatLai && Date.now() - khoaDatLai < 90000) {
+      return json(200, { boQuaDoDangDatLaiDuLieu: true });
+    }
+  } catch { /* không đọc được khoá thì coi như không khoá, xử lý bình thường */ }
+
   // Luôn ghi lại log để chẩn đoán (mục "Xem log camera gần đây" trong phần
   // mềm) — kể cả khi không đọc được biển số, để biết đúng dữ liệu camera gửi
   // lên là gì mà chỉnh lại cho khớp.
