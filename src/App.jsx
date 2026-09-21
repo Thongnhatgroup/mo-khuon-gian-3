@@ -3614,6 +3614,26 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
     // khi xong nên không cần tắt cờ lại thủ công.
     window.__dangDatLaiDuLieuVanHanh = true;
     try {
+      // (Sửa lỗi 21/09 lần 4 — PHÁT HIỆN QUA THỰC TẾ, sau khi lần trước 6/8
+      // khoá đã sạch nhưng riêng "sự kiện vận hành" vẫn bị phục hồi lại y
+      // nguyên 2.283 bản ghi cũ dù đã có cơ chế ghi-xác minh-thử lại 4 lần):
+      // màn hình lúc đó hiện "3 người đang xem" — tức có TỚI 2 PHIÊN KHÁC đang
+      // mở phần mềm cùng lúc với phiên bấm xoá. Cờ window.__dangDatLaiDuLieuVanHanh
+      // chỉ tồn tại trong bộ nhớ của ĐÚNG 1 TAB đang bấm nút xoá — 2 phiên kia
+      // (máy/tab khác, ví dụ bảo vệ ở cổng, kế toán...) HOÀN TOÀN KHÔNG BIẾT gì
+      // về việc đang đặt lại dữ liệu, nên vòng lặp refresh() của CHÍNH HỌ vẫn
+      // chạy bình thường mỗi 6 giây, thấy "máy chủ thiếu mất dữ liệu" và tự ý
+      // ghi đè khôi phục lại — thắng cả 4 lần ghi-xác minh-thử lại vì họ ghi
+      // đè lại gần như ngay sau mỗi lần ta vừa xoá xong.
+      // Sửa tận gốc: dùng thêm 1 "khoá dùng chung" lưu trên máy chủ (khác cờ
+      // cục bộ ở trên) — MỌI phiên (kể cả các phiên khác) đều đọc khoá này mỗi
+      // lần đồng bộ (xem refresh() bên dưới) và tạm dừng hẳn việc "gộp/ghi đè"
+      // nếu khoá còn hiệu lực (dưới 60 giây, tự hết hạn để không kẹt vĩnh viễn
+      // nếu có sự cố). Đợi 7 giây sau khi bật khoá (đủ hơn 1 chu kỳ 6 giây của
+      // TẤT CẢ các phiên khác) rồi mới bắt đầu xoá thật, để chắc chắn mọi phiên
+      // đang mở đều đã kịp thấy khoá và dừng ghi đè trước khi ta xoá.
+      await storageSet('reset_lock', Date.now(), true);
+      await cho(7000);
       const usersMoi = users.filter((u) => giuLai[u.id]);
       const config = await storageGet('config', true, null);
       const configMoi = config ? {
@@ -3670,6 +3690,7 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
         const chuaXongList = ketQua.map((ok, i) => (ok ? null : tenKhoa[i])).filter(Boolean).join(', ');
         notify(`Đặt lại KHÔNG hoàn tất — vẫn còn dữ liệu cũ ở: ${chuaXongList}. Vui lòng thử lại (không tải lại trang).`, true);
         window.__dangDatLaiDuLieuVanHanh = false;
+        storageSet('reset_lock', 0, true); // mở khoá dùng chung ngay, không đợi tự hết hạn (60s)
         setDangXoa(false);
         return;
       }
@@ -3688,11 +3709,13 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
       // toàn bộ trang xoá sạch bộ nhớ tạm đó trước khi vòng lặp kịp chạy lần
       // kế tiếp, nên lần tải mới sẽ đọc đúng dữ liệu rỗng vừa ghi.
       notify(`Đã đặt lại dữ liệu vận hành — giữ lại ${usersMoi.length} tài khoản. Đang tải lại trang...`);
+      storageSet('reset_lock', 0, true); // mở khoá dùng chung ngay, các phiên khác không cần đợi tự hết hạn
       setTimeout(() => { window.location.reload(); }, 1200);
     } catch (e) {
       console.error('Lỗi khi đặt lại dữ liệu vận hành:', e);
       notify('Có lỗi khi đặt lại dữ liệu, vui lòng thử lại', true);
       window.__dangDatLaiDuLieuVanHanh = false; // thất bại -> mở lại cơ chế chống mất dữ liệu bình thường
+      storageSet('reset_lock', 0, true);
       setDangXoa(false);
     }
   };
@@ -3992,7 +4015,21 @@ export default function App() {
     // logic "gộp" bên dưới sẽ hiểu NHẦM là dữ liệu bị mất do lag mạng rồi tự
     // ghi đè khôi phục lại toàn bộ, vô hiệu hoá việc đặt lại dữ liệu (đã xảy ra
     // thật — kiểm tra lại nhiều lần sau khi xoá vẫn thấy nguyên số sự kiện cũ).
-    if (window.__dangDatLaiDuLieuVanHanh) {
+    // (Sửa lỗi 21/09 lần 4 — PHÁT HIỆN QUA THỰC TẾ) Cờ window.__dangDatLaiDuLieuVanHanh
+    // ở trên chỉ có tác dụng với ĐÚNG TAB đang bấm nút xoá — khi có NHIỀU
+    // PHIÊN cùng mở phần mềm (ví dụ bảo vệ, kế toán, Ban lãnh đạo mở cùng lúc,
+    // thực tế đã gặp "3 người đang xem" khi xoá), các phiên KHÁC không hề biết
+    // đang xoá dữ liệu nên vẫn tự "gộp/ghi đè" như bình thường, khôi phục lại
+    // dữ liệu cũ dù tab đang xoá đã ghi xong dữ liệu rỗng. Sửa bằng cách thêm
+    // "reset_lock" — 1 mốc thời gian lưu DÙNG CHUNG trên máy chủ, do
+    // DatLaiDuLieuVanHanh bật lên ngay trước khi xoá thật; MỌI phiên (không
+    // riêng tab đang xoá) đều đọc khoá này mỗi lần đồng bộ và tạm dừng gộp/ghi
+    // đè nếu khoá còn "mới" (dưới 60 giây — quá 60 giây coi như hết hạn, tự
+    // hồi phục hoạt động bình thường, tránh kẹt vĩnh viễn nếu có sự cố giữa
+    // chừng khiến khoá không được mở lại).
+    const khoaDatLai = await storageGet('reset_lock', true, 0);
+    const dangCoAiDatLai = window.__dangDatLaiDuLieuVanHanh || (khoaDatLai && Date.now() - khoaDatLai < 60000);
+    if (dangCoAiDatLai) {
       setEvents(evs || []);
       setSyncing(false);
       return;
