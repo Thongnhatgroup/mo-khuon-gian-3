@@ -3602,6 +3602,12 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
 
   const thucHienXoa = async () => {
     setDangXoa(true);
+    // Bật cờ TRƯỚC KHI ghi bất kỳ gì — chặn vòng lặp refresh() (chạy nền độc
+    // lập mỗi 6 giây, xem chú thích tại nơi khai báo refresh()) không được
+    // "gộp" dữ liệu cũ trong lúc đang đặt lại, dù nó tình cờ chạy đúng giữa
+    // lúc các lệnh ghi bên dưới chưa hoàn tất. Trang sẽ tự tải lại ngay sau
+    // khi xong nên không cần tắt cờ lại thủ công.
+    window.__dangDatLaiDuLieuVanHanh = true;
     try {
       const usersMoi = users.filter((u) => giuLai[u.id]);
       const config = await storageGet('config', true, null);
@@ -3638,6 +3644,7 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
     } catch (e) {
       console.error('Lỗi khi đặt lại dữ liệu vận hành:', e);
       notify('Có lỗi khi đặt lại dữ liệu, vui lòng thử lại', true);
+      window.__dangDatLaiDuLieuVanHanh = false; // thất bại -> mở lại cơ chế chống mất dữ liệu bình thường
       setDangXoa(false);
     }
   };
@@ -3926,6 +3933,22 @@ export default function App() {
   const refresh = useCallback(async () => {
     setSyncing(true);
     const evs = await storageGet('events', true, []);
+    // (Sửa lỗi 21/09 — PHÁT HIỆN QUA THỰC TẾ) Khi công cụ "Đặt lại dữ liệu vận
+    // hành" (mục Quản lý tài khoản) đang chạy, TẠM BỎ QUA hẳn phần "gộp" bên
+    // dưới — chỉ nhận đúng dữ liệu máy chủ trả về, dù có vẻ như bị "mất bớt"
+    // so với bộ nhớ tạm hiện tại. Lý do: vòng lặp refresh() này chạy NỀN mỗi 6
+    // giây, HOÀN TOÀN ĐỘC LẬP với việc người dùng đang thao tác gì trên màn
+    // hình — có thể tình cờ chạy đúng vào giữa lúc công cụ đặt lại dữ liệu vừa
+    // ghi xong "events" rỗng lên máy chủ nhưng bộ nhớ tạm (prev) của CHÍNH TAB
+    // này vẫn còn dữ liệu cũ (chưa kịp cập nhật) — nếu không có cờ này, đúng
+    // logic "gộp" bên dưới sẽ hiểu NHẦM là dữ liệu bị mất do lag mạng rồi tự
+    // ghi đè khôi phục lại toàn bộ, vô hiệu hoá việc đặt lại dữ liệu (đã xảy ra
+    // thật — kiểm tra lại nhiều lần sau khi xoá vẫn thấy nguyên số sự kiện cũ).
+    if (window.__dangDatLaiDuLieuVanHanh) {
+      setEvents(evs || []);
+      setSyncing(false);
+      return;
+    }
     // GỘP thay vì ghi đè: nếu lần đọc định kỳ này (server) chưa kịp thấy
     // sự kiện vừa tạo cục bộ (do lan truyền dữ liệu có độ trễ), vẫn giữ lại
     // sự kiện đó — không để biến mất khỏi màn hình. Đây là nguyên nhân lỗi
