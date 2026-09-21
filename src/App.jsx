@@ -3694,6 +3694,35 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
         setDangXoa(false);
         return;
       }
+      // (Sửa lỗi 21/09 lần 6 — PHÁT HIỆN GỐC RỄ THẬT SỰ, sau khi 5 lần sửa trước
+      // đều không có tác dụng, "sự kiện vận hành" luôn quay lại Y NGUYÊN 2.283
+      // bản ghi cũ, cùng khung thời gian, dù đã có khoá dùng chung + xác minh
+      // ghi lại): 2 hàm máy chủ khác — netlify/functions/camera-webhook.js
+      // (camera ANPR tự gửi biển số lên) và netlify/functions/import-plates.js
+      // (chương trình cầu nối Excel trên máy bảo vệ) — CŨNG đọc-sửa-ghi trực
+      // tiếp lên đúng khoá "events" (và "camera_log"), NHƯNG HOÀN TOÀN KHÔNG
+      // BIẾT tới khoá "reset_lock" ở trên (khoá đó trước đây chỉ được vòng lặp
+      // "refresh" của giao diện kiểm tra, không phải 2 hàm máy chủ này). Nếu
+      // camera hoặc máy bảo vệ gửi dữ liệu lên đúng lúc đang xoá — đọc được
+      // mảng "events" CŨ (2.283 bản ghi) ngay trước khi bị xoá rồi ghi đè lại y
+      // nguyên (dù không có gì mới để thêm) — sẽ VÔ TÌNH khôi phục lại đúng dữ
+      // liệu cũ ngay sau khi vừa xoá xong, hoàn toàn không liên quan gì tới
+      // trình duyệt/phiên đăng nhập nào cả. ĐÃ SỬA TẬN GỐC ở chính 2 hàm đó (bỏ
+      // qua ghi nếu đang trong lúc khoá "reset_lock"). Ở đây, chờ thêm 1 nhịp
+      // rồi kiểm tra lại LẦN CUỐI đúng 2 khoá này trước khi báo thành công, để
+      // vét nốt các yêu cầu có thể đã bắt đầu xử lý ngay TRƯỚC khi khoá được
+      // thiết lập (hiếm, nhưng vẫn có thể xảy ra).
+      await cho(5000);
+      const [evsCuoiCung, logCuoiCung] = await Promise.all([
+        storageGet('events', true, []),
+        storageGet('camera_log', true, []),
+      ]);
+      if ((evsCuoiCung || []).length > 0) {
+        await ghiVaXacMinh('events', [], (v) => Array.isArray(v) && v.length === 0);
+      }
+      if ((logCuoiCung || []).length > 0) {
+        await ghiVaXacMinh('camera_log', [], (v) => Array.isArray(v) && v.length === 0);
+      }
       // (Sửa lỗi 21/09 — PHÁT HIỆN QUA THỰC TẾ) Bắt buộc TẢI LẠI TOÀN BỘ TRANG
       // ngay sau khi xoá xong, KHÔNG chỉ cập nhật lại state trong React như cũ.
       // Lý do: màn hình chính (App) có vòng lặp tự đồng bộ lại "events" mỗi 6
