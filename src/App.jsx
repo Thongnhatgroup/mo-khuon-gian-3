@@ -3619,13 +3619,25 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
         storageSet('presence', {}, true),
         configMoi ? storageSet('config', configMoi, true) : Promise.resolve(),
       ]);
-      setUsers(usersMoi);
-      setDangMo(false);
-      notify(`Đã đặt lại dữ liệu vận hành — giữ lại ${usersMoi.length} tài khoản. Phần mềm sẵn sàng vận hành mới hoàn toàn.`);
+      // (Sửa lỗi 21/09 — PHÁT HIỆN QUA THỰC TẾ) Bắt buộc TẢI LẠI TOÀN BỘ TRANG
+      // ngay sau khi xoá xong, KHÔNG chỉ cập nhật lại state trong React như cũ.
+      // Lý do: màn hình chính (App) có vòng lặp tự đồng bộ lại "events" mỗi 6
+      // giây (mục "refresh", dùng để chống mất dữ liệu khi mạng chậm) — vòng
+      // lặp đó vẫn đang giữ 2.283 sự kiện CŨ trong bộ nhớ tạm của phiên đang mở
+      // (kể cả đúng ngay phiên vừa bấm xoá này). Lần đồng bộ kế tiếp sau khi
+      // xoá, nó sẽ thấy "máy chủ thiếu mất các sự kiện mà bộ nhớ tạm đang có"
+      // và hiểu NHẦM là dữ liệu bị mất do lag mạng -> tự động GHI ĐÈ TOÀN BỘ
+      // 2.283 sự kiện đó lên lại máy chủ, vô hiệu hoá việc xoá vừa xong mà
+      // không có bất kỳ thông báo lỗi nào (đã xảy ra thật khi thử nghiệm: nút
+      // xoá chạy đúng logic, ghi "events" rỗng thành công, nhưng vài giây sau
+      // bị chính cơ chế chống-mất-dữ-liệu ghi đè trở lại y nguyên). Tải lại
+      // toàn bộ trang xoá sạch bộ nhớ tạm đó trước khi vòng lặp kịp chạy lần
+      // kế tiếp, nên lần tải mới sẽ đọc đúng dữ liệu rỗng vừa ghi.
+      notify(`Đã đặt lại dữ liệu vận hành — giữ lại ${usersMoi.length} tài khoản. Đang tải lại trang...`);
+      setTimeout(() => { window.location.reload(); }, 1200);
     } catch (e) {
       console.error('Lỗi khi đặt lại dữ liệu vận hành:', e);
       notify('Có lỗi khi đặt lại dữ liệu, vui lòng thử lại', true);
-    } finally {
       setDangXoa(false);
     }
   };
