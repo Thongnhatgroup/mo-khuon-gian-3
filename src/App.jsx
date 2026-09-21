@@ -3527,6 +3527,8 @@ function QuanLyTaiKhoan() {
         }} className="w-full mb-4 text-red-400 hover:text-red-300 text-xs underline">Xoá tất cả tài khoản giả định (chỉ giữ Ban lãnh đạo)</button>
       )}
 
+      <DatLaiDuLieuVanHanh users={users} setUsers={setUsers} notify={notify} />
+
       {Object.entries(NHAN_PHAN_HE).map(([role, nhan]) => (
         theoNhom[role] && (
           <Card key={role} className="mb-3">
@@ -3551,6 +3553,116 @@ function QuanLyTaiKhoan() {
       <Toast msg={toast?.msg} err={toast?.err} />
       {ModalHopThoai}
     </div>
+  );
+}
+
+// (Yêu cầu 21/09) Công cụ "Đặt lại dữ liệu vận hành" — dùng 1 LẦN DUY NHẤT
+// trước khi đưa phần mềm vào vận hành chính thức, khác với nút "Xoá tất cả
+// tài khoản giả định" ở trên (nút đó chỉ xoá tài khoản, cố định giữ đúng vai
+// trò "banlanhdao"). Công cụ này xoá TOÀN BỘ dữ liệu vận hành phát sinh trong
+// giai đoạn thử nghiệm (sự kiện xe ra/vào, phiếu, công nợ, log camera, xe
+// đang được lái máy xúc giữ, yêu cầu tài khoản chờ duyệt) và danh sách máy
+// xúc/lái máy xúc/khách hàng/trữ lượng thiết kế hiện tại (để nhập lại từ đầu
+// đúng số liệu thật) — đồng thời cho TỰ CHỌN chính xác từng tài khoản nào
+// được giữ lại (gợi ý sẵn Ban lãnh đạo + Giám đốc mỏ), thay vì cố định cứng
+// theo 1 vai trò duy nhất. Không đụng tới hệ số nở rời (heSoNoRoi) vì đây là
+// hằng số kỹ thuật không có màn hình chỉnh sửa — xoá về 0 sẽ làm hỏng phép
+// tính "% trữ lượng thiết kế" (chia cho 0) ở màn Tổng quan.
+// Đây là hành động KHÔNG THỂ HOÀN TÁC trên dữ liệu thật đang chạy — bắt buộc
+// gõ đúng cụm xác nhận mới cho bấm được nút xoá, không dùng confirm() của
+// trình duyệt (bị chặn trong một số môi trường — xem useHopThoai ở trên).
+function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
+  const [dangMo, setDangMo] = useState(false);
+  const [thongKe, setThongKe] = useState(null);
+  const [giuLai, setGiuLai] = useState({});
+  const [xacNhan, setXacNhan] = useState('');
+  const [dangXoa, setDangXoa] = useState(false);
+
+  const CUM_XAC_NHAN = 'XOA DU LIEU';
+
+  const moBang = async () => {
+    const [events, camLog, claims, ycTK] = await Promise.all([
+      storageGet('events', true, []),
+      storageGet('camera_log', true, []),
+      storageGet('claims', true, {}),
+      storageGet('account_requests', true, []),
+    ]);
+    setThongKe({
+      soSuKien: events.length,
+      soLogCamera: camLog.length,
+      soXeDangGiu: Object.keys(claims || {}).length,
+      soYeuCauTK: ycTK.length,
+    });
+    const macDinhGiu = {};
+    users.forEach((u) => { macDinhGiu[u.id] = u.role === 'banlanhdao' || u.role === 'giamdoc'; });
+    setGiuLai(macDinhGiu);
+    setXacNhan('');
+    setDangMo(true);
+  };
+
+  const thucHienXoa = async () => {
+    setDangXoa(true);
+    try {
+      const usersMoi = users.filter((u) => giuLai[u.id]);
+      const config = await storageGet('config', true, null);
+      const configMoi = config ? {
+        ...config,
+        excavators: [], operators: [], customers: [], donGiaBanDat: 0,
+        thietKe: { ...config.thietKe, tongTruLuongNguyenKhoi: 0, theoNam: [] },
+      } : config;
+      await Promise.all([
+        storageSet('events', [], true),
+        storageSet('users', usersMoi, true),
+        storageSet('camera_log', [], true),
+        storageSet('claims', {}, true),
+        storageSet('account_requests', [], true),
+        storageSet('presence', {}, true),
+        configMoi ? storageSet('config', configMoi, true) : Promise.resolve(),
+      ]);
+      setUsers(usersMoi);
+      setDangMo(false);
+      notify(`Đã đặt lại dữ liệu vận hành — giữ lại ${usersMoi.length} tài khoản. Phần mềm sẵn sàng vận hành mới hoàn toàn.`);
+    } catch (e) {
+      console.error('Lỗi khi đặt lại dữ liệu vận hành:', e);
+      notify('Có lỗi khi đặt lại dữ liệu, vui lòng thử lại', true);
+    } finally {
+      setDangXoa(false);
+    }
+  };
+
+  return (
+    <Card className="mb-4 border-red-600">
+      <div className="font-bold text-red-400 text-sm mb-1">⚠ Đặt lại dữ liệu vận hành — dùng 1 lần trước khi chạy thật</div>
+      <p className="text-slate-400 text-xs mb-3">Xoá sạch toàn bộ dữ liệu phát sinh trong giai đoạn thử nghiệm (xe ra/vào, phiếu, công nợ, log camera, ca làm việc, yêu cầu tài khoản...) và danh sách máy xúc/khách hàng/trữ lượng thiết kế hiện tại — không ảnh hưởng tới các tài khoản được chọn giữ lại bên dưới. KHÔNG THỂ HOÀN TÁC.</p>
+      {!dangMo ? (
+        <button onClick={moBang} className="text-[12px] bg-red-900/40 hover:bg-red-900/60 text-red-300 px-3 py-2 rounded-lg font-semibold">Xem trước &amp; đặt lại dữ liệu...</button>
+      ) : (
+        <div className="bg-slate-950 border border-red-900 rounded-lg p-3">
+          {thongKe && (
+            <div className="text-slate-300 text-xs mb-3 space-y-0.5">
+              <div>Sẽ xoá <b className="text-red-400">{thongKe.soSuKien}</b> sự kiện vận hành (xe ra/vào, phiếu, công nợ, ca làm việc, biên bản...).</div>
+              <div>Sẽ xoá {thongKe.soLogCamera} dòng log camera, {thongKe.soXeDangGiu} lượt xe đang được lái máy xúc giữ, {thongKe.soYeuCauTK} yêu cầu tài khoản đang chờ duyệt.</div>
+              <div>Sẽ xoá danh sách máy xúc / lái máy xúc / khách hàng / trữ lượng thiết kế hiện tại (nhập lại từ đầu qua mục Cấu hình).</div>
+            </div>
+          )}
+          <div className="text-white text-xs font-semibold mb-1.5">Chọn tài khoản GIỮ LẠI (đã gợi ý sẵn Ban lãnh đạo + Giám đốc mỏ, có thể sửa lại):</div>
+          <div className="space-y-1 mb-3 max-h-48 overflow-y-auto">
+            {users.map((u) => (
+              <label key={u.id} className="flex items-center gap-2 text-xs text-slate-300">
+                <input type="checkbox" checked={!!giuLai[u.id]} onChange={(e) => setGiuLai({ ...giuLai, [u.id]: e.target.checked })} />
+                {u.name} <span className="text-slate-500">— {u.chucDanh} ({u.username})</span>
+              </label>
+            ))}
+          </div>
+          <div className="text-slate-400 text-xs mb-1.5">Gõ đúng <code className="text-red-400">{CUM_XAC_NHAN}</code> để mở khoá nút xoá:</div>
+          <input value={xacNhan} onChange={(e) => setXacNhan(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm w-full mb-3" placeholder={CUM_XAC_NHAN} />
+          <div className="flex gap-2">
+            <button disabled={xacNhan.trim() !== CUM_XAC_NHAN || dangXoa} onClick={thucHienXoa} className="flex-1 bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg text-sm">{dangXoa ? 'Đang xoá...' : `Xác nhận đặt lại — giữ ${Object.values(giuLai).filter(Boolean).length} tài khoản`}</button>
+            <button onClick={() => setDangMo(false)} className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm">Huỷ</button>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 
