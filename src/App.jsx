@@ -9,6 +9,11 @@ import {
   FileSpreadsheet, FileText, Link2, RotateCw, Globe, Calendar, Pencil,
 } from 'lucide-react';
 
+// (Ghi chú 21/09 — commit trống chủ đích) Đẩy lại 1 commit nhỏ để kích hoạt
+// lại đúng cơ chế Netlify tự build khi có push mới lên nhánh main — lần build
+// tự động cho commit sửa lỗi "ghiVaXacMinh" trước đó không tự chạy (không rõ
+// nguyên nhân từ phía Netlify), thử lại bằng 1 thay đổi mới thay vì đợi thêm.
+
 // ============================================================================
 // BẢN V3 — áp dụng "Bảng hiệu chỉnh V2.0" (29/07/2026). Thay đổi lớn nhất:
 // (1) ĐĂNG NHẬP THẬT bằng tài khoản/mật khẩu (không còn chỉ chọn vai trò)
