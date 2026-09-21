@@ -3652,9 +3652,21 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
         configMoi
           ? ghiVaXacMinh('config', configMoi, (v) => v && (v.excavators || []).length === 0 && (v.customers || []).length === 0 && (v.operators || []).length === 0)
           : Promise.resolve(true),
+        // (Sửa lỗi 21/09 lần 3 — PHÁT HIỆN QUA THỰC TẾ, sau khi 6 khoá trên đã
+        // xác nhận sạch nhưng người dùng vẫn thấy danh sách tài khoản CŨ hiện
+        // sẵn ở màn hình đăng nhập, dù các tài khoản đó đã bị xoá thật): khoá
+        // "recent_logins" (danh sách "tài khoản đã dùng trên máy này" hiển thị
+        // ở LoginScreen) TƯỞNG LÀ chỉ lưu riêng từng máy (tham số shared=false
+        // khi gọi storageGet/storageSet) nhưng trên bản Netlify thật, hàm
+        // storageGet/storageSet KHÔNG hề phân biệt shared true/false — luôn đi
+        // qua CHUNG một kho /api/kv trên máy chủ (tham số shared chỉ có tác
+        // dụng ở chế độ xem trước Claude Artifact, không áp dụng ở đây) — nên
+        // đây thực chất là 1 khoá DÙNG CHUNG giống hệt các khoá khác, và công
+        // cụ đặt lại dữ liệu trước đó đã bỏ sót không xoá khoá này.
+        ghiVaXacMinh('recent_logins', [], (v) => Array.isArray(v) && v.length === 0),
       ]);
       if (!ketQua.every(Boolean)) {
-        const tenKhoa = ['sự kiện vận hành', 'tài khoản', 'log camera', 'xe đang giữ', 'yêu cầu tài khoản', 'phiên đang mở', 'cấu hình'];
+        const tenKhoa = ['sự kiện vận hành', 'tài khoản', 'log camera', 'xe đang giữ', 'yêu cầu tài khoản', 'phiên đang mở', 'cấu hình', 'tài khoản đăng nhập gần đây'];
         const chuaXongList = ketQua.map((ok, i) => (ok ? null : tenKhoa[i])).filter(Boolean).join(', ');
         notify(`Đặt lại KHÔNG hoàn tất — vẫn còn dữ liệu cũ ở: ${chuaXongList}. Vui lòng thử lại (không tải lại trang).`, true);
         window.__dangDatLaiDuLieuVanHanh = false;
