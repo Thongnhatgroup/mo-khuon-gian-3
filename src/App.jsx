@@ -3633,6 +3633,12 @@ function DatLaiDuLieuVanHanh({ users, setUsers, notify }) {
       // TẤT CẢ các phiên khác) rồi mới bắt đầu xoá thật, để chắc chắn mọi phiên
       // đang mở đều đã kịp thấy khoá và dừng ghi đè trước khi ta xoá.
       await storageSet('reset_lock', Date.now(), true);
+      // (Sửa lỗi 21/09 lần 7) Đánh dấu 1 mốc "phiên bản dữ liệu" MỚI, KHÔNG BAO
+      // GIỜ đặt lại về 0 (khác "reset_lock" ở trên, chỉ có hiệu lực tạm thời
+      // 60 giây) — dùng để MỌI phiên, kể cả phiên "ma" mở từ rất lâu trước đó
+      // và chỉ tình cờ đồng bộ lại sau khi "reset_lock" đã hết hạn, vẫn nhận ra
+      // "đã có đợt đặt lại dữ liệu xảy ra" và không tự ý khôi phục dữ liệu cũ.
+      await storageSet('data_epoch', Date.now(), true);
       await cho(7000);
       const usersMoi = users.filter((u) => giuLai[u.id]);
       const config = await storageGet('config', true, null);
@@ -4006,6 +4012,27 @@ export default function App() {
   const mySessionId = useRef(genId('sess'));
   const ticketCounterRef = useRef(0);
   const persistEventsRef = useRef(null);
+  // (Sửa lỗi 21/09 lần 7 — PHÁT HIỆN GỐC RỄ THẬT SỰ, sau khi lần 6 vẫn KHÔNG
+  // giải quyết được: đã sửa đúng 2 hàm máy chủ (camera-webhook, import-plates)
+  // tôn trọng "reset_lock", nhưng "sự kiện vận hành" VẪN quay lại Y NGUYÊN,
+  // đúng 2.283 bản ghi, đúng từng ID/thời gian như cũ): thủ phạm thật sự là 1
+  // PHIÊN "MA" — 1 tab/trình duyệt khác đã mở phần mềm từ TRƯỚC (ví dụ máy tính
+  // ở cổng bảo vệ, hoặc điện thoại của ai đó vẫn còn mở sẵn), bộ nhớ tạm trong
+  // trình duyệt đó vẫn giữ nguyên 2.283 sự kiện CŨ (vì tab đó không hề tải lại
+  // trang), HOÀN TOÀN không liên quan gì tới máy chủ. Cơ chế "reset_lock" ở
+  // dưới chỉ khoá được trong 1 khung giờ ngắn (60 giây) — nếu phiên "ma" đó vô
+  // tình đồng bộ đúng lúc còn khoá thì né được, nhưng ngay sau khi khoá hết hạn
+  // (hoặc được mở sớm khi xoá xong), lần đồng bộ tiếp theo của phiên "ma" đó sẽ
+  // thấy "máy chủ thiếu mất 2.283 sự kiện mà mình đang có trong bộ nhớ" và HIỂU
+  // NHẦM là mất dữ liệu do lag mạng — tự động ghi đè khôi phục lại y nguyên,
+  // dù nó đã bị xoá thành công ngay trước đó. Khắc phục TẬN GỐC bằng cách thêm
+  // 1 mốc "phiên bản dữ liệu" ("data_epoch") KHÔNG BAO GIỜ bị đặt lại về 0 (chỉ
+  // tăng dần mỗi lần xoá) — mỗi tab tự nhớ mốc này lúc mở trang; hễ phát hiện
+  // mốc trên máy chủ MỚI HƠN mốc mình từng biết (dù đã cách đây bao lâu, không
+  // giới hạn 60 giây như "reset_lock"), tab đó BẮT BUỘC phải nhận nguyên dữ
+  // liệu server (rỗng) làm chuẩn — không được "gộp/khôi phục" gì cả, dù chỉ 1
+  // lần — coi như vừa có 1 đợt đặt lại dữ liệu xảy ra ở nơi khác.
+  const lastResetEpochRef = useRef(0);
 
   useEffect(() => {
     (async () => {
@@ -4025,6 +4052,11 @@ export default function App() {
       ticketCounterRef.current = (evs || []).filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === todayStr()).length;
       const cl = await storageGet('claims', true, {});
       setClaims(cl || {});
+      // (Sửa lỗi 21/09 lần 7) Ghi nhớ mốc "phiên bản dữ liệu" hiện tại NGAY LÚC
+      // MỞ TRANG — để sau này nếu máy chủ báo mốc mới hơn (nghĩa là đã có 1 đợt
+      // đặt lại dữ liệu xảy ra ở nơi khác trong lúc tab này vẫn đang mở), tab sẽ
+      // nhận biết được và không tự ý "gộp/khôi phục" dữ liệu cũ của chính nó.
+      lastResetEpochRef.current = (await storageGet('data_epoch', true, 0)) || 0;
       setReady(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4058,6 +4090,23 @@ export default function App() {
     // chừng khiến khoá không được mở lại).
     const khoaDatLai = await storageGet('reset_lock', true, 0);
     const dangCoAiDatLai = window.__dangDatLaiDuLieuVanHanh || (khoaDatLai && Date.now() - khoaDatLai < 60000);
+    // (Sửa lỗi 21/09 lần 7 — xem giải thích đầy đủ ở phần khai báo
+    // "lastResetEpochRef" phía trên) "reset_lock" ở trên chỉ khoá được trong 1
+    // khung giờ NGẮN (60 giây) — không đủ để chặn 1 PHIÊN "MA" (tab/trình duyệt
+    // khác mở từ trước, không hề tải lại trang) nếu phiên đó tình cờ đồng bộ
+    // SAU khi khoá đã hết hạn — lúc đó nó vẫn tưởng nhầm dữ liệu "biến mất" do
+    // lag mạng rồi tự ý ghi đè khôi phục lại y nguyên dữ liệu cũ của chính nó.
+    // "data_epoch" khắc phục việc này: không giới hạn thời gian, mỗi tab tự so
+    // sánh với mốc mình nhớ lúc mở trang — hễ máy chủ báo mốc MỚI HƠN (nghĩa là
+    // đã có 1 đợt đặt lại dữ liệu xảy ra, bất kể cách đây bao lâu), tab đó phải
+    // nhận nguyên dữ liệu server làm chuẩn đúng 1 lần, không được gộp gì cả.
+    const moiDatLaiONoiKhac = (await storageGet('data_epoch', true, 0)) || 0;
+    if (moiDatLaiONoiKhac > lastResetEpochRef.current) {
+      lastResetEpochRef.current = moiDatLaiONoiKhac;
+      setEvents(evs || []);
+      setSyncing(false);
+      return;
+    }
     if (dangCoAiDatLai) {
       setEvents(evs || []);
       setSyncing(false);
