@@ -2651,9 +2651,10 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
           <div className="divide-y divide-slate-700 text-sm">
             {traSoatKQ.map((t) => (
               <div key={t.id} className="py-2 flex justify-between items-center gap-2">
-                <div className="min-w-0"><span className="text-white font-bold tabular-nums">{t.plate}</span><span className="text-slate-500 text-xs"> · {t.excavatorName}{t.daSuaMayXuc && <span className="text-amber-400"> (đã đổi)</span>} · {t.customerName || 'Chưa gán KH'}</span></div>
+                <div className="min-w-0"><span className="text-white font-bold tabular-nums">{t.plate}</span><span className="text-slate-500 text-xs"> · {t.excavatorName}{t.daSuaMayXuc && <span className="text-amber-400"> (đã đổi)</span>} · {t.customerName || 'Chưa gán KH'}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</span></div>
                 <div className="flex items-center gap-2 whitespace-nowrap">
                   <span className="text-slate-400">{soVN(t.volume)} m³ · {gioVN(t.time)}</span>
+                  {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Kỹ thuật khai báo nhầm khách hàng — đổi lại đúng khách hàng, tự động sửa công nợ" className="text-brand-400 hover:text-brand-300"><Pencil className="w-3.5 h-3.5" /></button>}
                   {choSuaMayXuc && <button onClick={() => doiMayXuc(t)} title="Lái máy xúc chọn nhầm máy — đổi lại đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>}
                 </div>
               </div>
