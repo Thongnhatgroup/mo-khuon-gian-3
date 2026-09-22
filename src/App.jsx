@@ -3188,7 +3188,16 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     const tongThoiGianMs = daKetThucHet
       ? dsLuot.reduce((tong, x, i) => tong + (new Date(endsCuaTungLuot[i].time) - new Date(x.time)), 0)
       : 0;
-    const loads = events.filter((e) => e.type === 'load_confirm' && sessionIds.includes(e.sessionId));
+    // (Sửa lỗi 22/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY lấy "lượt xúc"
+    // load_confirm theo sessionId — không hề biết tới việc Kế toán công ty đã
+    // đổi lại máy xúc cho phiếu (ticket_print) ở phần "Theo kỳ / tháng", nên
+    // dù bảng tổng theo kỳ/tháng và "Xem chi tiết" đã cập nhật đúng, báo cáo
+    // "Theo ngày" của ca đó vẫn hiện y như cũ (không tự gộp theo). Sửa lại:
+    // lấy trực tiếp từ PHIẾU (ticket_print) cùng sessionId — VÀ chỉ giữ phiếu
+    // nào vẫn đang thuộc đúng máy xúc của ca này (e.excavatorId ===
+    // s.excavatorId); phiếu đã bị đổi sang máy xúc khác sẽ tự động biến mất
+    // khỏi ca cũ, luôn khớp với "Theo kỳ / tháng" và "Xem chi tiết".
+    const loads = events.filter((e) => e.type === 'ticket_print' && sessionIds.includes(e.sessionId) && e.excavatorId === s.excavatorId);
     const thoiGianLamViec = daKetThucHet ? dinhDangGio(tongThoiGianMs) : 'đang làm việc';
     // Chi tiết theo từng biển số xe trong ca — đúng khuôn mẫu yêu cầu (STT /
     // Biển số xe / Số chuyến / Khối lượng), dùng để hiển thị & xuất báo cáo.
@@ -3196,7 +3205,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     loads.forEach((l) => {
       theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] };
       theoBienSoMap[l.plate].soChuyen += 1;
-      theoBienSoMap[l.plate].khoiLuong += l.estVolume;
+      theoBienSoMap[l.plate].khoiLuong += l.volume;
       theoBienSoMap[l.plate].thoiGianXucList.push(l.time);
     });
     // (Sửa lỗi 09/09, mục 6) Cột "Thời gian xúc" — 1 xe có thể xúc nhiều
@@ -3206,7 +3215,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
       thoiGianXucList: b.thoiGianXucList.slice().sort(),
       thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioNgan).join(', '),
     })).sort((a, b) => a.plate.localeCompare(b.plate));
-    return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.estVolume, 0), theoBienSo, sessionIds };
+    return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo, sessionIds };
   });
 }
 function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
