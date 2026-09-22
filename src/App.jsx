@@ -3259,13 +3259,24 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
     xuatExcel({ [`Ngày ${ngay}`]: rows }, `bao-cao-may-xuc-ngay-${ngay}`);
   };
 
-  const phienThang = phienCaLamViec(events, tuThang, denThang);
+  // (Sửa lỗi 22/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY bảng tổng hợp
+  // "Theo kỳ / tháng" cộng số liệu từ CA LÀM VIỆC (phienCaLamViec, dựa theo
+  // đúng máy xúc lúc vào ca, lấy từ "lượt xúc" load_confirm) — trong khi ô
+  // "Xem chi tiết" của từng máy xúc lại tính từ PHIẾU (ticket_print, qua
+  // layChiTietTheoBienSo). Khi Kế toán công ty đổi lại máy xúc cho 1 nhóm
+  // phiếu, "Xem chi tiết" cập nhật đúng (vì dùng ticket_print) nhưng bảng
+  // TỔNG vẫn hiện y như cũ (vì vẫn dùng ca làm việc cũ, không hề biết tới sự
+  // kiện sửa) -> 2 nơi lệch nhau, đúng như phản ánh. Sửa lại: tính bảng tổng
+  // "Theo kỳ / tháng" trực tiếp từ PHIẾU — CÙNG một nguồn dữ liệu với "Xem
+  // chi tiết" — để 2 nơi luôn khớp nhau. (Báo cáo "Theo ngày" — có chữ ký
+  // lái máy/kế toán mỏ/giám đốc — vẫn giữ nguyên tính theo ca làm việc thực
+  // tế, vì đó là biên bản xác nhận đã làm việc dưới máy xúc nào lúc đó.)
   const theoMayThang = {};
-  phienThang.forEach((p) => {
-    theoMayThang[p.excavatorId] = theoMayThang[p.excavatorId] || { excavatorId: p.excavatorId, excavatorName: p.excavatorName, laiXe: new Set(), soChuyen: 0, tongKhoiLuong: 0 };
-    theoMayThang[p.excavatorId].laiXe.add(p.operatorName);
-    theoMayThang[p.excavatorId].soChuyen += p.soChuyen;
-    theoMayThang[p.excavatorId].tongKhoiLuong += p.tongKhoiLuong;
+  events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) >= tuThang && dayStrOf(e.time) <= denThang).forEach((t) => {
+    theoMayThang[t.excavatorId] = theoMayThang[t.excavatorId] || { excavatorId: t.excavatorId, excavatorName: t.excavatorName, laiXe: new Set(), soChuyen: 0, tongKhoiLuong: 0 };
+    if (t.operatorName) theoMayThang[t.excavatorId].laiXe.add(t.operatorName);
+    theoMayThang[t.excavatorId].soChuyen += 1;
+    theoMayThang[t.excavatorId].tongKhoiLuong += t.volume;
   });
   const dsMayThang = Object.values(theoMayThang);
   const tongThang = dsMayThang.reduce((s, m) => ({ soChuyen: s.soChuyen + m.soChuyen, tongKhoiLuong: s.tongKhoiLuong + m.tongKhoiLuong }), { soChuyen: 0, tongKhoiLuong: 0 });
