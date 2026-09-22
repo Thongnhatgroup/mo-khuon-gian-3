@@ -312,6 +312,41 @@ function apDungSuaKhoiLuongPhieu(rawEvents) {
     return e;
   });
 }
+// (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Phiếu bị ghi sai ngày/giờ (khai báo
+// muộn, phần mềm treo/lỗi hệ thống...) hoặc sai biển số (gõ nhầm, đã xúc
+// xong mới phát hiện) -> Kế toán công ty cần sửa lại đúng ngày, giờ, biển số
+// cho phiếu — đặt cùng chỗ với "Đổi KH"/"Sửa khối lượng" vì cùng dùng để tra
+// soát/điều chỉnh phiếu cho đúng. Cùng nguyên tắc event-sourcing: mỗi lần
+// sửa chỉ tạo THÊM 1 sự kiện 'sua_ngay_gio_bien_so_phieu' ghi targetId (= id
+// của ticket_print) + ngày giờ/biển số đúng; hàm này áp dụng bản sửa MỚI
+// NHẤT lên đúng phiếu đó khi hiển thị, giữ nguyên phiếu gốc để còn lịch sử.
+function apDungSuaNgayGioBienSoPhieu(rawEvents) {
+  const suaMoiNhat = {};
+  rawEvents.forEach((e) => { if (e.type === 'sua_ngay_gio_bien_so_phieu' && e.targetId) suaMoiNhat[e.targetId] = e; });
+  if (Object.keys(suaMoiNhat).length === 0) return rawEvents;
+  return rawEvents.map((e) => {
+    if (e.type === 'ticket_print' && suaMoiNhat[e.id]) {
+      const s = suaMoiNhat[e.id];
+      return { ...e, time: s.timeMoi, plate: s.plateMoi, timeGoc: e.timeGoc || e.time, plateGoc: e.plateGoc || e.plate, daSuaNgayGioBienSo: true };
+    }
+    return e;
+  });
+}
+// Chuyển 1 mốc thời gian ISO (UTC) sang { ngay, gio } theo GIỜ VIỆT NAM
+// (UTC+7) để đổ vào ô nhập <input type="date">/<input type="time">.
+function isoToVNDateTimeParts(iso) {
+  try {
+    const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
+    return { ngay: d.toISOString().slice(0, 10), gio: d.toISOString().slice(11, 16) };
+  } catch { return { ngay: '', gio: '' }; }
+}
+// Ngược lại: ghép ngày (yyyy-mm-dd) + giờ (HH:mm) theo GIỜ VIỆT NAM thành lại
+// 1 mốc thời gian ISO (UTC) để lưu vào sự kiện.
+function vnDateTimeToISO(ngay, gio) {
+  const [gg, mi] = (gio || '00:00').split(':').map((x) => Number(x) || 0);
+  const localMs = new Date(`${ngay}T00:00:00.000Z`).getTime() + (gg * 3600 + mi * 60) * 1000;
+  return new Date(localMs - 7 * 60 * 60 * 1000).toISOString();
+}
 function gioVN(iso) {
   try {
     const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
@@ -2489,6 +2524,33 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
     notify(`Đã sửa khối lượng phiếu ${t.ticketNo} (xe ${t.plate}) từ ${soVN(t.volume)} sang ${soVN(soMoi)} m³`);
   };
 
+  // (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Phiếu bị ghi sai ngày/giờ hoặc
+  // sai biển số (gõ nhầm, phần mềm lỗi...) -> Kế toán công ty sửa lại đúng
+  // ngày, giờ, biển số cho phiếu — đặt cùng chỗ với "Đổi KH"/"Sửa khối
+  // lượng". Xem apDungSuaNgayGioBienSoPhieu() ở đầu file để biết cách áp
+  // dụng khi hiển thị.
+  const suaNgayGioBienSo = async (t) => {
+    if (!addEvent) return;
+    const { ngay: ngayCu, gio: gioCu } = isoToVNDateTimeParts(t.time);
+    const kq = await hoi(`Sửa ngày/giờ/biển số — phiếu ${t.ticketNo}`, [
+      { key: 'ngay', nhan: 'Ngày đúng', kieu: 'date', giaTri: ngayCu },
+      { key: 'gio', nhan: 'Giờ đúng', kieu: 'time', giaTri: gioCu },
+      { key: 'plate', nhan: 'Biển số đúng', kieu: 'text', giaTri: t.plate || '' },
+    ]);
+    if (!kq) return;
+    const bienSoMoi = (kq.plate || '').toString().trim().toUpperCase();
+    if (!kq.ngay || !bienSoMoi) return notify('Ngày và biển số không được để trống', true);
+    const isoMoi = vnDateTimeToISO(kq.ngay, kq.gio || gioCu || '00:00');
+    if (isoMoi === t.time && bienSoMoi === (t.plate || '')) return;
+    addEvent({
+      id: genId('SNB'), type: 'sua_ngay_gio_bien_so_phieu', targetId: t.id,
+      timeCu: t.time, timeMoi: isoMoi,
+      plateCu: t.plate || null, plateMoi: bienSoMoi,
+      suaBoi: myName || '', time: new Date().toISOString(),
+    });
+    notify(`Đã sửa phiếu ${t.ticketNo}: ${ngayVN(kq.ngay)} ${kq.gio || gioCu || ''} — xe ${bienSoMoi}`);
+  };
+
   // (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Lái máy xúc vào ca chọn nhầm máy
   // xúc của mình, đã xúc vài chuyến trước khi phát hiện -> phiếu bị gán sai
   // máy xúc. Cho Kế toán công ty điều chỉnh lại đúng máy xúc theo từng phiếu
@@ -2649,7 +2711,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
               <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Số phiếu</th><th className="text-right pb-2">m³</th><th className="text-right pb-2">Thành tiền</th>{choSuaKhachHang && <th></th>}</tr></thead>
                 <tbody>{chiTietKH.map((t) => (
                   <tr key={t.id} className="border-t border-slate-700">
-                    <td className="py-1.5 text-slate-300">{gioVN(t.time)}</td>
+                    <td className="py-1.5 text-slate-300">{gioVN(t.time)}{t.daSuaNgayGioBienSo && <span className="text-amber-400"> (đã sửa)</span>}</td>
                     <td className="py-1.5 text-white font-bold">{t.plate}</td>
                     <td className="py-1.5 text-slate-400">{t.ticketNo}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</td>
                     <td className="py-1.5 text-right text-white">{soVN(t.volume)}{t.daSuaKhoiLuong && <span className="text-amber-400"> (đã sửa)</span>}</td>
@@ -2657,7 +2719,8 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
                     {choSuaKhachHang && (
                       <td className="py-1.5 text-right whitespace-nowrap">
                         {t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Xe này không phải khách hàng này — đổi lại đúng khách hàng" className="text-brand-400 hover:text-brand-300 mr-1.5"><Pencil className="w-3.5 h-3.5" /></button>}
-                        {t.type === 'ticket_print' && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300"><Ruler className="w-3.5 h-3.5" /></button>}
+                        {t.type === 'ticket_print' && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300 mr-1.5"><Ruler className="w-3.5 h-3.5" /></button>}
+                        {t.type === 'ticket_print' && <button onClick={() => suaNgayGioBienSo(t)} title="Sửa lại ngày, giờ, biển số ghi sai trên phiếu" className="text-emerald-400 hover:text-emerald-300"><Calendar className="w-3.5 h-3.5" /></button>}
                       </td>
                     )}
                   </tr>
@@ -2693,11 +2756,12 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
           <div className="divide-y divide-slate-700 text-sm">
             {traSoatKQ.map((t) => (
               <div key={t.id} className="py-2 flex justify-between items-center gap-2">
-                <div className="min-w-0"><span className="text-white font-bold tabular-nums">{t.plate}</span><span className="text-slate-500 text-xs"> · {t.excavatorName}{t.daSuaMayXuc && <span className="text-amber-400"> (đã đổi)</span>} · {t.customerName || 'Chưa gán KH'}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</span></div>
+                <div className="min-w-0"><span className="text-white font-bold tabular-nums">{t.plate}</span>{t.daSuaNgayGioBienSo && <span className="text-amber-400 text-xs"> (đã sửa)</span>}<span className="text-slate-500 text-xs"> · {t.excavatorName}{t.daSuaMayXuc && <span className="text-amber-400"> (đã đổi)</span>} · {t.customerName || 'Chưa gán KH'}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</span></div>
                 <div className="flex items-center gap-2 whitespace-nowrap">
                   <span className="text-slate-400">{soVN(t.volume)}{t.daSuaKhoiLuong && <span className="text-amber-400"> (đã sửa)</span>} m³ · {gioVN(t.time)}</span>
                   {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Kỹ thuật khai báo nhầm khách hàng — đổi lại đúng khách hàng, tự động sửa công nợ" className="text-brand-400 hover:text-brand-300"><Pencil className="w-3.5 h-3.5" /></button>}
                   {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300"><Ruler className="w-3.5 h-3.5" /></button>}
+                  {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => suaNgayGioBienSo(t)} title="Sửa lại ngày, giờ, biển số ghi sai trên phiếu" className="text-emerald-400 hover:text-emerald-300"><Calendar className="w-3.5 h-3.5" /></button>}
                   {choSuaMayXuc && <button onClick={() => doiMayXuc(t)} title="Lái máy xúc chọn nhầm máy — đổi lại đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>}
                 </div>
               </div>
@@ -3167,6 +3231,25 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
 // "shift_start" xen giữa (đã được hạn chế nhiều nhờ lưu phiên vào localStorage
 // ở DriverScreen), báo cáo vẫn hiển thị gộp lại thành 1 dòng duy nhất, số chuyến
 // và khối lượng cộng dồn, thời gian làm việc = tổng thời gian của từng lượt.
+// Tính chi tiết theo biển số xe (STT / Biển số / Thời gian xúc / Số chuyến /
+// Khối lượng) cho MỘT nhóm phiếu — dùng chung cho cả "ca thật" và "ca ảo"
+// bên dưới, tránh lặp code.
+function tinhTheoBienSoTuLoads(loads) {
+  const theoBienSoMap = {};
+  loads.forEach((l) => {
+    theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] };
+    theoBienSoMap[l.plate].soChuyen += 1;
+    theoBienSoMap[l.plate].khoiLuong += l.volume;
+    theoBienSoMap[l.plate].thoiGianXucList.push(l.time);
+  });
+  // (Sửa lỗi 09/09, mục 6) Cột "Thời gian xúc" — 1 xe có thể xúc nhiều chuyến
+  // trong ca nên liệt kê đủ các giờ xúc, sắp theo thứ tự thời gian.
+  return Object.values(theoBienSoMap).map((b) => ({
+    ...b,
+    thoiGianXucList: b.thoiGianXucList.slice().sort(),
+    thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioNgan).join(', '),
+  })).sort((a, b) => a.plate.localeCompare(b.plate));
+}
 function phienCaLamViec(events, tuNgay, denNgay) {
   const starts = events.filter((e) => e.type === 'shift_start' && dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay);
   const nhom = {};
@@ -3176,10 +3259,51 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     if (!nhom[key]) { nhom[key] = []; thuTuNhom.push(key); }
     nhom[key].push(s);
   });
-  return thuTuNhom.map((key) => {
+  const nhomInfo = thuTuNhom.map((key) => {
     const dsLuot = nhom[key].slice().sort((a, b) => a.time.localeCompare(b.time));
     const s = dsLuot[0]; // đại diện nhóm — lấy đúng lượt "Nhận ca" SỚM NHẤT trong ngày
-    const sessionIds = dsLuot.map((x) => x.id);
+    return { key, s, dsLuot, sessionIds: dsLuot.map((x) => x.id), ngay: dayStrOf(s.time) };
+  });
+
+  // BƯỚC 1 (giữ nguyên logic cũ): mỗi ca nhận đúng các phiếu được TẠO RA từ
+  // ca đó (theo sessionId) và HIỆN vẫn đang thuộc đúng máy xúc của ca này —
+  // phiếu bị Kế toán công ty đổi sang máy xúc khác sẽ tự "nhả" khỏi đây,
+  // luôn khớp với "Theo kỳ / tháng" và "Xem chi tiết" cho MÁY XÚC CŨ.
+  const loadsTheoCa = {};
+  const daNhanTicketId = new Set();
+  nhomInfo.forEach((info) => {
+    const loads = events.filter((e) => e.type === 'ticket_print' && info.sessionIds.includes(e.sessionId) && e.excavatorId === info.s.excavatorId);
+    loadsTheoCa[info.key] = loads;
+    loads.forEach((l) => daNhanTicketId.add(l.id));
+  });
+
+  // BƯỚC 2 (Sửa lỗi 22/09 lần 2 — theo phản ánh Chủ tịch HĐQT): phiếu vừa bị
+  // đổi SANG máy xúc khác không còn thuộc sessionId của bất kỳ ca nào (ca cũ
+  // đã "nhả" ra ở Bước 1, còn máy MỚI thì chưa từng có ca nào tạo ra phiếu
+  // này) -> "lạc nhà", khiến Theo ngày bị THIẾU so với Theo kỳ/tháng dù cả 2
+  // đều đang tính đúng theo máy xúc HIỆN TẠI của từng phiếu. Gom các phiếu
+  // "lạc nhà" này lại (đúng máy xúc + đúng ngày, nhưng chưa ca nào nhận) rồi
+  // gán bổ sung vào ca ĐẦU TIÊN trong ngày của đúng máy xúc đó; nếu ngày đó
+  // máy đó chưa từng có ca thật nào (trường hợp phổ biến — lái máy xúc nhận
+  // ca dưới máy SAI, không hề có ca nào dưới máy ĐÚNG), tạo 1 "ca ảo" để
+  // phiếu vẫn có chỗ hiển thị trong Theo ngày, không bị mất đi đâu cả.
+  const phieuLacNha = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay && !daNhanTicketId.has(e.id));
+  const caTheoMayNgay = {}; // excavatorId|ngay -> [nhomInfo...] sắp theo giờ nhận ca
+  nhomInfo.forEach((info) => {
+    const k = `${info.s.excavatorId}|${info.ngay}`;
+    (caTheoMayNgay[k] = caTheoMayNgay[k] || []).push(info);
+  });
+  Object.values(caTheoMayNgay).forEach((arr) => arr.sort((a, b) => a.s.time.localeCompare(b.s.time)));
+  const caAoTheoMayNgay = {}; // excavatorId|ngay -> [ticket...] — máy CHƯA có ca thật nào ngày đó
+  phieuLacNha.forEach((t) => {
+    const k = `${t.excavatorId}|${dayStrOf(t.time)}`;
+    const dsCaThat = caTheoMayNgay[k];
+    if (dsCaThat && dsCaThat.length > 0) loadsTheoCa[dsCaThat[0].key].push(t);
+    else (caAoTheoMayNgay[k] = caAoTheoMayNgay[k] || []).push(t);
+  });
+
+  const ketQuaCaThat = nhomInfo.map((info) => {
+    const { s, dsLuot, sessionIds } = info;
     const endsCuaTungLuot = dsLuot.map((x) => events.find((e) => e.type === 'shift_end' && e.sessionId === x.id));
     const daKetThucHet = endsCuaTungLuot.every(Boolean);
     const endGanNhat = daKetThucHet ? endsCuaTungLuot.reduce((a, b) => (a.time > b.time ? a : b)) : null;
@@ -3188,35 +3312,29 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     const tongThoiGianMs = daKetThucHet
       ? dsLuot.reduce((tong, x, i) => tong + (new Date(endsCuaTungLuot[i].time) - new Date(x.time)), 0)
       : 0;
-    // (Sửa lỗi 22/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY lấy "lượt xúc"
-    // load_confirm theo sessionId — không hề biết tới việc Kế toán công ty đã
-    // đổi lại máy xúc cho phiếu (ticket_print) ở phần "Theo kỳ / tháng", nên
-    // dù bảng tổng theo kỳ/tháng và "Xem chi tiết" đã cập nhật đúng, báo cáo
-    // "Theo ngày" của ca đó vẫn hiện y như cũ (không tự gộp theo). Sửa lại:
-    // lấy trực tiếp từ PHIẾU (ticket_print) cùng sessionId — VÀ chỉ giữ phiếu
-    // nào vẫn đang thuộc đúng máy xúc của ca này (e.excavatorId ===
-    // s.excavatorId); phiếu đã bị đổi sang máy xúc khác sẽ tự động biến mất
-    // khỏi ca cũ, luôn khớp với "Theo kỳ / tháng" và "Xem chi tiết".
-    const loads = events.filter((e) => e.type === 'ticket_print' && sessionIds.includes(e.sessionId) && e.excavatorId === s.excavatorId);
+    const loads = loadsTheoCa[info.key];
     const thoiGianLamViec = daKetThucHet ? dinhDangGio(tongThoiGianMs) : 'đang làm việc';
-    // Chi tiết theo từng biển số xe trong ca — đúng khuôn mẫu yêu cầu (STT /
-    // Biển số xe / Số chuyến / Khối lượng), dùng để hiển thị & xuất báo cáo.
-    const theoBienSoMap = {};
-    loads.forEach((l) => {
-      theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] };
-      theoBienSoMap[l.plate].soChuyen += 1;
-      theoBienSoMap[l.plate].khoiLuong += l.volume;
-      theoBienSoMap[l.plate].thoiGianXucList.push(l.time);
-    });
-    // (Sửa lỗi 09/09, mục 6) Cột "Thời gian xúc" — 1 xe có thể xúc nhiều
-    // chuyến trong ca nên liệt kê đủ các giờ xúc, sắp theo thứ tự thời gian.
-    const theoBienSo = Object.values(theoBienSoMap).map((b) => ({
-      ...b,
-      thoiGianXucList: b.thoiGianXucList.slice().sort(),
-      thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioNgan).join(', '),
-    })).sort((a, b) => a.plate.localeCompare(b.plate));
-    return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo, sessionIds };
+    return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo: tinhTheoBienSoTuLoads(loads), sessionIds };
   });
+
+  // "Ca ảo" — chỉ xuất hiện khi 1 máy xúc trong ngày CHƯA từng có ca thật
+  // nào (không ai "Nhận ca" dưới máy đó) nhưng lại có phiếu (do Kế toán công
+  // ty đổi máy xúc sang) — giữ để Theo ngày không bị thiếu so với Theo
+  // kỳ/tháng; KHÔNG dùng để in "Biên bản xác nhận" thay cho ca thật.
+  const ketQuaCaAo = Object.entries(caAoTheoMayNgay).map(([k, loads]) => {
+    const [excavatorId] = k.split('|');
+    const t0 = loads.slice().sort((a, b) => a.time.localeCompare(b.time))[0];
+    const laiXe = Array.from(new Set(loads.map((l) => l.operatorName).filter(Boolean))).join(', ');
+    return {
+      id: `ca-ao-${k}`, type: 'shift_start_ao', excavatorId, excavatorName: t0.excavatorName,
+      operatorId: null, operatorName: laiXe || '(không xác định)', shift: '—',
+      time: t0.time, ketThuc: null,
+      thoiGianLamViec: 'Không có "Nhận ca" ghi nhận — phiếu do Kế toán công ty đổi máy xúc sang',
+      soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo: tinhTheoBienSoTuLoads(loads), sessionIds: [], laCaAo: true,
+    };
+  });
+
+  return ketQuaCaThat.concat(ketQuaCaAo).sort((a, b) => a.time.localeCompare(b.time));
 }
 function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
   const [tab, setTab] = useState('ngay');
@@ -3394,7 +3512,7 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
             <Card key={p.id} className="mb-3">
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="text-white font-bold">{p.excavatorName} · {p.operatorName}</div>
+                  <div className="text-white font-bold">{p.excavatorName} · {p.operatorName}{p.laCaAo && <span className="text-amber-400 font-normal text-xs"> (phiếu đổi máy xúc)</span>}</div>
                   <div className="text-slate-400 text-xs">Ca {p.shift} · {p.thoiGianLamViec} · {p.soChuyen} chuyến · {soVN(p.tongKhoiLuong)} m³</div>
                 </div>
                 <div className="flex gap-1.5">
@@ -4500,7 +4618,7 @@ export default function App() {
   // không đổi số lượng) — đây là lý do máy tính (đã đăng nhập sẵn) chạy bình
   // thường còn điện thoại (đăng nhập lần đầu) thì bị trắng màn hình.
   const eventsHienThi = useMemo(
-    () => apDungSuaKhoiLuongPhieu(apDungSuaBoSungCoiNoi(apDungSuaMayXucPhieu(apDungSuaKhachHangPhieu(apDungSuaBienSo(events))))),
+    () => apDungSuaNgayGioBienSoPhieu(apDungSuaKhoiLuongPhieu(apDungSuaBoSungCoiNoi(apDungSuaMayXucPhieu(apDungSuaKhachHangPhieu(apDungSuaBienSo(events)))))),
     [events]
   );
 
