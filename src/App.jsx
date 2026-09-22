@@ -3056,7 +3056,10 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
               <button onClick={() => setXemBaoCaoKhongHang(true)} className="w-full flex items-center justify-center gap-2 mt-3 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileText className="w-4 h-4" /> Xem / In / Xuất báo cáo chi tiết</button>
             </Card>
           )}
-          <BaoCaoKhachHangVaTraSoat events={events} config={config} setConfig={setConfig} choSuaDonGia={true} addEvent={addEvent} myName={myName} choKhaiBaoBoSung={true} choSuaKhachHang={true} />
+          {/* (Bổ sung 22/09 — theo yêu cầu Chủ tịch HĐQT) CHỈ Kế toán công ty
+              mới được sửa lại khách hàng trên phiếu bị khai nhầm đối tượng —
+              Kế toán mỏ không được sửa (choSuaKhachHang bỏ trống = false). */}
+          <BaoCaoKhachHangVaTraSoat events={events} config={config} setConfig={setConfig} choSuaDonGia={true} addEvent={addEvent} myName={myName} choKhaiBaoBoSung={true} />
         </>
       )}
       {tab === 'maysuc' && <BaoCaoMayXuc events={events} />}
