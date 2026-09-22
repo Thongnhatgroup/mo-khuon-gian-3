@@ -3166,12 +3166,19 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.estVolume, 0), theoBienSo, sessionIds };
   });
 }
-function BaoCaoMayXuc({ events }) {
+function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
   const [tab, setTab] = useState('ngay');
   const [ngay, setNgay] = useState(todayStr());
   const [tuThang, setTuThang] = useState(todayStr().slice(0, 8) + '01');
   const [denThang, setDenThang] = useState(todayStr());
   const [xemChiTietMay, setXemChiTietMay] = useState(null); // excavatorId đang xem chi tiết theo biển số
+  // (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Lái máy xúc vào ca CHỌN NHẦM máy
+  // xúc của mình, đã xúc được vài chuyến trước khi phát hiện. Cho phép Kế
+  // toán công ty (choSuaMayXuc) sửa lại ĐÚNG máy xúc cho cả nhóm phiếu (cùng
+  // biển số, cùng ngày, đang dưới máy xúc đang xem) trong 1 lần — xem
+  // apDungSuaMayXucPhieu() ở đầu file để biết cách áp dụng khi hiển thị.
+  const { hoi, ModalHopThoai } = useHopThoai();
+  const [toast, notify] = useToast();
 
   const phienNgay = phienCaLamViec(events, ngay, ngay);
 
@@ -3276,6 +3283,25 @@ function BaoCaoMayXuc({ events }) {
   };
   const mayDangXem = dsMayThang.find((m) => m.excavatorId === xemChiTietMay);
   const { ds: dsBienSo, tong: tongBienSo } = mayDangXem ? layChiTietTheoBienSo(mayDangXem.excavatorId) : { ds: [], tong: { soChuyen: 0, khoiLuong: 0 } };
+  const doiMayXucCaXe = async (b) => {
+    if (!addEvent || !mayDangXem) return;
+    const kq = await hoi(`Đổi máy xúc — xe ${b.plate} ngày ${ngayVN(b.ngay)} (đang ở máy "${mayDangXem.excavatorName}", ${b.soChuyen} chuyến)`, [
+      { key: 'excavatorId', nhan: 'Máy xúc đúng', kieu: 'chon', giaTri: mayDangXem.excavatorId, tuyChon: config.excavators.map((x) => ({ value: x.id, nhan: x.name })) },
+    ]);
+    if (!kq) return;
+    const mayMoi = config.excavators.find((x) => x.id === kq.excavatorId);
+    if (!mayMoi || mayMoi.id === mayDangXem.excavatorId) return;
+    const phieuCanSua = events.filter((e) => e.type === 'ticket_print' && e.excavatorId === mayDangXem.excavatorId && e.plate === b.plate && dayStrOf(e.time) === b.ngay);
+    if (phieuCanSua.length === 0) return notify('Không tìm thấy phiếu để sửa', true);
+    const gioSua = new Date().toISOString();
+    phieuCanSua.forEach((t) => addEvent({
+      id: genId('SMX'), type: 'sua_may_xuc_phieu', targetId: t.id,
+      excavatorIdCu: t.excavatorId || null, excavatorNameCu: t.excavatorName || null,
+      excavatorIdMoi: mayMoi.id, excavatorNameMoi: mayMoi.name,
+      suaBoi: myName || '', time: gioSua,
+    }));
+    notify(`Đã đổi ${phieuCanSua.length} phiếu — xe ${b.plate} ngày ${ngayVN(b.ngay)} sang máy "${mayMoi.name}"`);
+  };
   const chiTietMayHTML = () => {
     const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${ngayVN(b.ngay)}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
     return `
@@ -3369,14 +3395,29 @@ function BaoCaoMayXuc({ events }) {
               </div>
             </div>
             {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : (
-              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th></tr></thead>
-                <tbody>{dsBienSo.map((b) => (<tr key={`${b.ngay}-${b.plate}`} className="border-t border-slate-700"><td className="py-1.5 text-slate-400 text-xs">{ngayVN(b.ngay)}</td><td className="py-1.5 text-white font-bold">{b.plate}</td><td className="py-1.5 text-slate-400 text-xs">{b.thoiGianXuc}</td><td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td><td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td></tr>))}</tbody>
+              <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th>{choSuaMayXuc && <th></th>}</tr></thead>
+                <tbody>{dsBienSo.map((b) => (
+                  <tr key={`${b.ngay}-${b.plate}`} className="border-t border-slate-700">
+                    <td className="py-1.5 text-slate-400 text-xs">{ngayVN(b.ngay)}</td>
+                    <td className="py-1.5 text-white font-bold">{b.plate}</td>
+                    <td className="py-1.5 text-slate-400 text-xs">{b.thoiGianXuc}</td>
+                    <td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td>
+                    <td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td>
+                    {choSuaMayXuc && (
+                      <td className="py-1.5 text-right">
+                        <button onClick={() => doiMayXucCaXe(b)} title="Lái máy xúc chọn nhầm máy — đổi cả nhóm phiếu này (xe + ngày) về đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>
+                      </td>
+                    )}
+                  </tr>
+                ))}</tbody>
               </table>
             )}
             <button onClick={() => setXemChiTietMay(null)} className="w-full mt-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm">Đóng</button>
           </div>
         </div>
       )}
+      {ModalHopThoai}
+      <Toast msg={toast?.msg} err={toast?.err} />
     </div>
   );
 }
@@ -4074,7 +4115,11 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro, myName }
         })}
       </div>
 
-      {tab === 'maysuc' && <BaoCaoMayXuc events={events} />}
+      {/* (Bổ sung 22/09 — theo yêu cầu Chủ tịch HĐQT) CHỈ Kế toán công ty mới
+          được sửa lại máy xúc cho các phiếu bị gán nhầm (choSuaMayXuc =
+          dcSuaMayXucPhieu, đã giới hạn chỉ đúng vai trò "ketoancongty" ở
+          trên) — bên Kế toán mỏ (AccountantScreen) KHÔNG truyền cờ này. */}
+      {tab === 'maysuc' && <BaoCaoMayXuc events={events} config={config} addEvent={addEvent} myName={myName} choSuaMayXuc={dcSuaMayXucPhieu} />}
 
       {tab === 'tongquan' && (
         <>
