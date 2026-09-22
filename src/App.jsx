@@ -293,6 +293,25 @@ function apDungSuaBoSungCoiNoi(rawEvents) {
       return e;
     });
 }
+// (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Phần mềm làm tròn khối lượng khi
+// tính từ kích thước thùng xe -> một số phiếu bị lệch nhẹ so với tính tay.
+// Cho phép Kế toán công ty sửa lại đúng khối lượng cho từng phiếu — cùng
+// nguyên tắc event-sourcing: mỗi lần sửa chỉ tạo THÊM 1 sự kiện
+// 'sua_khoi_luong_phieu' ghi targetId (= id của ticket_print) + khối lượng
+// đúng; hàm này áp dụng bản sửa MỚI NHẤT lên đúng phiếu đó khi hiển thị/tính
+// công nợ, giữ nguyên phiếu gốc để còn lịch sử tra soát.
+function apDungSuaKhoiLuongPhieu(rawEvents) {
+  const suaMoiNhat = {};
+  rawEvents.forEach((e) => { if (e.type === 'sua_khoi_luong_phieu' && e.targetId) suaMoiNhat[e.targetId] = e; });
+  if (Object.keys(suaMoiNhat).length === 0) return rawEvents;
+  return rawEvents.map((e) => {
+    if (e.type === 'ticket_print' && suaMoiNhat[e.id]) {
+      const s = suaMoiNhat[e.id];
+      return { ...e, volume: s.volumeMoi, volumeGoc: e.volumeGoc ?? e.volume, daSuaKhoiLuong: true };
+    }
+    return e;
+  });
+}
 function gioVN(iso) {
   try {
     const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
@@ -2448,6 +2467,28 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
     notify(`Đã đổi khách hàng phiếu ${t.ticketNo} (xe ${t.plate}) sang "${khMoi.name}"`);
   };
 
+  // (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Phần mềm làm tròn khối lượng ->
+  // một số phiếu bị lệch nhẹ so với tính tay. Cho Kế toán công ty sửa lại
+  // đúng khối lượng cho 1 phiếu cụ thể — đặt cùng chỗ với "Đổi KH" vì cùng
+  // dùng để tra soát/điều chỉnh lại công nợ cho đúng. Xem
+  // apDungSuaKhoiLuongPhieu() ở đầu file để biết cách áp dụng khi hiển thị.
+  const suaKhoiLuong = async (t) => {
+    if (!addEvent) return;
+    const kq = await hoi(`Sửa khối lượng — phiếu ${t.ticketNo} (xe ${t.plate})`, [
+      { key: 'volume', nhan: 'Khối lượng đúng (m³)', kieu: 'number', giaTri: String(t.volume) },
+    ]);
+    if (!kq) return;
+    const soMoi = Number((kq.volume || '').toString().replace(',', '.').replace(/[^\d.]/g, ''));
+    if (!soMoi || soMoi <= 0) return notify('Khối lượng không hợp lệ', true);
+    if (soMoi === t.volume) return;
+    addEvent({
+      id: genId('SKL'), type: 'sua_khoi_luong_phieu', targetId: t.id,
+      volumeCu: t.volume, volumeMoi: soMoi,
+      suaBoi: myName || '', time: new Date().toISOString(),
+    });
+    notify(`Đã sửa khối lượng phiếu ${t.ticketNo} (xe ${t.plate}) từ ${soVN(t.volume)} sang ${soVN(soMoi)} m³`);
+  };
+
   // (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Lái máy xúc vào ca chọn nhầm máy
   // xúc của mình, đã xúc vài chuyến trước khi phát hiện -> phiếu bị gán sai
   // máy xúc. Cho Kế toán công ty điều chỉnh lại đúng máy xúc theo từng phiếu
@@ -2611,11 +2652,12 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
                     <td className="py-1.5 text-slate-300">{gioVN(t.time)}</td>
                     <td className="py-1.5 text-white font-bold">{t.plate}</td>
                     <td className="py-1.5 text-slate-400">{t.ticketNo}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</td>
-                    <td className="py-1.5 text-right text-white">{soVN(t.volume)}</td>
+                    <td className="py-1.5 text-right text-white">{soVN(t.volume)}{t.daSuaKhoiLuong && <span className="text-amber-400"> (đã sửa)</span>}</td>
                     <td className="py-1.5 text-right text-slate-300">{tienVN(t.volume * donGiaXem)}</td>
                     {choSuaKhachHang && (
-                      <td className="py-1.5 text-right">
-                        {t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Xe này không phải khách hàng này — đổi lại đúng khách hàng" className="text-brand-400 hover:text-brand-300"><Pencil className="w-3.5 h-3.5" /></button>}
+                      <td className="py-1.5 text-right whitespace-nowrap">
+                        {t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Xe này không phải khách hàng này — đổi lại đúng khách hàng" className="text-brand-400 hover:text-brand-300 mr-1.5"><Pencil className="w-3.5 h-3.5" /></button>}
+                        {t.type === 'ticket_print' && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300"><Ruler className="w-3.5 h-3.5" /></button>}
                       </td>
                     )}
                   </tr>
@@ -2653,8 +2695,9 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
               <div key={t.id} className="py-2 flex justify-between items-center gap-2">
                 <div className="min-w-0"><span className="text-white font-bold tabular-nums">{t.plate}</span><span className="text-slate-500 text-xs"> · {t.excavatorName}{t.daSuaMayXuc && <span className="text-amber-400"> (đã đổi)</span>} · {t.customerName || 'Chưa gán KH'}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</span></div>
                 <div className="flex items-center gap-2 whitespace-nowrap">
-                  <span className="text-slate-400">{soVN(t.volume)} m³ · {gioVN(t.time)}</span>
+                  <span className="text-slate-400">{soVN(t.volume)}{t.daSuaKhoiLuong && <span className="text-amber-400"> (đã sửa)</span>} m³ · {gioVN(t.time)}</span>
                   {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Kỹ thuật khai báo nhầm khách hàng — đổi lại đúng khách hàng, tự động sửa công nợ" className="text-brand-400 hover:text-brand-300"><Pencil className="w-3.5 h-3.5" /></button>}
+                  {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300"><Ruler className="w-3.5 h-3.5" /></button>}
                   {choSuaMayXuc && <button onClick={() => doiMayXuc(t)} title="Lái máy xúc chọn nhầm máy — đổi lại đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>}
                 </div>
               </div>
@@ -4437,7 +4480,7 @@ export default function App() {
   // không đổi số lượng) — đây là lý do máy tính (đã đăng nhập sẵn) chạy bình
   // thường còn điện thoại (đăng nhập lần đầu) thì bị trắng màn hình.
   const eventsHienThi = useMemo(
-    () => apDungSuaBoSungCoiNoi(apDungSuaMayXucPhieu(apDungSuaKhachHangPhieu(apDungSuaBienSo(events)))),
+    () => apDungSuaKhoiLuongPhieu(apDungSuaBoSungCoiNoi(apDungSuaMayXucPhieu(apDungSuaKhachHangPhieu(apDungSuaBienSo(events))))),
     [events]
   );
 
