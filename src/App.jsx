@@ -332,6 +332,30 @@ function apDungSuaNgayGioBienSoPhieu(rawEvents) {
     return e;
   });
 }
+// (Bổ sung 24/09 — yêu cầu Chủ tịch HĐQT) Xe vào đã múc đất, lái máy xúc đã
+// ấn xác nhận xúc đầy (đã lập phiếu ticket_print) nhưng xe hỏng/sự cố ->
+// phải đổ lại đất, trả phiếu — Kế toán mỏ cần HỦY được phiếu đó kèm ghi chú
+// lý do. Cùng nguyên tắc event-sourcing: mỗi lần hủy chỉ tạo THÊM 1 sự kiện
+// 'huy_phieu_ke_toan_mo' ghi targetId (= id của ticket_print) + lý do; hàm
+// này áp dụng lên đúng phiếu đó khi hiển thị — đưa khối lượng về 0 (để
+// KHÔNG ghi nhận vào công nợ khách hàng ở bất kỳ đâu tính theo t.volume,
+// không cần sửa từng nơi), đánh dấu daHuy/lyDoHuy để các báo cáo máy xúc vẫn
+// hiển thị đúng biển số xe nhưng số chuyến = 0 kèm ghi chú lý do hủy — xem
+// từng chỗ dùng t.daHuy (theoMayThang, layChiTietTheoBienSo,
+// tinhTheoBienSoTuLoads, tinhCongNoTheoKy...). Giữ nguyên phiếu gốc (kể cả
+// volumeGoc) để còn lịch sử tra soát, không xóa bất kỳ dữ liệu nào.
+function apDungHuyPhieuKeToanMo(rawEvents) {
+  const huyMoiNhat = {};
+  rawEvents.forEach((e) => { if (e.type === 'huy_phieu_ke_toan_mo' && e.targetId) huyMoiNhat[e.targetId] = e; });
+  if (Object.keys(huyMoiNhat).length === 0) return rawEvents;
+  return rawEvents.map((e) => {
+    if (e.type === 'ticket_print' && huyMoiNhat[e.id]) {
+      const h = huyMoiNhat[e.id];
+      return { ...e, daHuy: true, lyDoHuy: h.lyDo || '', huyBoi: h.huyBoi || '', huyLuc: h.time, volumeGoc: e.volumeGoc ?? e.volume, volume: 0 };
+    }
+    return e;
+  });
+}
 // Chuyển 1 mốc thời gian ISO (UTC) sang { ngay, gio } theo GIỜ VIỆT NAM
 // (UTC+7) để đổ vào ô nhập <input type="date">/<input type="time">.
 function isoToVNDateTimeParts(iso) {
@@ -779,6 +803,20 @@ function useHopThoai() {
               <select autoFocus={idx === 0} value={giaTriNhap[t.key] ?? ''} onChange={(e) => setGiaTriNhap({ ...giaTriNhap, [t.key]: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
                 {t.tuyChon.map((o) => <option key={o.value} value={o.value}>{o.nhan}</option>)}
               </select>
+            ) : t.kieu === 'gio' ? (
+              // (Sửa lỗi 24/09 — theo phản ánh Chủ tịch HĐQT) Ô <input type="time">
+              // gốc của trình duyệt không gõ/sửa được ổn định trên một số máy —
+              // cùng nguyên nhân đã gặp với ô chọn ngày trước đây (xem
+              // InputNgayVN ở trên). Sửa theo đúng cách đã dùng cho ngày: 1 ô CHỮ
+              // THẬT luôn gõ được, tự thêm dấu ":" sau khi gõ 2 số giờ.
+              <input autoFocus={idx === 0} type="text" inputMode="numeric" placeholder="hh:mm" value={giaTriNhap[t.key] ?? ''}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); // hhmm, tối đa 4 số
+                  const hienThi = raw.length > 2 ? `${raw.slice(0, 2)}:${raw.slice(2)}` : raw;
+                  setGiaTriNhap({ ...giaTriNhap, [t.key]: hienThi });
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') dong(giaTriNhap); }}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
             ) : (
               <input autoFocus={idx === 0} type={t.kieu || 'text'} value={giaTriNhap[t.key] ?? ''}
                 onChange={(e) => setGiaTriNhap({ ...giaTriNhap, [t.key]: e.target.value })}
@@ -2243,7 +2281,9 @@ function tinhCongNoTheoKy(customerId, tuNgay, denNgay, events, config) {
   const thanhTien = khoiLuong * donGia;
   const daThanhToan = events.filter((e) => e.type === 'customer_deposit' && e.customerId === customerId && trongKy(e)).reduce((s, e) => s + e.amount, 0);
   const duCuoiKy = duDauKy + thanhTien - daThanhToan;
-  return { customerName: cus?.name || '—', duDauKy, khoiLuong, donGia, thanhTien, daThanhToan, duCuoiKy, soChuyen: ticketsTrongKy.length };
+  // Phiếu đã bị Kế toán mỏ hủy không tính là 1 chuyến công nợ (khối lượng
+  // của phiếu đó đã tự về 0 nên "khoiLuong"/"thanhTien" ở trên đã đúng sẵn).
+  return { customerName: cus?.name || '—', duDauKy, khoiLuong, donGia, thanhTien, daThanhToan, duCuoiKy, soChuyen: ticketsTrongKy.filter((e) => !e.daHuy).length };
 }
 // Khai báo kỹ thuật còn HIỆU LỰC cho 1 biển số = lần khai báo gần nhất (bất kỳ
 // lượt vào cổng nào) còn trong hạn 3 ngày làm việc, VÀ sau đó không có báo cáo
@@ -2534,13 +2574,16 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
     const { ngay: ngayCu, gio: gioCu } = isoToVNDateTimeParts(t.time);
     const kq = await hoi(`Sửa ngày/giờ/biển số — phiếu ${t.ticketNo}`, [
       { key: 'ngay', nhan: 'Ngày đúng', kieu: 'date', giaTri: ngayCu },
-      { key: 'gio', nhan: 'Giờ đúng', kieu: 'time', giaTri: gioCu },
+      { key: 'gio', nhan: 'Giờ đúng', kieu: 'gio', giaTri: gioCu },
       { key: 'plate', nhan: 'Biển số đúng', kieu: 'text', giaTri: t.plate || '' },
     ]);
     if (!kq) return;
     const bienSoMoi = (kq.plate || '').toString().trim().toUpperCase();
     if (!kq.ngay || !bienSoMoi) return notify('Ngày và biển số không được để trống', true);
-    const isoMoi = vnDateTimeToISO(kq.ngay, kq.gio || gioCu || '00:00');
+    const gioMoi = kq.gio || gioCu || '00:00';
+    const khopGio = /^([01]\d|2[0-3]):([0-5]\d)$/.test(gioMoi);
+    if (!khopGio) return notify('Giờ không hợp lệ — nhập đúng định dạng hh:mm (VD: 05:15 hoặc 17:15)', true);
+    const isoMoi = vnDateTimeToISO(kq.ngay, gioMoi);
     if (isoMoi === t.time && bienSoMoi === (t.plate || '')) return;
     addEvent({
       id: genId('SNB'), type: 'sua_ngay_gio_bien_so_phieu', targetId: t.id,
@@ -2579,7 +2622,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
   }).slice().reverse().slice(0, 30);
 
   const theoMayXuc = {};
-  tickets.forEach((t) => { theoMayXuc[t.excavatorName || '—'] = theoMayXuc[t.excavatorName || '—'] || { name: t.excavatorName || '—', m3: 0, soPhieu: 0, laiXucSet: new Set() }; theoMayXuc[t.excavatorName || '—'].m3 += t.volume; theoMayXuc[t.excavatorName || '—'].soPhieu += 1; if (t.operatorName) theoMayXuc[t.excavatorName || '—'].laiXucSet.add(t.operatorName); });
+  tickets.forEach((t) => { theoMayXuc[t.excavatorName || '—'] = theoMayXuc[t.excavatorName || '—'] || { name: t.excavatorName || '—', m3: 0, soPhieu: 0, laiXucSet: new Set() }; theoMayXuc[t.excavatorName || '—'].m3 += t.volume; if (!t.daHuy) theoMayXuc[t.excavatorName || '—'].soPhieu += 1; if (t.operatorName) theoMayXuc[t.excavatorName || '—'].laiXucSet.add(t.operatorName); });
   const caLamViecTrongKy = events.filter((e) => e.type === 'shift_start' && inRange(e, range));
   Object.values(theoMayXuc).forEach((m) => { m.soCa = caLamViecTrongKy.filter((c) => c.excavatorName === m.name).length; });
 
@@ -2710,17 +2753,17 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
             {chiTietKH.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có phiếu nào trong kỳ.</div> : (
               <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Số phiếu</th><th className="text-right pb-2">m³</th><th className="text-right pb-2">Thành tiền</th>{choSuaKhachHang && <th></th>}</tr></thead>
                 <tbody>{chiTietKH.map((t) => (
-                  <tr key={t.id} className="border-t border-slate-700">
+                  <tr key={t.id} className={`border-t border-slate-700 ${t.daHuy ? 'opacity-50' : ''}`}>
                     <td className="py-1.5 text-slate-300">{gioVN(t.time)}{t.daSuaNgayGioBienSo && <span className="text-amber-400"> (đã sửa)</span>}</td>
                     <td className="py-1.5 text-white font-bold">{t.plate}</td>
-                    <td className="py-1.5 text-slate-400">{t.ticketNo}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</td>
-                    <td className="py-1.5 text-right text-white">{soVN(t.volume)}{t.daSuaKhoiLuong && <span className="text-amber-400"> (đã sửa)</span>}</td>
+                    <td className="py-1.5 text-slate-400">{t.ticketNo}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}{t.daHuy && <span className="text-red-400"> (đã hủy{t.lyDoHuy ? ` — ${t.lyDoHuy}` : ''})</span>}</td>
+                    <td className="py-1.5 text-right text-white">{soVN(t.volume)}{t.daSuaKhoiLuong && !t.daHuy && <span className="text-amber-400"> (đã sửa)</span>}</td>
                     <td className="py-1.5 text-right text-slate-300">{tienVN(t.volume * donGiaXem)}</td>
                     {choSuaKhachHang && (
                       <td className="py-1.5 text-right whitespace-nowrap">
-                        {t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Xe này không phải khách hàng này — đổi lại đúng khách hàng" className="text-brand-400 hover:text-brand-300 mr-1.5"><Pencil className="w-3.5 h-3.5" /></button>}
-                        {t.type === 'ticket_print' && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300 mr-1.5"><Ruler className="w-3.5 h-3.5" /></button>}
-                        {t.type === 'ticket_print' && <button onClick={() => suaNgayGioBienSo(t)} title="Sửa lại ngày, giờ, biển số ghi sai trên phiếu" className="text-emerald-400 hover:text-emerald-300"><Calendar className="w-3.5 h-3.5" /></button>}
+                        {t.type === 'ticket_print' && !t.daHuy && <button onClick={() => doiKhachHang(t)} title="Xe này không phải khách hàng này — đổi lại đúng khách hàng" className="text-brand-400 hover:text-brand-300 mr-1.5"><Pencil className="w-3.5 h-3.5" /></button>}
+                        {t.type === 'ticket_print' && !t.daHuy && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300 mr-1.5"><Ruler className="w-3.5 h-3.5" /></button>}
+                        {t.type === 'ticket_print' && !t.daHuy && <button onClick={() => suaNgayGioBienSo(t)} title="Sửa lại ngày, giờ, biển số ghi sai trên phiếu" className="text-emerald-400 hover:text-emerald-300"><Calendar className="w-3.5 h-3.5" /></button>}
                       </td>
                     )}
                   </tr>
@@ -2755,14 +2798,14 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
         {search.trim() && (traSoatKQ.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Không tìm thấy.</div> : (
           <div className="divide-y divide-slate-700 text-sm">
             {traSoatKQ.map((t) => (
-              <div key={t.id} className="py-2 flex justify-between items-center gap-2">
-                <div className="min-w-0"><span className="text-white font-bold tabular-nums">{t.plate}</span>{t.daSuaNgayGioBienSo && <span className="text-amber-400 text-xs"> (đã sửa)</span>}<span className="text-slate-500 text-xs"> · {t.excavatorName}{t.daSuaMayXuc && <span className="text-amber-400"> (đã đổi)</span>} · {t.customerName || 'Chưa gán KH'}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</span></div>
+              <div key={t.id} className={`py-2 flex justify-between items-center gap-2 ${t.daHuy ? 'opacity-50' : ''}`}>
+                <div className="min-w-0"><span className="text-white font-bold tabular-nums">{t.plate}</span>{t.daSuaNgayGioBienSo && <span className="text-amber-400 text-xs"> (đã sửa)</span>}{t.daHuy && <span className="text-red-400 text-xs"> (đã hủy{t.lyDoHuy ? ` — ${t.lyDoHuy}` : ''})</span>}<span className="text-slate-500 text-xs"> · {t.excavatorName}{t.daSuaMayXuc && <span className="text-amber-400"> (đã đổi)</span>} · {t.customerName || 'Chưa gán KH'}{t.daSuaKhachHang && <span className="text-amber-400"> (đã đổi KH)</span>}</span></div>
                 <div className="flex items-center gap-2 whitespace-nowrap">
-                  <span className="text-slate-400">{soVN(t.volume)}{t.daSuaKhoiLuong && <span className="text-amber-400"> (đã sửa)</span>} m³ · {gioVN(t.time)}</span>
-                  {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => doiKhachHang(t)} title="Kỹ thuật khai báo nhầm khách hàng — đổi lại đúng khách hàng, tự động sửa công nợ" className="text-brand-400 hover:text-brand-300"><Pencil className="w-3.5 h-3.5" /></button>}
-                  {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300"><Ruler className="w-3.5 h-3.5" /></button>}
-                  {choSuaKhachHang && t.type === 'ticket_print' && <button onClick={() => suaNgayGioBienSo(t)} title="Sửa lại ngày, giờ, biển số ghi sai trên phiếu" className="text-emerald-400 hover:text-emerald-300"><Calendar className="w-3.5 h-3.5" /></button>}
-                  {choSuaMayXuc && <button onClick={() => doiMayXuc(t)} title="Lái máy xúc chọn nhầm máy — đổi lại đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>}
+                  <span className="text-slate-400">{soVN(t.volume)}{t.daSuaKhoiLuong && !t.daHuy && <span className="text-amber-400"> (đã sửa)</span>} m³ · {gioVN(t.time)}</span>
+                  {choSuaKhachHang && t.type === 'ticket_print' && !t.daHuy && <button onClick={() => doiKhachHang(t)} title="Kỹ thuật khai báo nhầm khách hàng — đổi lại đúng khách hàng, tự động sửa công nợ" className="text-brand-400 hover:text-brand-300"><Pencil className="w-3.5 h-3.5" /></button>}
+                  {choSuaKhachHang && t.type === 'ticket_print' && !t.daHuy && <button onClick={() => suaKhoiLuong(t)} title="Khối lượng bị lệch do làm tròn — sửa lại đúng khối lượng" className="text-cyan-400 hover:text-cyan-300"><Ruler className="w-3.5 h-3.5" /></button>}
+                  {choSuaKhachHang && t.type === 'ticket_print' && !t.daHuy && <button onClick={() => suaNgayGioBienSo(t)} title="Sửa lại ngày, giờ, biển số ghi sai trên phiếu" className="text-emerald-400 hover:text-emerald-300"><Calendar className="w-3.5 h-3.5" /></button>}
+                  {choSuaMayXuc && !t.daHuy && <button onClick={() => doiMayXuc(t)} title="Lái máy xúc chọn nhầm máy — đổi lại đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>}
                 </div>
               </div>
             ))}
@@ -2982,9 +3025,28 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
   // phải hiện cảnh báo to + có nút bấm 1 lần là in được ngay (click thật của
   // người dùng thì trình duyệt luôn cho phép mở cửa sổ in).
   const [phieuChoInThuCong, setPhieuChoInThuCong] = useState([]);
+  const { hoi, ModalHopThoai } = useHopThoai();
+  const [toast, notify] = useToast();
   const today = todayStr();
   const tickets = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today).slice().reverse();
   const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today).slice().reverse();
+
+  // (Bổ sung 24/09 — yêu cầu Chủ tịch HĐQT) Xe vào đã múc đất, lái máy xúc đã
+  // xác nhận xúc đầy (đã lập phiếu) nhưng xe hỏng/sự cố -> phải đổ lại đất,
+  // trả phiếu. Kế toán mỏ hủy phiếu kèm lý do — xem apDungHuyPhieuKeToanMo()
+  // ở đầu file để biết cách áp dụng (không ghi nhận vào công nợ, báo cáo máy
+  // xúc vẫn hiện biển số xe nhưng số chuyến/khối lượng = 0 kèm ghi chú).
+  const huyPhieu = async (t) => {
+    if (!addEvent || t.daHuy) return;
+    const kq = await hoi(`Hủy phiếu ${t.ticketNo} — xe ${t.plate}`, [
+      { key: 'lyDo', nhan: 'Lý do hủy (VD: xe hỏng, đổ lại đất, trả phiếu)', kieu: 'text', giaTri: '' },
+    ]);
+    if (!kq) return;
+    const lyDo = (kq.lyDo || '').toString().trim();
+    if (!lyDo) return notify('Vui lòng nhập lý do hủy phiếu', true);
+    addEvent({ id: genId('HP'), type: 'huy_phieu_ke_toan_mo', targetId: t.id, lyDo, huyBoi: myName || '', time: new Date().toISOString() });
+    notify(`Đã hủy phiếu ${t.ticketNo} — xe ${t.plate}`);
+  };
 
   const phieuDaXuLyRef = useRef(null);
   if (phieuDaXuLyRef.current === null) {
@@ -3106,15 +3168,16 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
                 {tickets.map((t) => {
                   const daKy = events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === t.id);
                   return (
-                    <div key={t.id} className="py-2.5">
+                    <div key={t.id} className={`py-2.5 ${t.daHuy ? 'opacity-50' : ''}`}>
                       <button onClick={() => setXemLai(t)} className="w-full flex justify-between items-center text-left hover:bg-slate-700/30 px-1 rounded">
-                        <div><div className="text-white font-bold tabular-nums">{t.plate}</div><div className="text-slate-500 text-[11px]">{t.ticketNo} · {t.customerName || 'Chưa gán KH'} · {gioVN(t.time)}</div></div>
+                        <div><div className="text-white font-bold tabular-nums">{t.plate}</div><div className="text-slate-500 text-[11px]">{t.ticketNo} · {t.customerName || 'Chưa gán KH'} · {gioVN(t.time)}{t.daHuy && <span className="text-red-400"> · ĐÃ HỦY — {t.lyDoHuy}</span>}</div></div>
                         <div className="text-right"><div className="text-white">{soVN(t.volume)} m³</div><div className="text-slate-500 text-[11px] flex items-center gap-1 justify-end"><Printer className="w-3 h-3" /> Xem 3 liên</div></div>
                       </button>
-                      <div className="flex items-center gap-2 mt-1 px-1">
-                        {daKy ? <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">✓ Lái xe đã ký nhận</span>
+                      <div className="flex items-center gap-2 mt-1 px-1 flex-wrap">
+                        {t.daHuy ? null : daKy ? <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">✓ Lái xe đã ký nhận</span>
                           : <button onClick={() => addEvent({ id: genId('PK'), type: 'phieu_lai_xe_ky', ticketId: t.id, ticketNo: t.ticketNo, plate: t.plate, time: new Date().toISOString() })} className="text-[10px] bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded-full font-semibold">Đánh dấu lái xe đã ký nhận</button>}
                         <button onClick={() => inTrucTiep(phieuGiaoNhanHTML(t, events), `Phiếu ${t.ticketNo}`, '80mm')} className="text-[10px] bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded-full font-semibold flex items-center gap-1"><Printer className="w-3 h-3" /> In lại</button>
+                        {!t.daHuy && <button onClick={() => huyPhieu(t)} title="Xe hỏng, đổ lại đất, trả phiếu — hủy phiếu này, không ghi vào công nợ khách hàng" className="text-[10px] bg-red-900/40 hover:bg-red-900/60 text-red-300 px-2 py-1 rounded-full font-semibold">Hủy phiếu</button>}
                       </div>
                     </div>
                   );
@@ -3212,6 +3275,8 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
       })()}
       <BienBanModal khaiBao={xemBienBan} events={events} onClose={() => setXemBienBan(null)} />
       <BaoCaoXeKhongHangModal open={xemBaoCaoKhongHang} onClose={() => setXemBaoCaoKhongHang(false)} danhSach={xeRaKhongHangHomNay} events={events} tuNgay={today} denNgay={today} />
+      {ModalHopThoai}
+      <Toast msg={toast?.msg} err={toast?.err} />
     </div>
   );
 }
@@ -3237,18 +3302,22 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
 function tinhTheoBienSoTuLoads(loads) {
   const theoBienSoMap = {};
   loads.forEach((l) => {
-    theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] };
+    theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [], ghiChuHuy: [] };
+    // (Yêu cầu 24/09 — theo phản ánh Chủ tịch HĐQT) Phiếu đã bị Kế toán mỏ
+    // hủy (xe hỏng, đổ lại đất...) vẫn phải hiện biển số xe trên báo cáo máy
+    // xúc, nhưng KHÔNG tính vào số chuyến/khối lượng — chỉ ghi chú lý do.
+    if (l.daHuy) { theoBienSoMap[l.plate].ghiChuHuy.push(l.lyDoHuy || '(không ghi lý do)'); return; }
     theoBienSoMap[l.plate].soChuyen += 1;
     theoBienSoMap[l.plate].khoiLuong += l.volume;
     theoBienSoMap[l.plate].thoiGianXucList.push(l.time);
   });
   // (Sửa lỗi 09/09, mục 6) Cột "Thời gian xúc" — 1 xe có thể xúc nhiều chuyến
   // trong ca nên liệt kê đủ các giờ xúc, sắp theo thứ tự thời gian.
-  return Object.values(theoBienSoMap).map((b) => ({
-    ...b,
-    thoiGianXucList: b.thoiGianXucList.slice().sort(),
-    thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioNgan).join(', '),
-  })).sort((a, b) => a.plate.localeCompare(b.plate));
+  return Object.values(theoBienSoMap).map((b) => {
+    const thoiGianXuc = b.thoiGianXucList.slice().sort().map(gioNgan).join(', ');
+    const ghiChuHuyText = b.ghiChuHuy.length > 0 ? `${thoiGianXuc ? ' · ' : ''}Đã hủy ${b.ghiChuHuy.length} chuyến (${b.ghiChuHuy.join('; ')})` : '';
+    return { ...b, thoiGianXucList: b.thoiGianXucList.slice().sort(), thoiGianXuc: thoiGianXuc + ghiChuHuyText };
+  }).sort((a, b) => a.plate.localeCompare(b.plate));
 }
 function phienCaLamViec(events, tuNgay, denNgay) {
   const starts = events.filter((e) => e.type === 'shift_start' && dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay);
@@ -3314,7 +3383,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
       : 0;
     const loads = loadsTheoCa[info.key];
     const thoiGianLamViec = daKetThucHet ? dinhDangGio(tongThoiGianMs) : 'đang làm việc';
-    return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo: tinhTheoBienSoTuLoads(loads), sessionIds };
+    return { ...s, ketThuc: endGanNhat?.time || null, thoiGianLamViec, soChuyen: loads.filter((l) => !l.daHuy).length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo: tinhTheoBienSoTuLoads(loads), sessionIds };
   });
 
   // "Ca ảo" — chỉ xuất hiện khi 1 máy xúc trong ngày CHƯA từng có ca thật
@@ -3330,7 +3399,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
       operatorId: null, operatorName: laiXe || '(không xác định)', shift: '—',
       time: t0.time, ketThuc: null,
       thoiGianLamViec: 'Không có "Nhận ca" ghi nhận — phiếu do Kế toán công ty đổi máy xúc sang',
-      soChuyen: loads.length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo: tinhTheoBienSoTuLoads(loads), sessionIds: [], laCaAo: true,
+      soChuyen: loads.filter((l) => !l.daHuy).length, tongKhoiLuong: loads.reduce((t, l) => t + l.volume, 0), theoBienSo: tinhTheoBienSoTuLoads(loads), sessionIds: [], laCaAo: true,
     };
   });
 
@@ -3402,7 +3471,9 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
   events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) >= tuThang && dayStrOf(e.time) <= denThang).forEach((t) => {
     theoMayThang[t.excavatorId] = theoMayThang[t.excavatorId] || { excavatorId: t.excavatorId, excavatorName: t.excavatorName, laiXe: new Set(), soChuyen: 0, tongKhoiLuong: 0 };
     if (t.operatorName) theoMayThang[t.excavatorId].laiXe.add(t.operatorName);
-    theoMayThang[t.excavatorId].soChuyen += 1;
+    // Phiếu đã bị Kế toán mỏ hủy (daHuy) không tính vào số chuyến — khối
+    // lượng đã tự về 0 sẵn (xem apDungHuyPhieuKeToanMo).
+    if (!t.daHuy) theoMayThang[t.excavatorId].soChuyen += 1;
     theoMayThang[t.excavatorId].tongKhoiLuong += t.volume;
   });
   const dsMayThang = Object.values(theoMayThang);
@@ -3434,22 +3505,23 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
   // gọi thẳng được, không bắt buộc phải mở modal "Chi tiết theo xe" trước mới
   // xuất được (21/08: làm nút xuất Excel chi tiết dễ thấy hơn theo yêu cầu).
   // (Yêu cầu 15/09) Báo cáo theo kỳ/tháng trải nhiều ngày -> bổ sung cột
-  // "Ngày tháng" như báo cáo theo ngày. Để mỗi dòng có đúng 1 ngày tháng, gộp
-  // theo CẶP (ngày, biển số) thay vì gộp theo biển số suốt cả kỳ như trước.
+  // "Ngày tháng" như báo cáo theo ngày.
+  // (Yêu cầu 24/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY gộp các chuyến
+  // xúc CÙNG biển số trong CÙNG 1 ngày vào CHUNG 1 dòng (cột "Thời gian xúc"
+  // liệt kê nhiều giờ cách nhau bằng dấu phẩy) -> khó theo dõi & khó sửa
+  // đúng 1 chuyến cụ thể. Sửa lại: mỗi CHUYẾN (mỗi phiếu ticket_print) hiển
+  // thị RIÊNG 1 dòng. Phiếu đã bị Kế toán mỏ HỦY (daHuy — xem
+  // apDungHuyPhieuKeToanMo) vẫn giữ nguyên dòng (đúng ngày/biển số) để còn
+  // tra soát, nhưng KHÔNG tính vào số chuyến/khối lượng (đã tự về 0 vì
+  // volume đã bị đưa về 0, số chuyến trừ riêng bên dưới).
   const layChiTietTheoBienSo = (excavatorId) => {
-    const veTheoBienSo = {};
-    events.filter((e) => e.type === 'ticket_print' && e.excavatorId === excavatorId && dayStrOf(e.time) >= tuThang && dayStrOf(e.time) <= denThang)
-      .forEach((t) => {
-        const ngayT = dayStrOf(t.time);
-        const key = `${ngayT}|${t.plate}`;
-        veTheoBienSo[key] = veTheoBienSo[key] || { ngay: ngayT, plate: t.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [] };
-        veTheoBienSo[key].soChuyen += 1; veTheoBienSo[key].khoiLuong += t.volume; veTheoBienSo[key].thoiGianXucList.push(t.time);
-      });
-    const ds = Object.values(veTheoBienSo).map((b) => ({
-      ...b,
-      thoiGianXucList: b.thoiGianXucList.slice().sort(),
-      thoiGianXuc: b.thoiGianXucList.slice().sort().map(gioNgan).join(', '),
-    })).sort((a, b) => a.ngay.localeCompare(b.ngay) || a.plate.localeCompare(b.plate));
+    const ds = events.filter((e) => e.type === 'ticket_print' && e.excavatorId === excavatorId && dayStrOf(e.time) >= tuThang && dayStrOf(e.time) <= denThang)
+      .map((t) => ({
+        id: t.id, ngay: dayStrOf(t.time), plate: t.plate, time: t.time,
+        soChuyen: t.daHuy ? 0 : 1, khoiLuong: t.volume, thoiGianXuc: gioNgan(t.time),
+        daHuy: !!t.daHuy, lyDoHuy: t.lyDoHuy || '',
+      }))
+      .sort((a, b) => a.ngay.localeCompare(b.ngay) || a.plate.localeCompare(b.plate) || a.time.localeCompare(b.time));
     const tong = ds.reduce((s, b) => ({ soChuyen: s.soChuyen + b.soChuyen, khoiLuong: s.khoiLuong + b.khoiLuong }), { soChuyen: 0, khoiLuong: 0 });
     return { ds, tong };
   };
@@ -3458,33 +3530,36 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
     xuatExcel({ 'Chi tiết': [
       ['Máy xúc', m.excavatorName], ['Lái máy xúc', Array.from(m.laiXe).join(', ')], ['Từ ngày', ngayVN(tuThang)], ['Đến ngày', ngayVN(denThang)], [],
       ['STT', 'Ngày tháng', 'Biển số xe', 'Thời gian xúc', 'Số chuyến', 'Khối lượng (m3)'],
-      ...ds.map((b, i) => [i + 1, ngayVN(b.ngay), b.plate, b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
+      ...ds.map((b, i) => [i + 1, ngayVN(b.ngay), b.plate, b.daHuy ? `Đã hủy${b.lyDoHuy ? ' — ' + b.lyDoHuy : ''}` : b.thoiGianXuc, b.soChuyen, b.khoiLuong]),
       ['', '', 'Cộng', '', tong.soChuyen, tong.khoiLuong],
     ] }, `chi-tiet-${m.excavatorName}-${tuThang}_${denThang}`);
   };
   const mayDangXem = dsMayThang.find((m) => m.excavatorId === xemChiTietMay);
   const { ds: dsBienSo, tong: tongBienSo } = mayDangXem ? layChiTietTheoBienSo(mayDangXem.excavatorId) : { ds: [], tong: { soChuyen: 0, khoiLuong: 0 } };
+  // (Yêu cầu 24/09) "Chi tiết theo xe" giờ hiển thị 1 dòng = 1 chuyến cụ thể
+  // (xem layChiTietTheoBienSo) -> đổi máy xúc cũng chỉ áp dụng cho ĐÚNG
+  // chuyến (phiếu) đang bấm, không còn gộp cả ngày như trước (tránh đổi
+  // nhầm cả những chuyến khác đúng máy của cùng xe, cùng ngày).
   const doiMayXucCaXe = async (b) => {
     if (!addEvent || !mayDangXem) return;
-    const kq = await hoi(`Đổi máy xúc — xe ${b.plate} ngày ${ngayVN(b.ngay)} (đang ở máy "${mayDangXem.excavatorName}", ${b.soChuyen} chuyến)`, [
+    const kq = await hoi(`Đổi máy xúc — xe ${b.plate} lúc ${b.thoiGianXuc} ngày ${ngayVN(b.ngay)} (đang ở máy "${mayDangXem.excavatorName}")`, [
       { key: 'excavatorId', nhan: 'Máy xúc đúng', kieu: 'chon', giaTri: mayDangXem.excavatorId, tuyChon: config.excavators.map((x) => ({ value: x.id, nhan: x.name })) },
     ]);
     if (!kq) return;
     const mayMoi = config.excavators.find((x) => x.id === kq.excavatorId);
     if (!mayMoi || mayMoi.id === mayDangXem.excavatorId) return;
-    const phieuCanSua = events.filter((e) => e.type === 'ticket_print' && e.excavatorId === mayDangXem.excavatorId && e.plate === b.plate && dayStrOf(e.time) === b.ngay);
-    if (phieuCanSua.length === 0) return notify('Không tìm thấy phiếu để sửa', true);
-    const gioSua = new Date().toISOString();
-    phieuCanSua.forEach((t) => addEvent({
+    const t = events.find((e) => e.type === 'ticket_print' && e.id === b.id);
+    if (!t) return notify('Không tìm thấy phiếu để sửa', true);
+    addEvent({
       id: genId('SMX'), type: 'sua_may_xuc_phieu', targetId: t.id,
       excavatorIdCu: t.excavatorId || null, excavatorNameCu: t.excavatorName || null,
       excavatorIdMoi: mayMoi.id, excavatorNameMoi: mayMoi.name,
-      suaBoi: myName || '', time: gioSua,
-    }));
-    notify(`Đã đổi ${phieuCanSua.length} phiếu — xe ${b.plate} ngày ${ngayVN(b.ngay)} sang máy "${mayMoi.name}"`);
+      suaBoi: myName || '', time: new Date().toISOString(),
+    });
+    notify(`Đã đổi phiếu xe ${b.plate} lúc ${b.thoiGianXuc} ngày ${ngayVN(b.ngay)} sang máy "${mayMoi.name}"`);
   };
   const chiTietMayHTML = () => {
-    const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${ngayVN(b.ngay)}</td><td>${b.plate}</td><td>${b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
+    const hang = dsBienSo.map((b, i) => `<tr><td>${i + 1}</td><td>${ngayVN(b.ngay)}</td><td>${b.plate}</td><td>${b.daHuy ? `Đã hủy${b.lyDoHuy ? ' — ' + b.lyDoHuy : ''}` : b.thoiGianXuc}</td><td>${soVN(b.soChuyen)}</td><td>${soVN(b.khoiLuong)}</td></tr>`).join('');
     return `
       <p><b>Công ty Cp DV và TM Thống Nhất</b></p><p>Mỏ khuôn giàn 3</p>
       <h2 class="ct">BÁO CÁO CHI TIẾT KHỐI LƯỢNG MÁY XÚC</h2>
@@ -3578,15 +3653,15 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
             {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : (
               <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th>{choSuaMayXuc && <th></th>}</tr></thead>
                 <tbody>{dsBienSo.map((b) => (
-                  <tr key={`${b.ngay}-${b.plate}`} className="border-t border-slate-700">
+                  <tr key={b.id} className={`border-t border-slate-700 ${b.daHuy ? 'opacity-50' : ''}`}>
                     <td className="py-1.5 text-slate-400 text-xs">{ngayVN(b.ngay)}</td>
                     <td className="py-1.5 text-white font-bold">{b.plate}</td>
-                    <td className="py-1.5 text-slate-400 text-xs">{b.thoiGianXuc}</td>
+                    <td className="py-1.5 text-slate-400 text-xs">{b.daHuy ? <span className="text-red-400">Đã hủy{b.lyDoHuy ? ` — ${b.lyDoHuy}` : ''}</span> : b.thoiGianXuc}</td>
                     <td className="py-1.5 text-right text-slate-300">{b.soChuyen}</td>
                     <td className="py-1.5 text-right text-white">{soVN(b.khoiLuong)}</td>
                     {choSuaMayXuc && (
                       <td className="py-1.5 text-right">
-                        <button onClick={() => doiMayXucCaXe(b)} title="Lái máy xúc chọn nhầm máy — đổi cả nhóm phiếu này (xe + ngày) về đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>
+                        {!b.daHuy && <button onClick={() => doiMayXucCaXe(b)} title="Lái máy xúc chọn nhầm máy — đổi đúng chuyến này về đúng máy xúc" className="text-amber-400 hover:text-amber-300"><Pencil className="w-3.5 h-3.5" /></button>}
                       </td>
                     )}
                   </tr>
@@ -4472,7 +4547,12 @@ export default function App() {
       setConfigState(mergedCfg);
       const evs = await storageGet('events', true, []);
       setEvents(evs || []);
-      ticketCounterRef.current = (evs || []).filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === todayStr()).length;
+      // (Yêu cầu 24/09 — theo phản ánh Chủ tịch HĐQT) Số phiếu TRƯỚC ĐÂY reset
+      // về 1 mỗi ngày (kèm tiền tố "PKG-YYMMDD-") -> đổi thành số NỐI TIẾP
+      // xuyên suốt, không reset theo ngày, và ngắn gọn hơn — xem buildTicket().
+      // Đếm TOÀN BỘ phiếu đã từng lập (không chỉ hôm nay) để số tiếp theo nối
+      // đúng tiếp theo, không trùng với phiếu cũ.
+      ticketCounterRef.current = (evs || []).filter((e) => e.type === 'ticket_print').length;
       const cl = await storageGet('claims', true, {});
       setClaims(cl || {});
       // (Sửa lỗi 21/09 lần 7) Ghi nhớ mốc "phiên bản dữ liệu" hiện tại NGAY LÚC
@@ -4597,7 +4677,9 @@ export default function App() {
   // trong CÙNG một lần để đảm bảo 2 sự kiện luôn được ghi atomically với nhau.
   const buildTicket = useCallback((loadEv) => {
     ticketCounterRef.current += 1;
-    const ticketNo = `PKG-${todayStr().replace(/-/g, '').slice(2)}-${String(ticketCounterRef.current).padStart(5, '0')}`;
+    // (Yêu cầu 24/09) Số phiếu ngắn gọn, nối tiếp xuyên suốt — không còn tiền
+    // tố "PKG-YYMMDD-" và không reset về 1 mỗi ngày như trước.
+    const ticketNo = String(ticketCounterRef.current).padStart(9, '0');
     return { id: genId('TK'), type: 'ticket_print', loadId: loadEv.id, plate: loadEv.plate, volume: loadEv.estVolume, ticketNo, soLien: 3, excavatorId: loadEv.excavatorId, excavatorName: loadEv.excavatorName, sessionId: loadEv.sessionId, operatorId: loadEv.operatorId, operatorName: loadEv.operatorName, customerId: loadEv.customerId, customerName: loadEv.customerName, autoGenerated: true, time: new Date().toISOString() };
   }, []);
 
@@ -4618,7 +4700,7 @@ export default function App() {
   // không đổi số lượng) — đây là lý do máy tính (đã đăng nhập sẵn) chạy bình
   // thường còn điện thoại (đăng nhập lần đầu) thì bị trắng màn hình.
   const eventsHienThi = useMemo(
-    () => apDungSuaNgayGioBienSoPhieu(apDungSuaKhoiLuongPhieu(apDungSuaBoSungCoiNoi(apDungSuaMayXucPhieu(apDungSuaKhachHangPhieu(apDungSuaBienSo(events)))))),
+    () => apDungHuyPhieuKeToanMo(apDungSuaNgayGioBienSoPhieu(apDungSuaKhoiLuongPhieu(apDungSuaBoSungCoiNoi(apDungSuaMayXucPhieu(apDungSuaKhachHangPhieu(apDungSuaBienSo(events))))))),
     [events]
   );
 
