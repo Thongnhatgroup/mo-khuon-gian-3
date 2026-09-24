@@ -3341,7 +3341,18 @@ function phienCaLamViec(events, tuNgay, denNgay) {
   const loadsTheoCa = {};
   const daNhanTicketId = new Set();
   nhomInfo.forEach((info) => {
-    const loads = events.filter((e) => e.type === 'ticket_print' && info.sessionIds.includes(e.sessionId) && e.excavatorId === info.s.excavatorId);
+    // (Sửa lỗi 24/09 lần 2 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY chỉ khớp
+    // theo sessionId + excavatorId, KHÔNG kiểm tra ngày của phiếu -> khi Kế
+    // toán công ty sửa lại NGÀY của 1 phiếu sang ngày khác (ở "Chi tiết công
+    // nợ"), phiếu đó vẫn bị tính vào ca thật của NGÀY CŨ (vì sessionId chưa
+    // đổi), đồng thời cũng được tính thêm 1 lần nữa ở "ca ảo" của NGÀY MỚI
+    // (Bước 2 bên dưới) -> phiếu bị đếm 2 lần trên "Theo ngày" cộng dồn nhiều
+    // ngày, dù "Theo kỳ/tháng" và "Công nợ" vẫn tính đúng 1 lần. Nay bắt buộc
+    // ngày của phiếu (dayStrOf(e.time)) phải nằm trong đúng khoảng [tuNgay,
+    // denNgay] đang xem thì mới tính vào ca thật của ngày đó — phiếu đã đổi
+    // sang ngày khác sẽ tự "nhả" khỏi ca cũ, y hệt cách Bước 2 đã xử lý cho
+    // trường hợp đổi máy xúc.
+    const loads = events.filter((e) => e.type === 'ticket_print' && info.sessionIds.includes(e.sessionId) && e.excavatorId === info.s.excavatorId && dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay);
     loadsTheoCa[info.key] = loads;
     loads.forEach((l) => daNhanTicketId.add(l.id));
   });
