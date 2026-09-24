@@ -1111,11 +1111,17 @@ function GateScreen({ events, addEvent, addEvents }) {
   const camHikGanNhat = evsCamHik.length ? evsCamHik.reduce((a, b) => (a.time > b.time ? a : b)) : null;
   const camHikStats = { last: camHikGanNhat, homNayCount: evsCamHik.filter((e) => dayStrOf(e.time) === today).length };
   const homNay = events.filter((e) => e.type === 'gate_in' && dayStrOf(e.time) === today);
-  const canBoSung = homNay.filter((e) => e.needsManualPlate).slice().reverse();
-  const daXacDinh = homNay.filter((e) => !e.needsManualPlate).slice().reverse();
-  const xeRaHomNay = events.filter((e) => e.type === 'gate_out' && dayStrOf(e.time) === today).slice().reverse();
+  // (Bổ sung 24/09 lần 3 — yêu cầu Chủ tịch HĐQT) Đổi thứ tự hiển thị trên
+  // TẤT CẢ các danh sách/báo cáo trong toàn bộ phần mềm: trước đây phát sinh
+  // TRƯỚC lại bị xếp xuống DƯỚI cùng (do .reverse() sau khi lọc — mảng events
+  // gốc vốn đã theo đúng thứ tự phát sinh tăng dần); nay bỏ .reverse() để cái
+  // phát sinh TRƯỚC luôn nằm TRÊN, phát sinh SAU nằm dưới, đúng thứ tự thời
+  // gian tự nhiên ở mọi phân hệ.
+  const canBoSung = homNay.filter((e) => e.needsManualPlate);
+  const daXacDinh = homNay.filter((e) => !e.needsManualPlate);
+  const xeRaHomNay = events.filter((e) => e.type === 'gate_out' && dayStrOf(e.time) === today);
 
-  const canhBaoXeLa = events.filter((e) => e.type === 'missing_plate_alert' && !events.some((r) => r.type === 'missing_plate_resolved' && r.alertId === e.id)).slice().reverse();
+  const canhBaoXeLa = events.filter((e) => e.type === 'missing_plate_alert' && !events.some((r) => r.type === 'missing_plate_resolved' && r.alertId === e.id));
 
   const xuLyCanhBaoXeLa = (alert) => {
     const p = alert.plate.trim().toUpperCase();
@@ -1554,9 +1560,12 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   // "biên bản kiểm tra khối lượng" (xem bienBanHTML) — kể cả lần vi phạm cơi
   // nới. Trước đây chỉ xem lại được biên bản của xe đang hiển thị trong danh
   // sách HÔM NAY; nay cho tra cứu mọi biên bản (mọi ngày) theo khoảng thời gian.
+  // (Bổ sung 24/09 lần 3 — yêu cầu Chủ tịch HĐQT) Đổi từ sắp xếp mới nhất lên
+  // đầu (giảm dần) sang phát sinh trước lên đầu (tăng dần), đồng bộ với toàn
+  // bộ các danh sách/báo cáo khác trong phần mềm.
   const dsBienBanTraCuu = khaiBaos
     .filter((k) => dayStrOf(k.time) >= tuNgayBB && dayStrOf(k.time) <= denNgayBB)
-    .slice().sort((a, b) => b.time.localeCompare(a.time));
+    .slice().sort((a, b) => a.time.localeCompare(b.time));
 
   const kichThuocBanDauTheoPlate = {};
   khaiBaos.slice().sort((a, b) => a.time.localeCompare(b.time)).forEach((k) => { if (!kichThuocBanDauTheoPlate[k.plate]) kichThuocBanDauTheoPlate[k.plate] = k; });
@@ -1701,12 +1710,12 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
     notify(`Đã sửa biển số ${g.plate} → ${plateMoi}. Toàn bộ hệ thống sẽ tự cập nhật biển số mới.`);
   };
 
-  const homNayBienBan = bienBans.filter((b) => dayStrOf(b.time) === today).slice().reverse();
+  const homNayBienBan = bienBans.filter((b) => dayStrOf(b.time) === today);
   const mauTrangThai = { do: 'border-red-500 bg-red-500/5', vang: 'border-amber-500 bg-amber-500/5', xanh: 'border-emerald-500 bg-emerald-500/5', mien: 'border-slate-700' };
   const nhanTrangThai = { do: 'QUÁ HẠN', vang: 'Chờ khai báo', xanh: 'Đã khai báo', mien: 'Miễn (trong hạn 3 ngày)' };
   const mauNhan = { do: 'bg-red-500/20 text-red-400', vang: 'bg-amber-500/20 text-amber-400', xanh: 'bg-emerald-500/20 text-emerald-400', mien: 'bg-slate-600/30 text-slate-300' };
 
-  const lichSuCuaPlate = xemLichSuPlate ? khaiBaos.filter((k) => k.plate === xemLichSuPlate).sort((a, b) => b.time.localeCompare(a.time)) : [];
+  const lichSuCuaPlate = xemLichSuPlate ? khaiBaos.filter((k) => k.plate === xemLichSuPlate).sort((a, b) => a.time.localeCompare(b.time)) : [];
 
   return (
     <div className="max-w-2xl mx-auto p-4">
@@ -2072,7 +2081,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
   // lượt vào cổng đó (không chỉ load_confirm trong ngày hôm nay) — tránh trường
   // hợp xe vào mỏ từ hôm trước, đã xúc hàng từ hôm trước nhưng Bảo vệ chưa kịp
   // xác nhận ra cổng, bị hiện NHẦM trở lại danh sách "chờ xúc" của máy xúc.
-  const xeChoXuc = gateIns.filter((g) => !events.some((l) => l.type === 'load_confirm' && l.plate === g.plate && l.time > g.time)).sort((a, b) => b.time.localeCompare(a.time));
+  const xeChoXuc = gateIns.filter((g) => !events.some((l) => l.type === 'load_confirm' && l.plate === g.plate && l.time > g.time)).sort((a, b) => a.time.localeCompare(b.time));
   const ketQuaTimKiem = xeChoXuc.filter((e) => {
     if (!search.trim()) return true;
     const s = search.trim().toLowerCase();
@@ -2217,7 +2226,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
           <>
             <div className="text-white font-bold mb-2">{luotCuaToi.length} xe · {soVN(luotCuaToi.reduce((s, l) => s + l.estVolume, 0))} m³ · đã làm việc {dinhDangGio(thoiGianLamViec)}</div>
             <div className="divide-y divide-slate-700">
-              {luotCuaToi.slice().reverse().map((l) => (
+              {luotCuaToi.map((l) => (
                 <div key={l.id} className="flex justify-between py-2 text-sm"><span className="text-white font-bold tabular-nums">{l.plate}</span><span className="text-slate-400">{soVN(l.estVolume)} m³</span><span className="text-slate-400">{gioVN(l.time)}</span></div>
               ))}
             </div>
@@ -2380,7 +2389,10 @@ function KhaiBaoBoSungCongNoCoiNoi({ config, events, addEvent, myName }) {
     setPlate(''); setKhoiLuongBoSung(''); setSoChuyen('');
   };
 
-  const boSungGanDay = events.filter((e) => e.type === 'bo_sung_cong_no_coi_noi').slice().reverse().slice(0, 8);
+  // (Bổ sung 24/09 lần 3) Vẫn giữ đúng 8 lượt GẦN ĐÂY NHẤT (dùng slice(-8)
+  // lấy đúng 8 phần tử cuối mảng, không đổi bộ lọc "gần đây" đang có), chỉ
+  // đổi thứ tự HIỂN THỊ trong 8 lượt đó: phát sinh trước lên trên.
+  const boSungGanDay = events.filter((e) => e.type === 'bo_sung_cong_no_coi_noi').slice(-8);
 
   const batDauSua = (b) => setDangSua({ id: b.id, khoiLuongBoSung: String(b.khoiLuongBoSung), soChuyen: String(b.soChuyen) });
   const xacNhanSua = (b) => {
@@ -2619,7 +2631,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
     if (!search.trim()) return false;
     const s = search.trim().toLowerCase();
     return (t.plate || '').toLowerCase().includes(s) || (t.excavatorName || '').toLowerCase().includes(s) || (t.customerName || '').toLowerCase().includes(s);
-  }).slice().reverse().slice(0, 30);
+  }).slice(-30);
 
   const theoMayXuc = {};
   tickets.forEach((t) => { theoMayXuc[t.excavatorName || '—'] = theoMayXuc[t.excavatorName || '—'] || { name: t.excavatorName || '—', m3: 0, soPhieu: 0, laiXucSet: new Set() }; theoMayXuc[t.excavatorName || '—'].m3 += t.volume; if (!t.daHuy) theoMayXuc[t.excavatorName || '—'].soPhieu += 1; if (t.operatorName) theoMayXuc[t.excavatorName || '—'].laiXucSet.add(t.operatorName); });
@@ -2630,7 +2642,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
   // (Bổ sung 18/09) Gộp thêm các khoản "bổ sung công nợ do cơi nới thùng" vào
   // đúng khách hàng đó, để tổng chi tiết luôn khớp với tổng trên bảng công nợ
   // ở trên (2 khoản này được cộng chung vào "Thành tiền" phát sinh).
-  const chiTietKH = xemChiTiet ? events.filter((e) => (e.type === 'ticket_print' || e.type === 'bo_sung_cong_no_coi_noi') && e.customerId === xemChiTiet && inRange(e, range)).slice().reverse() : [];
+  const chiTietKH = xemChiTiet ? events.filter((e) => (e.type === 'ticket_print' || e.type === 'bo_sung_cong_no_coi_noi') && e.customerId === xemChiTiet && inRange(e, range)) : [];
   const khDangXem = config.customers.find((c) => c.id === xemChiTiet);
   const donGiaXem = khDangXem?.donGia || 0;
 
@@ -3036,9 +3048,9 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
   // (chỉ dùng cho tự động in phiếu mới, PHẢI luôn đúng hôm nay, không phụ
   // thuộc ngày đang xem, nếu không sẽ tự in lại nhầm các phiếu ngày cũ).
   const [ngayXemPhieu, setNgayXemPhieu] = useState(today);
-  const ticketsHomNay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today).slice().reverse();
-  const ticketsXemTheoNgay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === ngayXemPhieu).slice().reverse();
-  const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today).slice().reverse();
+  const ticketsHomNay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today);
+  const ticketsXemTheoNgay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === ngayXemPhieu);
+  const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today);
 
   // (Bổ sung 24/09 — yêu cầu Chủ tịch HĐQT) Xe vào đã múc đất, lái máy xúc đã
   // xác nhận xúc đầy (đã lập phiếu) nhưng xe hỏng/sự cố -> phải đổ lại đất,
@@ -3089,9 +3101,10 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
     // nhìn màn hình, tránh bỏ sót phiếu cần in.
     phatAmBaoPhieuMoi();
     // In lần lượt, cách nhau 1.2s để trình duyệt không chặn việc mở nhiều cửa
-    // sổ in cùng lúc (tickets đang xếp mới nhất trước — đảo lại để in đúng
-    // thứ tự phát sinh: xe xúc trước in trước).
-    phieuMoi.slice().reverse().forEach((t, idx) => {
+    // sổ in cùng lúc. (Bổ sung 24/09 lần 3) ticketsHomNay/phieuMoi giờ đã
+    // đúng thứ tự phát sinh tăng dần sẵn (không .reverse() nữa như trước) nên
+    // KHÔNG cần đảo lại ở đây — xe xúc trước vẫn in trước như cũ.
+    phieuMoi.forEach((t, idx) => {
       phieuDaXuLyRef.current.add(t.id);
       setTimeout(() => {
         const ok = inTrucTiep(phieuGiaoNhanHTML(t, events), `Phiếu ${t.ticketNo}`, '80mm');
@@ -3108,7 +3121,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
   // (Bảng hiệu chỉnh 08/09, mục Bảo vệ) Xe ra cổng KHÔNG CÓ HÀNG hôm nay — CHỈ
   // thể hiện trong Báo cáo hết ca (thêm 1 sheet riêng khi xuất Excel), các báo
   // cáo khác (theo khách hàng, máy xúc...) không cần và không bị ảnh hưởng.
-  const xeRaKhongHangHomNay = events.filter((e) => e.type === 'gate_out' && e.coHang === false && dayStrOf(e.time) === today).slice().reverse();
+  const xeRaKhongHangHomNay = events.filter((e) => e.type === 'gate_out' && e.coHang === false && dayStrOf(e.time) === today);
   const xuatBaoCaoCuoiCa = () => {
     const rows = [
       ['Số phiếu', 'Biển số', 'Khối lượng (m3)', 'Máy xúc', 'Lái máy xúc', 'Khách hàng', 'Thời gian', 'Lái xe đã ký'],
@@ -3125,7 +3138,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
     }
     xuatExcel(sheets, `bao-cao-cuoi-ca-${today}`);
   };
-  const bienBans = events.filter((e) => e.type === 'bien_ban' && dayStrOf(e.time) === today).slice().reverse();
+  const bienBans = events.filter((e) => e.type === 'bien_ban' && dayStrOf(e.time) === today);
   const canhBaoXeLa = events.filter((e) => e.type === 'missing_plate_alert' && !events.some((r) => r.type === 'missing_plate_resolved' && r.alertId === e.id));
 
   return (
@@ -3321,25 +3334,26 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
 // Tính chi tiết theo biển số xe (STT / Biển số / Thời gian xúc / Số chuyến /
 // Khối lượng) cho MỘT nhóm phiếu — dùng chung cho cả "ca thật" và "ca ảo"
 // bên dưới, tránh lặp code.
+// (Yêu cầu 24/09 lần 3 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY các chuyến
+// xúc CÙNG biển số trong CÙNG 1 ca bị GỘP CHUNG vào 1 dòng (cột "Thời gian
+// xúc" liệt kê nhiều giờ cách nhau dấu phẩy) -> khó theo dõi & khó tra soát
+// đúng 1 chuyến cụ thể, không đồng nhất với "Theo kỳ / tháng" (đã tách mỗi
+// chuyến 1 dòng riêng từ yêu cầu 24/09 lần 1). Sửa lại: mỗi CHUYẾN (mỗi
+// phiếu) hiển thị RIÊNG 1 dòng — giống hệt "Theo kỳ / tháng". Phiếu đã bị Kế
+// toán mỏ HỦY (xe hỏng, đổ lại đất...) vẫn giữ nguyên dòng (đúng biển số) để
+// còn tra soát, nhưng số chuyến/khối lượng về 0, cột "Thời gian xúc" đổi
+// thành "Đã hủy — <lý do>".
 function tinhTheoBienSoTuLoads(loads) {
-  const theoBienSoMap = {};
-  loads.forEach((l) => {
-    theoBienSoMap[l.plate] = theoBienSoMap[l.plate] || { plate: l.plate, soChuyen: 0, khoiLuong: 0, thoiGianXucList: [], ghiChuHuy: [] };
-    // (Yêu cầu 24/09 — theo phản ánh Chủ tịch HĐQT) Phiếu đã bị Kế toán mỏ
-    // hủy (xe hỏng, đổ lại đất...) vẫn phải hiện biển số xe trên báo cáo máy
-    // xúc, nhưng KHÔNG tính vào số chuyến/khối lượng — chỉ ghi chú lý do.
-    if (l.daHuy) { theoBienSoMap[l.plate].ghiChuHuy.push(l.lyDoHuy || '(không ghi lý do)'); return; }
-    theoBienSoMap[l.plate].soChuyen += 1;
-    theoBienSoMap[l.plate].khoiLuong += l.volume;
-    theoBienSoMap[l.plate].thoiGianXucList.push(l.time);
-  });
-  // (Sửa lỗi 09/09, mục 6) Cột "Thời gian xúc" — 1 xe có thể xúc nhiều chuyến
-  // trong ca nên liệt kê đủ các giờ xúc, sắp theo thứ tự thời gian.
-  return Object.values(theoBienSoMap).map((b) => {
-    const thoiGianXuc = b.thoiGianXucList.slice().sort().map(gioNgan).join(', ');
-    const ghiChuHuyText = b.ghiChuHuy.length > 0 ? `${thoiGianXuc ? ' · ' : ''}Đã hủy ${b.ghiChuHuy.length} chuyến (${b.ghiChuHuy.join('; ')})` : '';
-    return { ...b, thoiGianXucList: b.thoiGianXucList.slice().sort(), thoiGianXuc: thoiGianXuc + ghiChuHuyText };
-  }).sort((a, b) => a.plate.localeCompare(b.plate));
+  return loads.map((l) => ({
+    id: l.id,
+    plate: l.plate,
+    time: l.time,
+    daHuy: !!l.daHuy,
+    lyDoHuy: l.lyDoHuy || '',
+    soChuyen: l.daHuy ? 0 : 1,
+    khoiLuong: l.volume,
+    thoiGianXuc: l.daHuy ? `Đã hủy${l.lyDoHuy ? ' — ' + l.lyDoHuy : ''}` : gioNgan(l.time),
+  })).sort((a, b) => a.plate.localeCompare(b.plate) || a.time.localeCompare(b.time));
 }
 function phienCaLamViec(events, tuNgay, denNgay) {
   const starts = events.filter((e) => e.type === 'shift_start' && dayStrOf(e.time) >= tuNgay && dayStrOf(e.time) <= denNgay);
@@ -3633,7 +3647,7 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
                 <div className="mt-2 pt-2 border-t border-slate-700 text-xs">
                   <div className="grid grid-cols-4 gap-1 text-slate-500 font-semibold mb-1"><span>Biển số xe</span><span>Thời gian xúc</span><span className="text-center">Số chuyến</span><span className="text-right">Khối lượng (m³)</span></div>
                   {p.theoBienSo.map((b) => (
-                    <div key={b.plate} className="grid grid-cols-4 gap-1 text-slate-300 py-0.5"><span className="text-white font-semibold tabular-nums">{b.plate}</span><span className="tabular-nums text-slate-400">{b.thoiGianXuc}</span><span className="text-center tabular-nums">{soVN(b.soChuyen)}</span><span className="text-right tabular-nums">{soVN(b.khoiLuong)}</span></div>
+                    <div key={b.id || `${b.plate}-${b.time}`} className="grid grid-cols-4 gap-1 text-slate-300 py-0.5"><span className="text-white font-semibold tabular-nums">{b.plate}</span><span className="tabular-nums text-slate-400">{b.thoiGianXuc}</span><span className="text-center tabular-nums">{soVN(b.soChuyen)}</span><span className="text-right tabular-nums">{soVN(b.khoiLuong)}</span></div>
                   ))}
                 </div>
               )}
@@ -3813,7 +3827,7 @@ function DangKyBienSoKhachHang({ config, events, addEvent }) {
     notify(`Đã đăng ký xe ${p} thuộc khách hàng ${customer.name}`);
   };
 
-  const daDangKy = events.filter((e) => e.type === 'dang_ky_xe_khach_hang').slice().reverse().slice(0, 10);
+  const daDangKy = events.filter((e) => e.type === 'dang_ky_xe_khach_hang').slice(-10);
 
   return (
     <Card>
@@ -3868,7 +3882,7 @@ function NhatKyHoatDong({ events }) {
       if (!noiDung.includes(s)) return false;
     }
     return true;
-  }).slice().reverse().slice(0, 200);
+  }).slice(-200);
 
   const xuatExcelNhatKy = () => {
     const rows = [['Thời gian', 'Loại sự kiện', 'Biển số', 'Người thực hiện', 'Chi tiết']];
@@ -4470,7 +4484,7 @@ function DashboardScreen({ events, addEvent, config, setConfig, vaiTro, myName }
           <Card>
             {tickets.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Chưa có phiếu nào.</div> : (
               <div className="overflow-x-auto"><table className="w-full text-sm min-w-[500px]"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Số phiếu</th><th className="text-left pb-2">Biển số</th><th className="text-right pb-2">m³</th><th className="text-left pb-2">Khách hàng</th><th className="text-left pb-2">Thời gian</th></tr></thead>
-                <tbody>{tickets.slice().reverse().map((t) => (<tr key={t.id} className="border-t border-slate-700"><td className="py-2 text-slate-300">{t.ticketNo}</td><td className="py-2 text-white font-bold">{t.plate}</td><td className="py-2 text-right text-white">{soVN(t.volume)}</td><td className="py-2 text-slate-400">{t.customerName || '—'}</td><td className="py-2 text-slate-400">{gioVN(t.time)}</td></tr>))}</tbody>
+                <tbody>{tickets.map((t) => (<tr key={t.id} className="border-t border-slate-700"><td className="py-2 text-slate-300">{t.ticketNo}</td><td className="py-2 text-white font-bold">{t.plate}</td><td className="py-2 text-right text-white">{soVN(t.volume)}</td><td className="py-2 text-slate-400">{t.customerName || '—'}</td><td className="py-2 text-slate-400">{gioVN(t.time)}</td></tr>))}</tbody>
               </table></div>
             )}
           </Card>
