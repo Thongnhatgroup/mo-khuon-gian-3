@@ -3028,7 +3028,16 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
   const { hoi, ModalHopThoai } = useHopThoai();
   const [toast, notify] = useToast();
   const today = todayStr();
-  const tickets = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today).slice().reverse();
+  // (Bổ sung 24/09 lần 2 — yêu cầu Chủ tịch HĐQT) TRƯỚC ĐÂY danh sách phiếu ở
+  // đây CHỈ hiện đúng phiếu phát sinh HÔM NAY -> Kế toán mỏ không hủy được
+  // phiếu của những ngày trước (ví dụ phát hiện xe hỏng/trả phiếu muộn hơn 1
+  // ngày mới báo). Bổ sung ô chọn ngày `ngayXemPhieu` (mặc định = hôm nay) để
+  // xem/hủy được phiếu của bất kỳ ngày nào — tách riêng khỏi `ticketsHomNay`
+  // (chỉ dùng cho tự động in phiếu mới, PHẢI luôn đúng hôm nay, không phụ
+  // thuộc ngày đang xem, nếu không sẽ tự in lại nhầm các phiếu ngày cũ).
+  const [ngayXemPhieu, setNgayXemPhieu] = useState(today);
+  const ticketsHomNay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today).slice().reverse();
+  const ticketsXemTheoNgay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === ngayXemPhieu).slice().reverse();
   const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today).slice().reverse();
 
   // (Bổ sung 24/09 — yêu cầu Chủ tịch HĐQT) Xe vào đã múc đất, lái máy xúc đã
@@ -3058,7 +3067,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
     // Lần đầu mở màn hình (hoặc sang ngày mới): coi các phiếu ĐANG có sẵn là
     // đã xử lý rồi, tránh việc bật tự động in lại in ồ ạt toàn bộ phiếu cũ
     // trong ngày — chỉ phiếu MỚI phát sinh SAU thời điểm này mới tự in.
-    tickets.forEach((t) => seen.add(t.id));
+    ticketsHomNay.forEach((t) => seen.add(t.id));
     phieuDaXuLyRef.current = seen;
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(seen) })); } catch {}
   }
@@ -3074,7 +3083,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
   };
   useEffect(() => {
     if (!tuDongIn) return;
-    const phieuMoi = tickets.filter((t) => !phieuDaXuLyRef.current.has(t.id));
+    const phieuMoi = ticketsHomNay.filter((t) => !phieuDaXuLyRef.current.has(t.id));
     if (phieuMoi.length === 0) return;
     // Có xe xúc đầy mới -> phát tiếng báo NGAY để Kế toán mỏ biết dù không
     // nhìn màn hình, tránh bỏ sót phiếu cần in.
@@ -3095,7 +3104,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
     });
     try { localStorage.setItem(KHOA_PHIEU_DA_XU_LY, JSON.stringify({ ngay: today, ids: Array.from(phieuDaXuLyRef.current) })); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickets.length, tuDongIn]);
+  }, [ticketsHomNay.length, tuDongIn]);
   // (Bảng hiệu chỉnh 08/09, mục Bảo vệ) Xe ra cổng KHÔNG CÓ HÀNG hôm nay — CHỈ
   // thể hiện trong Báo cáo hết ca (thêm 1 sheet riêng khi xuất Excel), các báo
   // cáo khác (theo khách hàng, máy xúc...) không cần và không bị ảnh hưởng.
@@ -3104,7 +3113,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
     const rows = [
       ['Số phiếu', 'Biển số', 'Khối lượng (m3)', 'Máy xúc', 'Lái máy xúc', 'Khách hàng', 'Thời gian', 'Lái xe đã ký'],
     ];
-    tickets.forEach((t) => rows.push([
+    ticketsHomNay.forEach((t) => rows.push([
       t.ticketNo, t.plate, t.volume, t.excavatorName || '', t.operatorName || '', t.customerName || '',
       gioVN(t.time), events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === t.id) ? 'Có' : 'Chưa',
     ]));
@@ -3161,11 +3170,24 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
               </div>
             </label>
           </Card>
+          {/* (Bổ sung 24/09 lần 2 — yêu cầu Chủ tịch HĐQT) Ô chọn ngày để Kế
+              toán mỏ xem lại và hủy được phiếu của NGÀY TRƯỚC ĐÓ, không chỉ
+              đúng hôm nay — ví dụ phát hiện xe hỏng/trả phiếu muộn hơn 1
+              ngày mới báo lên. Mặc định vẫn là hôm nay như trước. */}
+          <Card className="mb-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-slate-400 text-xs">Xem phiếu ngày</span>
+              <InputNgayVN value={ngayXemPhieu} onChange={(e) => setNgayXemPhieu(e.target.value)} />
+              {ngayXemPhieu !== today && (
+                <button onClick={() => setNgayXemPhieu(today)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg font-semibold">Về hôm nay</button>
+              )}
+            </div>
+          </Card>
           <Card>
-            <div className="text-white font-bold mb-2">{tickets.length} phiếu hôm nay · {soVN(tickets.reduce((s, t) => s + t.volume, 0))} m³</div>
-            {tickets.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Chưa có phiếu nào.</div> : (
+            <div className="text-white font-bold mb-2">{ticketsXemTheoNgay.length} phiếu {ngayXemPhieu === today ? 'hôm nay' : `ngày ${ngayVN(ngayXemPhieu)}`} · {soVN(ticketsXemTheoNgay.reduce((s, t) => s + t.volume, 0))} m³</div>
+            {ticketsXemTheoNgay.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Chưa có phiếu nào.</div> : (
               <div className="divide-y divide-slate-700 text-sm">
-                {tickets.map((t) => {
+                {ticketsXemTheoNgay.map((t) => {
                   const daKy = events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === t.id);
                   return (
                     <div key={t.id} className={`py-2.5 ${t.daHuy ? 'opacity-50' : ''}`}>
@@ -3213,7 +3235,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
           <SectionTitle>📊 Báo cáo cuối ca</SectionTitle>
           <Card>
             <p className="text-slate-400 text-xs mb-3">Xuất toàn bộ phiếu hôm nay ra file Excel để in, đối chiếu và trình ký với Kỹ thuật và Bảo vệ trước khi kết ca{xeRaKhongHangHomNay.length > 0 ? ` (kèm ${xeRaKhongHangHomNay.length} xe ra cổng không hàng, ở sheet riêng)` : ''}.</p>
-            <button onClick={xuatBaoCaoCuoiCa} className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất báo cáo cuối ca — Excel ({tickets.length} phiếu)</button>
+            <button onClick={xuatBaoCaoCuoiCa} className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-3 py-2.5 rounded-lg"><FileSpreadsheet className="w-4 h-4" /> Xuất báo cáo cuối ca — Excel ({ticketsHomNay.length} phiếu)</button>
           </Card>
           {xeRaKhongHangHomNay.length > 0 && (
             <Card className="mt-3">
