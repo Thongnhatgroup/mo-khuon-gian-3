@@ -39,23 +39,19 @@ function json(statusCode, body) {
 }
 
 async function tokenHopLe(req) {
-  // (Chẩn đoán tạm thời 25/09 lần 3 — sẽ gỡ ngay sau khi tìm ra nguyên nhân
-  // thật sự khiến /api/kv từ chối 1 token vừa được /api/login cấp) Trả về
-  // thêm LÝ DO cụ thể vì sao từ chối, để xem được trong Console trình duyệt
-  // mà không cần xem log riêng của máy chủ.
   const auth = req.headers.get('authorization') || '';
   const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
-  if (!m) return { ok: false, lyDo: 'thieu_header_bearer' };
+  if (!m) return false;
   const token = m[1].trim();
-  if (!token) return { ok: false, lyDo: 'token_rong' };
+  if (!token) return false;
   try {
     const phienStore = getStore({ name: TEN_KHO_PHIEN, consistency: 'strong' });
     const phien = await phienStore.get(`session_${token}`, { type: 'json' });
-    if (!phien) return { ok: false, lyDo: 'khong_thay_trong_kho', tokenDai: token.length };
-    if (Date.now() - (phien.createdAt || 0) > THOI_HAN_PHIEN_MS) return { ok: false, lyDo: 'het_han' };
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, lyDo: 'loi_doc_kho', chiTiet: String((e && e.message) || e) };
+    if (!phien) return false;
+    if (Date.now() - (phien.createdAt || 0) > THOI_HAN_PHIEN_MS) return false;
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -72,16 +68,16 @@ export default async (req) => {
     const key = url.searchParams.get('key');
     if (!key) return json(400, { error: 'Thiếu tham số key' });
     if (!KHOA_DUOC_DOC_KHONG_CAN_DANG_NHAP.has(key)) {
-      const kq = await tokenHopLe(req);
-      if (!kq.ok) return json(401, { error: 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn', lyDo: kq.lyDo, tokenDai: kq.tokenDai, chiTiet: kq.chiTiet });
+      const hopLe = await tokenHopLe(req);
+      if (!hopLe) return json(401, { error: 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn' });
     }
     const value = await store.get(key, { type: 'json' });
     return json(200, { value: value === null ? undefined : value });
   }
 
   if (req.method === 'POST') {
-    const kq = await tokenHopLe(req);
-    if (!kq.ok) return json(401, { error: 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn', lyDo: kq.lyDo, tokenDai: kq.tokenDai, chiTiet: kq.chiTiet });
+    const hopLe = await tokenHopLe(req);
+    if (!hopLe) return json(401, { error: 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn' });
     let body;
     try { body = await req.json(); } catch { return json(400, { error: 'Body không hợp lệ' }); }
     const { key, value } = body || {};
