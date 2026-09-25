@@ -530,35 +530,12 @@ function cho(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // cuối file) để khôi phục khi mở lại trang — hàm đó là function declaration
 // nên dùng được ở đây dù khai báo phía sau (hoisting).
 let AUTH_TOKEN = (typeof window !== 'undefined' && typeof docPhienDaLuu === 'function' && docPhienDaLuu()?.token) || null;
-// (Chẩn đoán tạm thời 25/09 — sẽ gỡ sau khi tìm ra nguyên nhân lỗi "F5 bị đẩy
-// ra khỏi phiên đăng nhập") In ra Console ngay lúc mở/tải lại trang: có tìm
-// thấy token đã lưu trong trình duyệt hay không.
-if (typeof window !== 'undefined' && typeof console !== 'undefined') {
-  console.log('[CHAN-DOAN-PHIEN] Luc tai trang, token luu trong trinh duyet:', AUTH_TOKEN ? `CO (${AUTH_TOKEN.length} ky tu)` : 'KHONG CO');
-  // (Chẩn đoán tạm thời 25/09) Đọc thẳng dữ liệu THÔ trong bộ nhớ trình duyệt
-  // (không in ra token thật, chỉ in các trường có trong đó) để biết chắc:
-  // "chưa từng lưu gì cả" hay "có lưu nhưng thiếu trường token".
-  try {
-    const raw = localStorage.getItem('mkg3_phien_dang_nhap_v1');
-    if (raw === null) {
-      console.log('[CHAN-DOAN-PHIEN] Bo nho trinh duyet (localStorage) khong co du lieu phien dang nhap nao (null).');
-    } else {
-      let cacTruong = 'khong doc duoc JSON';
-      try { cacTruong = Object.keys(JSON.parse(raw)).join(', '); } catch {}
-      console.log('[CHAN-DOAN-PHIEN] Bo nho trinh duyet CO du lieu phien dang nhap, dai ' + raw.length + ' ky tu, cac truong: ' + cacTruong);
-    }
-  } catch (e) {
-    console.log('[CHAN-DOAN-PHIEN] LOI khi doc localStorage:', e && e.message);
-  }
-}
 let mat401GanDay = false; // "vừa gặp lỗi 401 ở lần gọi storageGet/storageSet gần nhất"
 let dangXuLy401 = false;
 let onPhienHetHan = null; // App() gán lúc mount — ép đăng xuất khi phiên hết hạn giữa lúc đang dùng
 function setAuthToken(t) { AUTH_TOKEN = t || null; dangXuLy401 = false; }
 function authHeaders() { return AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}; }
 function baoHetPhien() {
-  // (Chẩn đoán tạm thời 25/09)
-  if (typeof console !== 'undefined') console.warn('[CHAN-DOAN-PHIEN] Bi dang xuat vi goi /api/kv nhan loi 401 (het phien/khong hop le). Token luc do:', AUTH_TOKEN ? `CO (${AUTH_TOKEN.length} ky tu)` : 'KHONG CO');
   mat401GanDay = true;
   if (dangXuLy401) return; // tránh gọi lặp lại nhiều lần (nhiều lời gọi 401 dồn dập)
   dangXuLy401 = true;
@@ -579,17 +556,28 @@ async function storageGet(key, shared, fallback) {
         const res = await window.storage.get(key, shared);
         return res ? JSON.parse(res.value) : fallback;
       }
-      const res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`, { headers: authHeaders() });
+      let res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`, { headers: authHeaders() });
       // (Bổ sung 25/09) 401 = chưa đăng nhập / phiên hết hạn — TUYỆT ĐỐI không
       // được coi như "chưa có dữ liệu" rồi âm thầm dùng giá trị mặc định (nguy
       // hiểm nhất ở seedUsersIfNeeded(): có thể hiểu nhầm "chưa từng khởi tạo
       // tài khoản" rồi tạo lại từ đầu, ghi đè mất dữ liệu thật) — báo hiệu
-      // riêng, không thử lại, không dùng fallback để suy luận gì thêm.
+      // riêng, không dùng fallback để suy luận gì thêm.
       if (res.status === 401) {
-        // (Chẩn đoán tạm thời 25/09)
-        if (typeof console !== 'undefined') console.warn('[CHAN-DOAN-PHIEN] /api/kv?key=' + key + ' tra ve 401.');
-        baoHetPhien();
-        return fallback;
+        // (Sửa lỗi 25/09 lần 2 — khắc phục "F5 bị đẩy ra khỏi phiên đăng nhập")
+        // Token VỪA được cấp (mới đăng nhập xong, hoặc vừa khôi phục lúc mở lại
+        // trang) đôi khi bị máy chủ báo 401 ngay ở yêu cầu /api/kv đầu tiên dù
+        // hoàn toàn hợp lệ — có độ trễ rất ngắn giữa lúc máy chủ ghi phiên đăng
+        // nhập và lúc đọc lại được. Thử lại tối đa 2 lần nữa (cách nhau vài trăm
+        // mili-giây) trước khi tin chắc phiên THẬT SỰ không hợp lệ rồi mới ép
+        // đăng xuất — tránh đăng xuất oan.
+        for (let thuLai = 0; thuLai < 2 && res.status === 401; thuLai++) {
+          await cho(400 * (thuLai + 1));
+          res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`, { headers: authHeaders() });
+        }
+        if (res.status === 401) {
+          baoHetPhien();
+          return fallback;
+        }
       }
       mat401GanDay = false;
       if (!res.ok) { loiCuoi = new Error('HTTP ' + res.status); await cho(400 * (lan + 1)); continue; }
@@ -611,8 +599,15 @@ async function storageSet(key, value, shared) {
   for (let lan = 0; lan < 5; lan++) {
     try {
       if (CO_ARTIFACT_STORAGE) { await window.storage.set(key, JSON.stringify(value), shared); return; }
-      const res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ key, value }) });
-      if (res.status === 401) { baoHetPhien(); return; }
+      let res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ key, value }) });
+      if (res.status === 401) {
+        // (Sửa lỗi 25/09 lần 2) — xem giải thích chi tiết trong storageGet() ở trên.
+        for (let thuLai = 0; thuLai < 2 && res.status === 401; thuLai++) {
+          await cho(400 * (thuLai + 1));
+          res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ key, value }) });
+        }
+        if (res.status === 401) { baoHetPhien(); return; }
+      }
       mat401GanDay = false;
       if (res.ok) return;
       loiCuoi = new Error('HTTP ' + res.status);
@@ -4653,19 +4648,7 @@ function luuPhien(session) {
   try {
     if (session) localStorage.setItem(KHOA_PHIEN_DANG_NHAP, JSON.stringify(session));
     else localStorage.removeItem(KHOA_PHIEN_DANG_NHAP);
-    // (Chẩn đoán tạm thời 25/09) Đọc lại NGAY sau khi ghi, để biết chắc lệnh
-    // ghi có thật sự thành công hay không (không in ra token thật).
-    if (typeof console !== 'undefined') {
-      const kt = localStorage.getItem(KHOA_PHIEN_DANG_NHAP);
-      if (!session) {
-        console.log('[CHAN-DOAN-PHIEN] luuPhien(null) — da xoa. Doc lai ngay sau do:', kt === null ? 'da xoa thanh cong (null)' : 'VAN CON DU LIEU (' + kt.length + ' ky tu) — XOA KHONG THANH CONG');
-      } else {
-        console.log('[CHAN-DOAN-PHIEN] luuPhien(...) vua ghi. Doc lai ngay sau do:', kt === null ? 'GHI KHONG THANH CONG (van la null)' : ('ghi thanh cong, ' + kt.length + ' ky tu, co token: ' + (kt.includes('"token"') ? 'CO' : 'KHONG')));
-    }
-  }
-  } catch (e) {
-    if (typeof console !== 'undefined') console.log('[CHAN-DOAN-PHIEN] LOI khi ghi localStorage (co the trinh duyet dang chan):', e && e.message);
-  }
+  } catch { /* trình duyệt chặn localStorage (chế độ ẩn danh...) — bỏ qua, không chặn dùng phần mềm */ }
 }
 
 export default function App() {
