@@ -517,6 +517,30 @@ function phatAmBaoPhieuMoi() {
 // không có dữ liệu, tránh lỗi giả "Không tìm thấy tài khoản".
 const CO_ARTIFACT_STORAGE = typeof window !== 'undefined' && typeof window.storage !== 'undefined';
 function cho(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// ---------------------------------------------------------------------------
+// (Bổ sung 25/09 — xử lý lỗ hổng bảo mật, theo yêu cầu Chủ tịch HĐQT)
+// /api/kv (netlify/functions/kv.js) trước đây KHÔNG xác thực — ai có đường
+// dẫn cũng đọc/ghi được toàn bộ dữ liệu công ty. Nay bắt buộc phải có TOKEN
+// đăng nhập hợp lệ (trừ đúng 1 khoá "recent_logins" chỉ cho ĐỌC, phục vụ màn
+// đăng nhập trước khi có token). Token được cấp bởi /api/login
+// (netlify/functions/login.js — xác thực mật khẩu THẬT SỰ ở máy chủ, trình
+// duyệt không còn tự đọc thẳng danh sách tài khoản/mật khẩu đã băm về máy nữa
+// như trước), lưu kèm trong phiên đăng nhập ở localStorage (docPhienDaLuu ở
+// cuối file) để khôi phục khi mở lại trang — hàm đó là function declaration
+// nên dùng được ở đây dù khai báo phía sau (hoisting).
+let AUTH_TOKEN = (typeof window !== 'undefined' && typeof docPhienDaLuu === 'function' && docPhienDaLuu()?.token) || null;
+let mat401GanDay = false; // "vừa gặp lỗi 401 ở lần gọi storageGet/storageSet gần nhất"
+let dangXuLy401 = false;
+let onPhienHetHan = null; // App() gán lúc mount — ép đăng xuất khi phiên hết hạn giữa lúc đang dùng
+function setAuthToken(t) { AUTH_TOKEN = t || null; dangXuLy401 = false; }
+function authHeaders() { return AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}; }
+function baoHetPhien() {
+  mat401GanDay = true;
+  if (dangXuLy401) return; // tránh gọi lặp lại nhiều lần (nhiều lời gọi 401 dồn dập)
+  dangXuLy401 = true;
+  if (onPhienHetHan) onPhienHetHan();
+}
 // QUAN TRỌNG: window.storage của Claude Artifact CŨNG là bộ nhớ dùng chung
 // qua mạng giữa nhiều người dùng/thiết bị cùng lúc — CŨNG có độ trễ đồng bộ
 // giống hệt Netlify Blobs, không phải bộ nhớ tức thời trên máy. Trước đây chỉ
@@ -532,7 +556,14 @@ async function storageGet(key, shared, fallback) {
         const res = await window.storage.get(key, shared);
         return res ? JSON.parse(res.value) : fallback;
       }
-      const res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`);
+      const res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`, { headers: authHeaders() });
+      // (Bổ sung 25/09) 401 = chưa đăng nhập / phiên hết hạn — TUYỆT ĐỐI không
+      // được coi như "chưa có dữ liệu" rồi âm thầm dùng giá trị mặc định (nguy
+      // hiểm nhất ở seedUsersIfNeeded(): có thể hiểu nhầm "chưa từng khởi tạo
+      // tài khoản" rồi tạo lại từ đầu, ghi đè mất dữ liệu thật) — báo hiệu
+      // riêng, không thử lại, không dùng fallback để suy luận gì thêm.
+      if (res.status === 401) { baoHetPhien(); return fallback; }
+      mat401GanDay = false;
       if (!res.ok) { loiCuoi = new Error('HTTP ' + res.status); await cho(400 * (lan + 1)); continue; }
       const data = await res.json();
       return data.value === undefined || data.value === null ? fallback : data.value;
@@ -552,7 +583,9 @@ async function storageSet(key, value, shared) {
   for (let lan = 0; lan < 5; lan++) {
     try {
       if (CO_ARTIFACT_STORAGE) { await window.storage.set(key, JSON.stringify(value), shared); return; }
-      const res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value }) });
+      const res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ key, value }) });
+      if (res.status === 401) { baoHetPhien(); return; }
+      mat401GanDay = false;
       if (res.ok) return;
       loiCuoi = new Error('HTTP ' + res.status);
     } catch (e) { loiCuoi = e; }
@@ -605,7 +638,14 @@ async function seedUsersIfNeeded() {
     return { id: username, username, name: hoTen, chucDanh, role, salt, hash, mustChangePassword: true, active: true };
   };
   const daKhoiTao = await storageGet('users_bootstrap_done', true, false);
+  // (Bổ sung 25/09 — xác thực /api/kv) Phiên đăng nhập không hợp lệ/hết hạn
+  // (lỗi 401) — DỪNG NGAY, không suy luận tiếp gì cả. Tuyệt đối không được
+  // hiểu nhầm "không đọc được" thành "chưa từng khởi tạo" rồi tạo lại tài
+  // khoản mặc định, ghi đè mất toàn bộ tài khoản thật. baoHetPhien() (gọi từ
+  // bên trong storageGet) đã tự lo việc ép đăng xuất.
+  if (mat401GanDay) return null;
   const existing = await storageGet('users', true, null);
+  if (mat401GanDay) return null;
 
   if (existing) {
     const thieuTaiKhoan = TAI_KHOAN_MAC_DINH.filter(([u]) => !existing.some((x) => x.username === u));
@@ -697,7 +737,14 @@ function pseudoQRHTML(seed, size = 64) {
 // Dựng nội dung HTML của phiếu giao nhận (3 liên) để IN THẬT (qua inTrucTiep,
 // khổ 80mm) — giữ đúng bố cục như bản xem trước trên màn hình Kế toán mỏ.
 function phieuGiaoNhanHTML(t, events) {
-  const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === t.plate && dayStrOf(e.time) === dayStrOf(t.time)).sort((a, b) => a.time.localeCompare(b.time))[0];
+  // (Sửa lỗi 25/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY luôn lấy lượt vào
+  // cổng ĐẦU TIÊN trong ngày (sort tăng dần rồi lấy [0]) — nếu 1 biển số vào
+  // mỏ NHIỀU CHUYẾN trong cùng 1 ngày, chuyến thứ 2 trở đi bị lấy NHẦM giờ vào
+  // của chuyến đầu tiên buổi sáng. Sửa lại: lấy đúng lượt vào cổng GẦN NHẤT,
+  // TRƯỚC thời điểm lập phiếu này (sort giảm dần theo giờ, lấy lượt mới nhất
+  // trước t.time) — đúng chuyến xe đang xét, không giới hạn trong ngày nữa
+  // (phòng trường hợp xe vào cuối ngày hôm trước, xúc ngay sau nửa đêm).
+  const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === t.plate && e.time <= t.time).sort((a, b) => b.time.localeCompare(a.time))[0];
   const lienList = ['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'];
   // (Bảng hiệu chỉnh 25/08) — bỏ mã QR giả trên phiếu, cỡ chữ đồng nhất 12pt
   // (như Word/Excel) thay vì 9–13pt lẫn lộn trước đây, TẤT CẢ chữ in đậm,
@@ -721,7 +768,9 @@ function phieuGiaoNhanHTML(t, events) {
       <div>Biển số xe: ${t.plate}</div>
       <div style="margin-top:6px">Khối lượng: ${soVN(t.volume)} m3</div>
       <div style="border-top:2px dashed #333;margin:8px 0"></div>
-      <div style="display:flex;justify-content:space-between;margin-top:14px"><span>Kế toán mỏ</span><span>Bảo vệ</span></div>
+      <!-- (Sửa lỗi 25/09 — theo yêu cầu Chủ tịch HĐQT) Đổi người ký bên phải từ
+        "Bảo vệ" thành "Lái xe" — đúng người trực tiếp nhận/ký phiếu xuất đất. -->
+      <div style="display:flex;justify-content:space-between;margin-top:14px"><span>Kế toán mỏ</span><span>Lái xe</span></div>
     </div>`).join('');
 }
 
@@ -874,34 +923,53 @@ function LoginScreen({ onLogin }) {
   // V8.0 vì lý do bảo mật. Theo Bảng hiệu chỉnh V9.0 mục I.1.
   useEffect(() => { (async () => { setGanDay(await storageGet('recent_logins', false, [])); })(); }, []);
 
+  // (Sửa 25/09 — xử lý lỗ hổng bảo mật /api/kv, theo yêu cầu Chủ tịch HĐQT)
+  // Đăng nhập nay gọi thẳng /api/login (netlify/functions/login.js) — xác
+  // thực mật khẩu THẬT SỰ Ở MÁY CHỦ. Trước đây trình duyệt tự đọc thẳng TOÀN
+  // BỘ danh sách tài khoản (kèm mật khẩu đã băm) qua /api/kv rồi so sánh ngay
+  // trên máy — đây chính là lỗ hổng khiến /api/kv lộ dữ liệu không cần đăng
+  // nhập. Đăng nhập đúng được cấp 1 token dùng cho mọi lần gọi /api/kv sau đó.
   const dangNhap = async (tenDangNhap) => {
     setLoi('');
     const u2 = (tenDangNhap ?? username).trim();
     if (!u2 || !password) { setLoi('Vui lòng nhập tài khoản và mật khẩu'); return; }
     setDangXuLy(true);
-    const users = await seedUsersIfNeeded();
+    let ketQua;
+    try {
+      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u2, password }) });
+      ketQua = await res.json().catch(() => ({}));
+      if (!res.ok) { setLoi(ketQua?.error || 'Sai tài khoản hoặc mật khẩu'); setDangXuLy(false); return; }
+    } catch (e) {
+      setLoi('Không kết nối được tới máy chủ lúc này — vui lòng thử lại sau vài giây.');
+      setDangXuLy(false);
+      return;
+    }
     setDangXuLy(false);
-    if (!users) { setLoi('Không kết nối được tới máy chủ lúc này — vui lòng thử lại sau vài giây.'); return; }
-    const u = users.find((x) => x.username === u2.toLowerCase());
-    if (!u) { setLoi('Sai tài khoản hoặc mật khẩu'); return; }
-    if (!u.active) { setLoi('Tài khoản này đã bị KHOÁ — liên hệ Ban lãnh đạo để mở lại.'); return; }
-    const ok = await verifyPassword(password, u.salt, u.hash);
-    if (!ok) { setLoi('Sai tài khoản hoặc mật khẩu'); return; }
-    // Ghi lại vào danh sách "gần đây trên thiết bị này"
+    const u = ketQua.user;
+    // Đặt token TRƯỚC khi ghi "tài khoản gần đây" bên dưới — lệnh ghi đó cũng
+    // đi qua /api/kv, nay đòi hỏi xác thực.
+    setAuthToken(ketQua.token);
     const dsHienTai = ganDay || [];
     const daCo = dsHienTai.some((g) => g.username === u.username);
     if (!daCo) {
       const dsMoi = [{ username: u.username, name: u.name, chucDanh: u.chucDanh }, ...dsHienTai].slice(0, 10);
       storageSet('recent_logins', dsMoi, false);
     }
-    onLogin({ id: u.id, username: u.username, name: u.name, chucDanh: u.chucDanh, role: u.role, mustChangePassword: u.mustChangePassword });
+    onLogin({ id: u.id, username: u.username, name: u.name, chucDanh: u.chucDanh, role: u.role, mustChangePassword: u.mustChangePassword, token: ketQua.token });
   };
 
+  // (Sửa 25/09) Gửi qua /api/account-request — điểm riêng CHO PHÉP gửi mà
+  // không cần đăng nhập (đúng bản chất: người gửi CHƯA có tài khoản), nhưng
+  // chỉ được THÊM đúng 1 bản ghi, không đọc/ghi được bất kỳ dữ liệu nào khác
+  // — khác hẳn /api/kv (nay đã bắt buộc đăng nhập).
   const guiYeuCau = async () => {
     if (!ycHoTen.trim() || !ycChucDanh.trim()) return notify('Nhập đủ họ tên và chức danh', true);
-    const yeuCau = await storageGet('account_requests', true, []);
-    const moi = { id: genId('YC'), hoTen: ycHoTen.trim(), chucDanh: ycChucDanh.trim(), phanHe: ycPhanHe, trangThai: 'cho_duyet', time: new Date().toISOString() };
-    await storageSet('account_requests', [...yeuCau, moi], true);
+    try {
+      const res = await fetch('/api/account-request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hoTen: ycHoTen.trim(), chucDanh: ycChucDanh.trim(), phanHe: ycPhanHe }) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    } catch (e) {
+      return notify('Gửi yêu cầu thất bại — vui lòng thử lại sau vài giây.', true);
+    }
     notify('Đã gửi yêu cầu — chờ Ban lãnh đạo phê duyệt, sẽ có tài khoản sau khi được duyệt.');
     setYcHoTen(''); setYcChucDanh(''); setMoYeuCau(false);
   };
@@ -2098,24 +2166,36 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
     setVol(kb ? kb.khoiLuong : config.vehicleCapacity);
   };
 
-  const xacNhan = () => {
+  // (Sửa lỗi 25/09 — trùng số phiếu, theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY số
+  // phiếu tính từ 1 bộ đếm chỉ đồng bộ lại đúng 1 LẦN lúc mở trang
+  // (ticketCounterRef) — nếu có NHIỀU THIẾT BỊ cùng cấp phiếu (nhiều máy xúc,
+  // hoặc 1 tab bị treo/chạy nền lâu trên điện thoại không đồng bộ kịp), 2
+  // thiết bị có thể tính ra CÙNG 1 số tiếp theo -> trùng số phiếu giữa 2 biển
+  // số khác nhau. Nay hàm này ĐỔI THÀNH ASYNC: trước khi cấp số, LẤY LẠI dữ
+  // liệu "sự kiện vận hành" MỚI NHẤT từ máy chủ (không chỉ dựa vào bộ đếm cũ)
+  // ngay tại thời điểm xác nhận xúc — thu hẹp tối đa khoảng thời gian có thể
+  // xảy ra trùng số xuống chỉ còn đúng lúc bấm nút, thay vì có thể lệch hàng
+  // giờ như trước.
+  const xacNhan = async () => {
     if (!selectedPlate) return notify('Vui lòng chọn xe để xúc', true);
     // BẮT BUỘC phải có khai báo kỹ thuật còn hiệu lực mới được xúc (V4.0, mục II.2)
     if (!khaiBaoCuaXeDangChon) return notify('⛔ Xe này CHƯA được Kỹ thuật xác nhận (hoặc đã quá hạn 3 ngày) — không thể xúc. Báo Kỹ thuật kiểm tra trước.', true);
     const kb = khaiBaoCuaXeDangChon;
+    const plateDaChon = selectedPlate;
     const loadEv = {
-      id: genId('LD'), type: 'load_confirm', plate: selectedPlate,
+      id: genId('LD'), type: 'load_confirm', plate: plateDaChon,
       excavatorId: session.excavatorId, excavatorName: session.excavatorName,
       operatorId: session.operatorId, operatorName: session.operatorName,
       sessionId: session.sessionId, estVolume: Number(vol) || config.vehicleCapacity,
       customerId: kb?.customerId || null, customerName: kb?.customerName || null,
       time: new Date().toISOString(),
     };
-    const ticket = buildTicket(loadEv);
+    const evsMoiNhat = await storageGet('events', true, events);
+    const ticket = buildTicket(loadEv, evsMoiNhat);
     addEvents([loadEv, ticket]);
-    clearClaim(selectedPlate);
+    clearClaim(plateDaChon);
     setSelectedPlate(null); setSearch('');
-    notify(`Đã xác nhận xúc đầy xe ${selectedPlate} — hệ thống tự động lập phiếu ${ticket.ticketNo} (3 liên)`);
+    notify(`Đã xác nhận xúc đầy xe ${plateDaChon} — hệ thống tự động lập phiếu ${ticket.ticketNo} (3 liên)`);
   };
 
   const guiBaoXeLa = () => {
@@ -3280,7 +3360,10 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
       )}
 
       {xemLai && (() => {
-        const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === xemLai.plate && dayStrOf(e.time) === dayStrOf(xemLai.time)).sort((a, b) => a.time.localeCompare(b.time))[0];
+        // (Sửa lỗi 25/09 — đồng bộ với phieuGiaoNhanHTML()) Lấy đúng lượt vào
+        // cổng GẦN NHẤT trước thời điểm lập phiếu — không lấy nhầm lượt vào
+        // ĐẦU TIÊN trong ngày khi xe vào nhiều chuyến.
+        const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === xemLai.plate && e.time <= xemLai.time).sort((a, b) => b.time.localeCompare(a.time))[0];
         return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemLai(null)}>
           <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-3">
@@ -3300,7 +3383,8 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
                 <div>Biển số xe: {xemLai.plate}</div>
                 <div className="mt-1">Khối lượng: {soVN(xemLai.volume)} m3</div>
                 <div className="border-t-2 border-dashed border-slate-400 my-2" />
-                <div className="flex justify-between mt-3"><span>Kế toán mỏ</span><span>Bảo vệ</span></div>
+                {/* (Sửa lỗi 25/09) Đổi người ký từ "Bảo vệ" thành "Lái xe". */}
+                <div className="flex justify-between mt-3"><span>Kế toán mỏ</span><span>Lái xe</span></div>
               </div>
             ))}
           </div>
@@ -4545,8 +4629,25 @@ function luuPhien(session) {
 }
 
 export default function App() {
-  const [session, setSessionState] = useState(docPhienDaLuu); // {id, username, name, role, mustChangePassword}
-  const setSession = (s) => { setSessionState(s); luuPhien(s); };
+  const [session, setSessionState] = useState(docPhienDaLuu); // {id, username, name, role, mustChangePassword, token}
+  // (Bổ sung 25/09) Đồng bộ luôn token xác thực /api/kv (xem setAuthToken ở
+  // đầu file) mỗi khi phiên đăng nhập thay đổi — đăng nhập, đăng xuất, hay bị
+  // ép đăng xuất do phiên hết hạn (setSession(null)).
+  const setSession = (s) => { setSessionState(s); luuPhien(s); setAuthToken(s?.token); };
+
+  // (Bổ sung 25/09 — xác thực /api/kv) Đăng ký sẵn (TRƯỚC effect tải dữ liệu
+  // bên dưới, để chắc chắn đã sẵn sàng nếu lệnh gọi đầu tiên gặp 401 ngay) hàm
+  // sẽ được storageGet/storageSet gọi tới khi phát hiện phiên hết hạn/không
+  // hợp lệ GIỮA LÚC đang dùng phần mềm — ép quay lại màn đăng nhập, không để
+  // người dùng thao tác tiếp trên dữ liệu cũ/hỏng.
+  useEffect(() => {
+    onPhienHetHan = () => {
+      setSession(null);
+      setEvents([]); setConfigState(DEFAULT_CONFIG); setClaims({});
+    };
+    return () => { onPhienHetHan = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [doiMK, setDoiMK] = useState(false);
   const [events, setEvents] = useState([]);
   const [config, setConfigState] = useState(DEFAULT_CONFIG);
@@ -4579,15 +4680,25 @@ export default function App() {
   // lần — coi như vừa có 1 đợt đặt lại dữ liệu xảy ra ở nơi khác.
   const lastResetEpochRef = useRef(0);
 
+  // (Sửa 25/09 — xử lý lỗ hổng bảo mật /api/kv, theo yêu cầu Chủ tịch HĐQT)
+  // TRƯỚC ĐÂY effect này chạy NGAY KHI MỞ TRANG, kể cả khi CHƯA đăng nhập
+  // (đọc "config"/"events"/"claims" không cần xác thực) — đây chính là 1 phần
+  // của lỗ hổng: toàn bộ dữ liệu vận hành/tài chính được tải về máy ngay cả
+  // khi chưa ai đăng nhập. Nay /api/kv đã đòi hỏi token nên effect này CHỈ
+  // chạy khi ĐÃ có phiên đăng nhập (session tồn tại = đã có token — token
+  // được khôi phục ĐỒNG BỘ từ localStorage ngay ở useState(docPhienDaLuu) bên
+  // trên nếu có, nên không bị "chậm 1 nhịp" so với session). Màn hình đăng
+  // nhập không dùng tới các dữ liệu này nên không cần tải trước.
   useEffect(() => {
+    if (!session) { setReady(true); return; }
     (async () => {
       const users = await seedUsersIfNeeded();
       // Phiên đăng nhập khôi phục từ localStorage (nếu có) — kiểm tra lại với
       // danh sách tài khoản THẬT trên máy chủ: nếu tài khoản đã bị KHOÁ hoặc
       // không còn tồn tại nữa thì đăng xuất luôn, tránh giữ phiên "ma".
-      if (session && users) {
+      if (users) {
         const u = users.find((x) => x.id === session.id);
-        if (!u || !u.active) setSession(null);
+        if (!u || !u.active) { setSession(null); setReady(true); return; }
       }
       const cfg = await storageGet('config', true, null);
       const mergedCfg = cfg ? { ...DEFAULT_CONFIG, ...cfg, thietKe: { ...DEFAULT_CONFIG.thietKe, ...(cfg.thietKe || {}) } } : DEFAULT_CONFIG;
@@ -4597,8 +4708,10 @@ export default function App() {
       // (Yêu cầu 24/09 — theo phản ánh Chủ tịch HĐQT) Số phiếu TRƯỚC ĐÂY reset
       // về 1 mỗi ngày (kèm tiền tố "PKG-YYMMDD-") -> đổi thành số NỐI TIẾP
       // xuyên suốt, không reset theo ngày, và ngắn gọn hơn — xem buildTicket().
-      // Đếm TOÀN BỘ phiếu đã từng lập (không chỉ hôm nay) để số tiếp theo nối
-      // đúng tiếp theo, không trùng với phiếu cũ.
+      // Chỉ dùng làm mốc khởi tạo ban đầu — số phiếu THỰC TẾ mỗi lần lập được
+      // TÍNH LẠI MỚI theo dữ liệu mới nhất ngay tại thời điểm lập (không dùng
+      // mốc này nữa), tránh trùng số khi có nhiều thiết bị cùng cấp phiếu gần
+      // nhau — xem buildTicket()/xacNhan() (sửa lỗi 25/09, mục trùng số phiếu).
       ticketCounterRef.current = (evs || []).filter((e) => e.type === 'ticket_print').length;
       const cl = await storageGet('claims', true, {});
       setClaims(cl || {});
@@ -4610,7 +4723,7 @@ export default function App() {
       setReady(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session]);
 
   const refresh = useCallback(async () => {
     setSyncing(true);
@@ -4722,19 +4835,48 @@ export default function App() {
 
   // Chỉ TẠO đối tượng phiếu (không tự ghi) — nơi gọi phải addEvents([loadEv, ticket])
   // trong CÙNG một lần để đảm bảo 2 sự kiện luôn được ghi atomically với nhau.
-  const buildTicket = useCallback((loadEv) => {
-    ticketCounterRef.current += 1;
+  // (Sửa lỗi 25/09 — trùng số phiếu) Tham số thứ 2 "evsThamChieu" (không bắt
+  // buộc) — nếu nơi gọi đã tự lấy dữ liệu MỚI NHẤT từ máy chủ ngay trước đó
+  // (xem xacNhan() ở DriverScreen), dùng đúng dữ liệu đó để tính số phiếu tiếp
+  // theo, KHÔNG dùng ticketCounterRef (bộ đếm chỉ đồng bộ 1 lần lúc mở trang,
+  // dễ lệch nếu có nhiều thiết bị cùng cấp phiếu). Tính theo SỐ LỚN NHẤT đã
+  // từng cấp (không phải đếm số lượng) để không bị lùi số nếu sau này có phiếu
+  // nào đó được đánh số lại.
+  const buildTicket = useCallback((loadEv, evsThamChieu) => {
+    const nguon = evsThamChieu || events;
+    let soLon = 0;
+    nguon.forEach((e) => {
+      if (e.type === 'ticket_print' && e.ticketNo) {
+        const n = parseInt(e.ticketNo, 10);
+        if (!Number.isNaN(n) && n > soLon) soLon = n;
+      }
+    });
+    ticketCounterRef.current = soLon + 1;
     // (Yêu cầu 24/09) Số phiếu ngắn gọn, nối tiếp xuyên suốt — không còn tiền
     // tố "PKG-YYMMDD-" và không reset về 1 mỗi ngày như trước.
     const ticketNo = String(ticketCounterRef.current).padStart(9, '0');
     return { id: genId('TK'), type: 'ticket_print', loadId: loadEv.id, plate: loadEv.plate, volume: loadEv.estVolume, ticketNo, soLien: 3, excavatorId: loadEv.excavatorId, excavatorName: loadEv.excavatorName, sessionId: loadEv.sessionId, operatorId: loadEv.operatorId, operatorName: loadEv.operatorName, customerId: loadEv.customerId, customerName: loadEv.customerName, autoGenerated: true, time: new Date().toISOString() };
-  }, []);
+  }, [events]);
 
   const setClaim = useCallback((plate, operatorName) => { setClaims((prev) => { const next = { ...prev, [plate]: { operatorName, time: Date.now() } }; storageSet('claims', next, true); return next; }); }, []);
   const clearClaim = useCallback((plate) => { setClaims((prev) => { const next = { ...prev }; delete next[plate]; storageSet('claims', next, true); return next; }); }, []);
 
   const onLogin = (s) => { setSession(s); if (s.mustChangePassword) setDoiMK(true); };
-  const dangXuat = () => { setSession(null); setDoiMK(false); };
+  // (Bổ sung 25/09 — xác thực /api/kv) Huỷ token THẬT trên máy chủ khi đăng
+  // xuất — trước đây bấm "Đăng xuất" chỉ xoá dữ liệu ở trình duyệt, token vẫn
+  // còn hiệu lực trên máy chủ nếu ai đó có được (VD lộ qua máy dùng chung).
+  // Gửi ngầm, không chờ/không chặn việc đăng xuất ở trình duyệt nếu mạng lỗi.
+  const dangXuat = () => {
+    if (AUTH_TOKEN) {
+      fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout', token: AUTH_TOKEN }) }).catch(() => {});
+    }
+    setSession(null);
+    setDoiMK(false);
+    // Xoá sạch dữ liệu vận hành đang giữ trong bộ nhớ — tránh trường hợp đăng
+    // nhập lại bằng tài khoản khác trên CÙNG máy/tab còn thấy sót dữ liệu cũ
+    // trong khoảnh khắc trước khi dữ liệu mới tải xong.
+    setEvents([]); setConfigState(DEFAULT_CONFIG); setClaims({});
+  };
 
   // (Sửa lỗi khẩn 09/09) QUAN TRỌNG: useMemo phải gọi ở ĐÂY — TRƯỚC mọi
   // "return" có điều kiện bên dưới (!ready / !session / doiMK). Trước đây đặt
