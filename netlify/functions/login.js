@@ -114,6 +114,22 @@ export default async (req) => {
   // lại việc quản lý phiên đăng nhập không ảnh hưởng gì tới dữ liệu vận hành.
   await phienStore.setJSON(`session_${token}`, { userId: u.id, username: u.username, createdAt: Date.now() });
 
+  // (Bổ sung 25/09 lần 2 — khắc phục lỗi "F5 bị đẩy ra khỏi phiên đăng nhập")
+  // Đọc lại NGAY để chắc chắn phiên vừa ghi đã thực sự đọc lại được, trước khi
+  // trả token về cho trình duyệt — phòng trường hợp có độ trễ rất ngắn giữa
+  // lúc ghi và lúc đọc lại được (dù đã dùng consistency:'strong'), khiến yêu
+  // cầu /api/kv đầu tiên ngay sau khi đăng nhập bị từ chối nhầm là "chưa đăng
+  // nhập", buộc người dùng phải đăng nhập lại ngay lập tức.
+  let daXacNhanDoc = false;
+  for (let lan = 0; lan < 5; lan++) {
+    const kt = await phienStore.get(`session_${token}`, { type: 'json' });
+    if (kt) { daXacNhanDoc = true; break; }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  if (!daXacNhanDoc) {
+    return json(503, { error: 'Không khởi tạo được phiên đăng nhập lúc này — vui lòng thử lại sau vài giây.' });
+  }
+
   return json(200, {
     token,
     user: { id: u.id, username: u.username, name: u.name, chucDanh: u.chucDanh, role: u.role, mustChangePassword: u.mustChangePassword },
