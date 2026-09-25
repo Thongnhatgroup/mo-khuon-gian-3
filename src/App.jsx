@@ -534,7 +534,22 @@ let mat401GanDay = false; // "vừa gặp lỗi 401 ở lần gọi storageGet/s
 let dangXuLy401 = false;
 let onPhienHetHan = null; // App() gán lúc mount — ép đăng xuất khi phiên hết hạn giữa lúc đang dùng
 function setAuthToken(t) { AUTH_TOKEN = t || null; dangXuLy401 = false; }
-function authHeaders() { return AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}; }
+function authHeaders() {
+  // (Sửa lỗi 25/09 lần 4 — khắc phục GỐC RỄ "F5 bị đẩy ra khỏi phiên đăng
+  // nhập") Bằng chứng chẩn đoán cho thấy: NGAY CẢ lần gọi ĐẦU TIÊN sau khi
+  // đăng nhập/mở lại trang cũng gửi đi KHÔNG CÓ token (độ dài 0) — nghĩa là
+  // biến AUTH_TOKEN ở bộ nhớ tạm (module-level) không đồng bộ kịp với phiên
+  // đăng nhập thật đã lưu trong trình duyệt. Thay vì tin vào biến tạm này,
+  // nay ĐỌC THẲNG lại token từ bộ nhớ trình duyệt (localStorage) ở MỌI lần
+  // gọi — đây là nơi lưu trữ thật, đáng tin cậy nhất, loại bỏ hoàn toàn rủi
+  // ro lệch đồng bộ dù nguyên nhân sâu xa là gì.
+  let token = null;
+  try {
+    if (typeof docPhienDaLuu === 'function') token = docPhienDaLuu()?.token || null;
+  } catch {}
+  if (!token) token = AUTH_TOKEN; // dự phòng, hiếm khi cần tới
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 function baoHetPhien() {
   mat401GanDay = true;
   if (dangXuLy401) return; // tránh gọi lặp lại nhiều lần (nhiều lời gọi 401 dồn dập)
