@@ -535,6 +535,21 @@ let AUTH_TOKEN = (typeof window !== 'undefined' && typeof docPhienDaLuu === 'fun
 // thấy token đã lưu trong trình duyệt hay không.
 if (typeof window !== 'undefined' && typeof console !== 'undefined') {
   console.log('[CHAN-DOAN-PHIEN] Luc tai trang, token luu trong trinh duyet:', AUTH_TOKEN ? `CO (${AUTH_TOKEN.length} ky tu)` : 'KHONG CO');
+  // (Chẩn đoán tạm thời 25/09) Đọc thẳng dữ liệu THÔ trong bộ nhớ trình duyệt
+  // (không in ra token thật, chỉ in các trường có trong đó) để biết chắc:
+  // "chưa từng lưu gì cả" hay "có lưu nhưng thiếu trường token".
+  try {
+    const raw = localStorage.getItem('mkg3_phien_dang_nhap_v1');
+    if (raw === null) {
+      console.log('[CHAN-DOAN-PHIEN] Bo nho trinh duyet (localStorage) khong co du lieu phien dang nhap nao (null).');
+    } else {
+      let cacTruong = 'khong doc duoc JSON';
+      try { cacTruong = Object.keys(JSON.parse(raw)).join(', '); } catch {}
+      console.log('[CHAN-DOAN-PHIEN] Bo nho trinh duyet CO du lieu phien dang nhap, dai ' + raw.length + ' ky tu, cac truong: ' + cacTruong);
+    }
+  } catch (e) {
+    console.log('[CHAN-DOAN-PHIEN] LOI khi doc localStorage:', e && e.message);
+  }
 }
 let mat401GanDay = false; // "vừa gặp lỗi 401 ở lần gọi storageGet/storageSet gần nhất"
 let dangXuLy401 = false;
@@ -4638,7 +4653,19 @@ function luuPhien(session) {
   try {
     if (session) localStorage.setItem(KHOA_PHIEN_DANG_NHAP, JSON.stringify(session));
     else localStorage.removeItem(KHOA_PHIEN_DANG_NHAP);
-  } catch { /* trình duyệt chặn localStorage (chế độ ẩn danh...) — bỏ qua, không chặn dùng phần mềm */ }
+    // (Chẩn đoán tạm thời 25/09) Đọc lại NGAY sau khi ghi, để biết chắc lệnh
+    // ghi có thật sự thành công hay không (không in ra token thật).
+    if (typeof console !== 'undefined') {
+      const kt = localStorage.getItem(KHOA_PHIEN_DANG_NHAP);
+      if (!session) {
+        console.log('[CHAN-DOAN-PHIEN] luuPhien(null) — da xoa. Doc lai ngay sau do:', kt === null ? 'da xoa thanh cong (null)' : 'VAN CON DU LIEU (' + kt.length + ' ky tu) — XOA KHONG THANH CONG');
+      } else {
+        console.log('[CHAN-DOAN-PHIEN] luuPhien(...) vua ghi. Doc lai ngay sau do:', kt === null ? 'GHI KHONG THANH CONG (van la null)' : ('ghi thanh cong, ' + kt.length + ' ky tu, co token: ' + (kt.includes('"token"') ? 'CO' : 'KHONG')));
+    }
+  }
+  } catch (e) {
+    if (typeof console !== 'undefined') console.log('[CHAN-DOAN-PHIEN] LOI khi ghi localStorage (co the trinh duyet dang chan):', e && e.message);
+  }
 }
 
 export default function App() {
