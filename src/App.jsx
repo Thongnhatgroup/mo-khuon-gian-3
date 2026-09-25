@@ -563,6 +563,15 @@ async function storageGet(key, shared, fallback) {
       // tài khoản" rồi tạo lại từ đầu, ghi đè mất dữ liệu thật) — báo hiệu
       // riêng, không dùng fallback để suy luận gì thêm.
       if (res.status === 401) {
+        // (Chẩn đoán tạm thời 25/09 lần 3) In ngay LẦN ĐẦU bị 401, TRƯỚC khi
+        // thử lại — để phân biệt lý do THẬT SỰ ban đầu với các lần bị vạ lây
+        // sau đó (khi token đã bị xoá do 1 lệnh gọi khác thất bại trước).
+        if (typeof console !== 'undefined') {
+          try {
+            const loiDau = await res.clone().json();
+            console.warn('[CHAN-DOAN-PHIEN-3] /api/kv?key=' + key + ' — LAN DAU bi 401. Ly do:', loiDau && loiDau.lyDo, '| do dai token dang gui luc do:', AUTH_TOKEN ? AUTH_TOKEN.length : 0);
+          } catch (e) {}
+        }
         // (Sửa lỗi 25/09 lần 2 — khắc phục "F5 bị đẩy ra khỏi phiên đăng nhập")
         // Token VỪA được cấp (mới đăng nhập xong, hoặc vừa khôi phục lúc mở lại
         // trang) đôi khi bị máy chủ báo 401 ngay ở yêu cầu /api/kv đầu tiên dù
@@ -608,6 +617,13 @@ async function storageSet(key, value, shared) {
       if (CO_ARTIFACT_STORAGE) { await window.storage.set(key, JSON.stringify(value), shared); return; }
       let res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ key, value }) });
       if (res.status === 401) {
+        // (Chẩn đoán tạm thời 25/09 lần 3) — xem giải thích trong storageGet() ở trên.
+        if (typeof console !== 'undefined') {
+          try {
+            const loiDau = await res.clone().json();
+            console.warn('[CHAN-DOAN-PHIEN-3] POST /api/kv key=' + key + ' — LAN DAU bi 401. Ly do:', loiDau && loiDau.lyDo, '| do dai token dang gui luc do:', AUTH_TOKEN ? AUTH_TOKEN.length : 0);
+          } catch (e) {}
+        }
         // (Sửa lỗi 25/09 lần 2) — xem giải thích chi tiết trong storageGet() ở trên.
         for (let thuLai = 0; thuLai < 2 && res.status === 401; thuLai++) {
           await cho(400 * (thuLai + 1));
