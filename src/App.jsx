@@ -575,6 +575,13 @@ async function storageGet(key, shared, fallback) {
           res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`, { headers: authHeaders() });
         }
         if (res.status === 401) {
+          // (Chẩn đoán tạm thời 25/09 lần 3 — sẽ gỡ ngay sau khi tìm ra nguyên nhân)
+          if (typeof console !== 'undefined') {
+            try {
+              const loi = await res.clone().json();
+              console.warn('[CHAN-DOAN-PHIEN-3] /api/kv?key=' + key + ' van 401 sau khi thu lai. Ly do tu may chu:', loi && loi.lyDo, loi && loi.tokenDai !== undefined ? ('| do dai token luc do o may chu: ' + loi.tokenDai) : '', '| do dai token trinh duyet dang gui:', AUTH_TOKEN ? AUTH_TOKEN.length : 0);
+            } catch (e) {}
+          }
           baoHetPhien();
           return fallback;
         }
@@ -606,7 +613,17 @@ async function storageSet(key, value, shared) {
           await cho(400 * (thuLai + 1));
           res = await fetch('/api/kv', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ key, value }) });
         }
-        if (res.status === 401) { baoHetPhien(); return; }
+        if (res.status === 401) {
+          // (Chẩn đoán tạm thời 25/09 lần 3 — sẽ gỡ ngay sau khi tìm ra nguyên nhân)
+          if (typeof console !== 'undefined') {
+            try {
+              const loi = await res.clone().json();
+              console.warn('[CHAN-DOAN-PHIEN-3] POST /api/kv key=' + key + ' van 401 sau khi thu lai. Ly do tu may chu:', loi && loi.lyDo, loi && loi.tokenDai !== undefined ? ('| do dai token luc do o may chu: ' + loi.tokenDai) : '', '| do dai token trinh duyet dang gui:', AUTH_TOKEN ? AUTH_TOKEN.length : 0);
+            } catch (e) {}
+          }
+          baoHetPhien();
+          return;
+        }
       }
       mat401GanDay = false;
       if (res.ok) return;
