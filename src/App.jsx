@@ -530,12 +530,20 @@ function cho(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // cuối file) để khôi phục khi mở lại trang — hàm đó là function declaration
 // nên dùng được ở đây dù khai báo phía sau (hoisting).
 let AUTH_TOKEN = (typeof window !== 'undefined' && typeof docPhienDaLuu === 'function' && docPhienDaLuu()?.token) || null;
+// (Chẩn đoán tạm thời 25/09 — sẽ gỡ sau khi tìm ra nguyên nhân lỗi "F5 bị đẩy
+// ra khỏi phiên đăng nhập") In ra Console ngay lúc mở/tải lại trang: có tìm
+// thấy token đã lưu trong trình duyệt hay không.
+if (typeof window !== 'undefined' && typeof console !== 'undefined') {
+  console.log('[CHAN-DOAN-PHIEN] Luc tai trang, token luu trong trinh duyet:', AUTH_TOKEN ? `CO (${AUTH_TOKEN.length} ky tu)` : 'KHONG CO');
+}
 let mat401GanDay = false; // "vừa gặp lỗi 401 ở lần gọi storageGet/storageSet gần nhất"
 let dangXuLy401 = false;
 let onPhienHetHan = null; // App() gán lúc mount — ép đăng xuất khi phiên hết hạn giữa lúc đang dùng
 function setAuthToken(t) { AUTH_TOKEN = t || null; dangXuLy401 = false; }
 function authHeaders() { return AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}; }
 function baoHetPhien() {
+  // (Chẩn đoán tạm thời 25/09)
+  if (typeof console !== 'undefined') console.warn('[CHAN-DOAN-PHIEN] Bi dang xuat vi goi /api/kv nhan loi 401 (het phien/khong hop le). Token luc do:', AUTH_TOKEN ? `CO (${AUTH_TOKEN.length} ky tu)` : 'KHONG CO');
   mat401GanDay = true;
   if (dangXuLy401) return; // tránh gọi lặp lại nhiều lần (nhiều lời gọi 401 dồn dập)
   dangXuLy401 = true;
@@ -562,7 +570,12 @@ async function storageGet(key, shared, fallback) {
       // hiểm nhất ở seedUsersIfNeeded(): có thể hiểu nhầm "chưa từng khởi tạo
       // tài khoản" rồi tạo lại từ đầu, ghi đè mất dữ liệu thật) — báo hiệu
       // riêng, không thử lại, không dùng fallback để suy luận gì thêm.
-      if (res.status === 401) { baoHetPhien(); return fallback; }
+      if (res.status === 401) {
+        // (Chẩn đoán tạm thời 25/09)
+        if (typeof console !== 'undefined') console.warn('[CHAN-DOAN-PHIEN] /api/kv?key=' + key + ' tra ve 401.');
+        baoHetPhien();
+        return fallback;
+      }
       mat401GanDay = false;
       if (!res.ok) { loiCuoi = new Error('HTTP ' + res.status); await cho(400 * (lan + 1)); continue; }
       const data = await res.json();
