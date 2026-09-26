@@ -2204,20 +2204,23 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
     setVol(kb ? kb.khoiLuong : config.vehicleCapacity);
   };
 
-  // (Sửa lỗi 25/09 — trùng số phiếu, theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY số
-  // phiếu tính từ 1 bộ đếm chỉ đồng bộ lại đúng 1 LẦN lúc mở trang
-  // (ticketCounterRef) — nếu có NHIỀU THIẾT BỊ cùng cấp phiếu (nhiều máy xúc,
-  // hoặc 1 tab bị treo/chạy nền lâu trên điện thoại không đồng bộ kịp), 2
-  // thiết bị có thể tính ra CÙNG 1 số tiếp theo -> trùng số phiếu giữa 2 biển
-  // số khác nhau. Nay hàm này ĐỔI THÀNH ASYNC: trước khi cấp số, LẤY LẠI dữ
-  // liệu "sự kiện vận hành" MỚI NHẤT từ máy chủ (không chỉ dựa vào bộ đếm cũ)
-  // ngay tại thời điểm xác nhận xúc — thu hẹp tối đa khoảng thời gian có thể
-  // xảy ra trùng số xuống chỉ còn đúng lúc bấm nút, thay vì có thể lệch hàng
-  // giờ như trước.
+  // (Sửa lỗi 26/09 — VẪN trùng số phiếu khi 2 máy xúc xác nhận CÙNG LÚC, theo
+  // phản ánh Chủ tịch HĐQT) Cách sửa 25/09 (lấy lại dữ liệu mới nhất từ máy chủ
+  // rồi TỰ TÍNH số tiếp theo ngay tại trình duyệt) chỉ THU HẸP chứ chưa loại bỏ
+  // hẳn được lỗi: nếu 2 máy xúc bấm xác nhận trong cùng một khoảnh khắc, cả 2
+  // vẫn có thể cùng đọc được dữ liệu CHƯA có phiếu của nhau rồi tính ra CÙNG 1
+  // số. Nay việc CẤP SỐ PHIẾU chuyển hẳn sang máy chủ (xem buildTicket() và
+  // netlify/functions/ticket.js) — nơi trọng tài duy nhất, dùng cơ chế
+  // "giữ chỗ rồi tự kiểm tra xem có thật sự giữ được không" để đảm bảo không
+  // bao giờ cấp trùng số dù có bao nhiêu máy xúc cùng bấm một lúc. Đồng thời
+  // khoá nút lại (dangLapPhieu) trong lúc chờ máy chủ cấp số, tránh chính người
+  // lái máy xúc bấm 2 lần liền tay tạo 2 phiếu cho cùng 1 xe.
+  const [dangLapPhieu, setDangLapPhieu] = useState(false);
   const xacNhan = async () => {
     if (!selectedPlate) return notify('Vui lòng chọn xe để xúc', true);
     // BẮT BUỘC phải có khai báo kỹ thuật còn hiệu lực mới được xúc (V4.0, mục II.2)
     if (!khaiBaoCuaXeDangChon) return notify('⛔ Xe này CHƯA được Kỹ thuật xác nhận (hoặc đã quá hạn 3 ngày) — không thể xúc. Báo Kỹ thuật kiểm tra trước.', true);
+    if (dangLapPhieu) return; // đang chờ máy chủ cấp số cho lần bấm trước — không cho bấm chồng
     const kb = khaiBaoCuaXeDangChon;
     const plateDaChon = selectedPlate;
     const loadEv = {
@@ -2228,8 +2231,15 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
       customerId: kb?.customerId || null, customerName: kb?.customerName || null,
       time: new Date().toISOString(),
     };
-    const evsMoiNhat = await storageGet('events', true, events);
-    const ticket = buildTicket(loadEv, evsMoiNhat);
+    setDangLapPhieu(true);
+    let ticket;
+    try {
+      ticket = await buildTicket(loadEv);
+    } catch (err) {
+      setDangLapPhieu(false);
+      return notify(`Không lập được phiếu: ${err?.message || 'lỗi không xác định'} — vui lòng bấm lại.`, true);
+    }
+    setDangLapPhieu(false);
     addEvents([loadEv, ticket]);
     clearClaim(plateDaChon);
     setSelectedPlate(null); setSearch('');
@@ -2326,7 +2336,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
 
         <label className="block text-slate-400 text-xs mb-1.5 mt-3">Khối lượng (m³ nở rời / xe) {khaiBaoCuaXeDangChon && <span className="text-emerald-400">— tự động theo khai báo kỹ thuật</span>}</label>
         <input type="number" value={vol} onChange={(e) => setVol(e.target.value)} disabled={!khaiBaoCuaXeDangChon} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white disabled:opacity-50" />
-        <button onClick={xacNhan} disabled={!selectedPlate || !khaiBaoCuaXeDangChon} className="w-full mt-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg">✅ Xác nhận đã xúc đầy xe (tự động in phiếu)</button>
+        <button onClick={xacNhan} disabled={!selectedPlate || !khaiBaoCuaXeDangChon || dangLapPhieu} className="w-full mt-3 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg">{dangLapPhieu ? '⏳ Đang xin số phiếu từ máy chủ...' : '✅ Xác nhận đã xúc đầy xe (tự động in phiếu)'}</button>
       </Card>
 
       <Card className="mt-4 border-red-500/50">
@@ -4694,7 +4704,6 @@ export default function App() {
   const [onlineCount, setOnlineCount] = useState(1);
   const [ready, setReady] = useState(false);
   const mySessionId = useRef(genId('sess'));
-  const ticketCounterRef = useRef(0);
   const persistEventsRef = useRef(null);
   // (Sửa lỗi 21/09 lần 7 — PHÁT HIỆN GỐC RỄ THẬT SỰ, sau khi lần 6 vẫn KHÔNG
   // giải quyết được: đã sửa đúng 2 hàm máy chủ (camera-webhook, import-plates)
@@ -4745,12 +4754,10 @@ export default function App() {
       setEvents(evs || []);
       // (Yêu cầu 24/09 — theo phản ánh Chủ tịch HĐQT) Số phiếu TRƯỚC ĐÂY reset
       // về 1 mỗi ngày (kèm tiền tố "PKG-YYMMDD-") -> đổi thành số NỐI TIẾP
-      // xuyên suốt, không reset theo ngày, và ngắn gọn hơn — xem buildTicket().
-      // Chỉ dùng làm mốc khởi tạo ban đầu — số phiếu THỰC TẾ mỗi lần lập được
-      // TÍNH LẠI MỚI theo dữ liệu mới nhất ngay tại thời điểm lập (không dùng
-      // mốc này nữa), tránh trùng số khi có nhiều thiết bị cùng cấp phiếu gần
-      // nhau — xem buildTicket()/xacNhan() (sửa lỗi 25/09, mục trùng số phiếu).
-      ticketCounterRef.current = (evs || []).filter((e) => e.type === 'ticket_print').length;
+      // xuyên suốt, không reset theo ngày, và ngắn gọn hơn.
+      // (Sửa lỗi 26/09 — trùng số phiếu khi 2 máy xúc cùng xác nhận) Số phiếu
+      // KHÔNG còn tự tính ở trình duyệt nữa (kể cả lúc mở trang) — máy chủ cấp
+      // số duy nhất mỗi lần lập phiếu, xem buildTicket()/netlify/functions/ticket.js.
       const cl = await storageGet('claims', true, {});
       setClaims(cl || {});
       // (Sửa lỗi 21/09 lần 7) Ghi nhớ mốc "phiên bản dữ liệu" hiện tại NGAY LÚC
@@ -4873,28 +4880,27 @@ export default function App() {
 
   // Chỉ TẠO đối tượng phiếu (không tự ghi) — nơi gọi phải addEvents([loadEv, ticket])
   // trong CÙNG một lần để đảm bảo 2 sự kiện luôn được ghi atomically với nhau.
-  // (Sửa lỗi 25/09 — trùng số phiếu) Tham số thứ 2 "evsThamChieu" (không bắt
-  // buộc) — nếu nơi gọi đã tự lấy dữ liệu MỚI NHẤT từ máy chủ ngay trước đó
-  // (xem xacNhan() ở DriverScreen), dùng đúng dữ liệu đó để tính số phiếu tiếp
-  // theo, KHÔNG dùng ticketCounterRef (bộ đếm chỉ đồng bộ 1 lần lúc mở trang,
-  // dễ lệch nếu có nhiều thiết bị cùng cấp phiếu). Tính theo SỐ LỚN NHẤT đã
-  // từng cấp (không phải đếm số lượng) để không bị lùi số nếu sau này có phiếu
-  // nào đó được đánh số lại.
-  const buildTicket = useCallback((loadEv, evsThamChieu) => {
-    const nguon = evsThamChieu || events;
-    let soLon = 0;
-    nguon.forEach((e) => {
-      if (e.type === 'ticket_print' && e.ticketNo) {
-        const n = parseInt(e.ticketNo, 10);
-        if (!Number.isNaN(n) && n > soLon) soLon = n;
-      }
-    });
-    ticketCounterRef.current = soLon + 1;
+  // (Sửa lỗi 26/09 — VẪN trùng số phiếu khi 2 máy xúc xác nhận cùng lúc, theo
+  // phản ánh Chủ tịch HĐQT) Cách cũ TỰ TÍNH số tiếp theo ngay ở trình duyệt
+  // (dù đã đọc dữ liệu mới nhất trước đó) vẫn còn 1 khoảng hở: 2 thiết bị có
+  // thể cùng đọc được dữ liệu ở đúng cùng 1 thời điểm (trước khi bên kia kịp
+  // ghi phiếu của họ lên máy chủ) rồi cả 2 tính ra CÙNG 1 số. Nay số phiếu do
+  // MÁY CHỦ cấp (netlify/functions/ticket.js) — nơi duy nhất "trọng tài" cho
+  // mọi máy xúc, dùng cơ chế giữ-chỗ-rồi-tự-kiểm-tra để đảm bảo không bao giờ
+  // phát trùng số dù nhiều máy xúc cùng bấm một lúc.
+  const buildTicket = useCallback(async (loadEv) => {
+    const res = await fetch('/api/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } });
+    if (res.status === 401) { baoHetPhien(); throw new Error('Phiên đăng nhập đã hết hạn — vui lòng đăng nhập lại.'); }
+    if (!res.ok) {
+      let thongBao = 'Máy chủ không cấp được số phiếu — vui lòng thử lại.';
+      try { const j = await res.json(); if (j?.error) thongBao = j.error; } catch {}
+      throw new Error(thongBao);
+    }
+    const { ticketNo } = await res.json();
     // (Yêu cầu 24/09) Số phiếu ngắn gọn, nối tiếp xuyên suốt — không còn tiền
     // tố "PKG-YYMMDD-" và không reset về 1 mỗi ngày như trước.
-    const ticketNo = String(ticketCounterRef.current).padStart(9, '0');
     return { id: genId('TK'), type: 'ticket_print', loadId: loadEv.id, plate: loadEv.plate, volume: loadEv.estVolume, ticketNo, soLien: 3, excavatorId: loadEv.excavatorId, excavatorName: loadEv.excavatorName, sessionId: loadEv.sessionId, operatorId: loadEv.operatorId, operatorName: loadEv.operatorName, customerId: loadEv.customerId, customerName: loadEv.customerName, autoGenerated: true, time: new Date().toISOString() };
-  }, [events]);
+  }, []);
 
   const setClaim = useCallback((plate, operatorName) => { setClaims((prev) => { const next = { ...prev, [plate]: { operatorName, time: Date.now() } }; storageSet('claims', next, true); return next; }); }, []);
   const clearClaim = useCallback((plate) => { setClaims((prev) => { const next = { ...prev }; delete next[plate]; storageSet('claims', next, true); return next; }); }, []);
