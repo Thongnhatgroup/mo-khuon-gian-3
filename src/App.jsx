@@ -1662,24 +1662,24 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   // bản" xác nhận xe còn ở lại (bien_ban_khong_ra), xe đó được đưa lại vào
   // danh sách như xe hôm nay — xe mới (chưa khai báo) sẽ hiện để khai báo kích
   // thước bình thường; xe đã khai báo còn hiệu lực sẽ hiện trạng thái Miễn.
-  // (Sửa lỗi 28/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY loại một lượt vào
-  // cổng khỏi danh sách chỉ bằng cách kiểm tra "có lượt ra cổng KHÔNG CÓ HÀNG
-  // nào của ĐÚNG BIỂN SỐ này xảy ra sau đó không" — khi camera lỡ ghi nhận
-  // trùng 1 xe vào cổng 2 lần (2 giờ vào khác nhau), Bảo vệ chỉ xác nhận ra
-  // cổng 1 lần cho đúng 1 xe thật, nhưng vì kiểm tra CHỈ theo biển số (không
-  // phân biệt đúng lượt vào nào) nên CẢ 2 lượt vào đều bị coi là đã ra, biến
-  // mất khỏi màn hình — dù xe thật vẫn còn ở mỏ (đúng như màn Bảo vệ vẫn hiển
-  // thị còn 1 xe). Nay dùng CHUNG hàm ghép cặp vào/ra theo ĐÚNG TỪNG LƯỢT với
-  // màn Bảo vệ (ghepVaoRaTheoXe) — chỉ loại đúng lượt vào cổng đã thực sự được
-  // ghép với 1 lượt ra cổng không có hàng, lượt vào còn lại (chưa ghép được)
-  // vẫn hiện nguyên để Kỹ thuật khai báo/Lái máy xúc xác nhận bình thường,
-  // Bảo vệ không cần khai báo hay thao tác thêm gì.
-  const conTrongMoTheoLuotVao = new Set(
-    ghepVaoRaTheoXe(events, (o) => o.coHang === false).cap.filter((r) => !r.gateOut).map((r) => r.gateIn.id)
+  // (Sửa lỗi 28/09 — theo phản ánh Chủ tịch HĐQT) Loại đúng 1 lượt vào cổng
+  // khi Bảo vệ xác nhận ra cổng do trùng biển số (camera ghi nhận 2 lần).
+  //
+  // (Sửa lỗi 28/09 — LẦN 2, theo phản ánh thực tế) Lần sửa đầu chỉ ghép cặp
+  // trong phạm vi hẹp (riêng lượt ra "không có hàng") nên vẫn sai khi biển
+  // số này đã có 1 lượt vào/ra CÓ HÀNG khác trước đó trong ngày — lượt ra có
+  // hàng đó bị loại khỏi phạm vi hẹp khiến thuật toán ghép NHẦM lượt vào sớm
+  // hơn với đúng lượt ra "không có hàng" (vốn dành cho lượt trùng biển sau
+  // đó), làm cả 2 lượt trùng biển vẫn hiện đủ. Nay ghép cặp với TẤT CẢ lượt
+  // ra cổng (giống hệt màn Bảo vệ), chỉ loại lượt vào đã ghép với 1 lượt ra
+  // KHÔNG CÓ HÀNG — giữ nguyên phạm vi cũ, không ảnh hưởng lượt ra có hàng.
+  const { cap: capVaoRaTheoBaoVe } = ghepVaoRaTheoXe(events);
+  const daRaKhongCoHangTheoLuotVao = new Set(
+    capVaoRaTheoBaoVe.filter((r) => r.gateOut && r.gateOut.coHang === false).map((r) => r.gateIn.id)
   );
   const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate
     && (dayStrOf(e.time) === today || daLapBienBanKhongRa(events, e.plate, e.time))
-    && conTrongMoTheoLuotVao.has(e.id));
+    && !daRaKhongCoHangTheoLuotVao.has(e.id));
   const khaiBaos = events.filter((e) => e.type === 'ky_thuat_khai_bao');
   const bienBans = events.filter((e) => e.type === 'bien_ban');
   const daLapBienBanIds = new Set(bienBans.flatMap((b) => b.khaiBaoIds));
@@ -2199,24 +2199,25 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
   // nếu đã có khai báo kích thước còn hiệu lực thì lái máy xúc chọn xúc được
   // ngay; nếu chưa khai báo thì vẫn hiện biển số nhưng chưa xúc được cho đến
   // khi Kỹ thuật khai báo xong (theo đúng quy định bắt buộc khai báo trước).
-  // (Sửa lỗi 28/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY loại một lượt vào
-  // cổng khỏi danh sách chỉ bằng cách kiểm tra "có lượt ra cổng KHÔNG CÓ HÀNG
-  // nào của ĐÚNG BIỂN SỐ này xảy ra sau đó không" — khi camera lỡ ghi nhận
-  // trùng 1 xe vào cổng 2 lần (2 giờ vào khác nhau), Bảo vệ chỉ xác nhận ra
-  // cổng 1 lần cho đúng 1 xe thật, nhưng vì kiểm tra CHỈ theo biển số (không
-  // phân biệt đúng lượt vào nào) nên CẢ 2 lượt vào đều bị coi là đã ra, biến
-  // mất khỏi máy xúc — dù xe thật vẫn còn ở mỏ (đúng như màn Bảo vệ vẫn hiển
-  // thị còn 1 xe). Nay dùng CHUNG hàm ghép cặp vào/ra theo ĐÚNG TỪNG LƯỢT với
-  // màn Bảo vệ (ghepVaoRaTheoXe) — chỉ loại đúng lượt vào cổng đã thực sự được
-  // ghép với 1 lượt ra cổng không có hàng, lượt vào còn lại (chưa ghép được)
-  // vẫn hiện nguyên trên máy xúc để lái máy xúc xác nhận xúc đầy bình thường,
-  // Bảo vệ không cần khai báo hay thao tác thêm gì.
-  const conTrongMoTheoLuotVao = new Set(
-    ghepVaoRaTheoXe(events, (o) => o.coHang === false).cap.filter((r) => !r.gateOut).map((r) => r.gateIn.id)
+  // (Sửa lỗi 28/09 — theo phản ánh Chủ tịch HĐQT) Loại đúng 1 lượt vào cổng
+  // khi Bảo vệ xác nhận ra cổng do trùng biển số (camera ghi nhận 2 lần).
+  //
+  // (Sửa lỗi 28/09 — LẦN 2, theo phản ánh thực tế) Lần sửa đầu chỉ ghép cặp
+  // trong phạm vi hẹp (riêng lượt ra "không có hàng") nên vẫn sai khi biển
+  // số này đã có 1 lượt vào/ra CÓ HÀNG khác trước đó trong ngày — lượt ra có
+  // hàng đó bị loại khỏi phạm vi hẹp khiến thuật toán ghép NHẦM lượt vào sớm
+  // hơn với đúng lượt ra "không có hàng" (vốn dành cho lượt trùng biển sau
+  // đó), làm cả 2 lượt trùng biển vẫn hiện đủ trên máy xúc. Nay ghép cặp với
+  // TẤT CẢ lượt ra cổng (giống hệt màn Bảo vệ), chỉ loại lượt vào đã ghép với
+  // 1 lượt ra KHÔNG CÓ HÀNG — giữ nguyên phạm vi cũ, không ảnh hưởng lượt ra
+  // có hàng.
+  const { cap: capVaoRaTheoBaoVe } = ghepVaoRaTheoXe(events);
+  const daRaKhongCoHangTheoLuotVao = new Set(
+    capVaoRaTheoBaoVe.filter((r) => r.gateOut && r.gateOut.coHang === false).map((r) => r.gateIn.id)
   );
   const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate
     && (dayStrOf(e.time) === today || daLapBienBanKhongRa(events, e.plate, e.time))
-    && conTrongMoTheoLuotVao.has(e.id));
+    && !daRaKhongCoHangTheoLuotVao.has(e.id));
   const loadsToday = events.filter((e) => e.type === 'load_confirm' && dayStrOf(e.time) === today);
 
   // (Sửa lỗi 18/09) Xét "đã xúc hay chưa" theo TOÀN BỘ lịch sử xúc của đúng
