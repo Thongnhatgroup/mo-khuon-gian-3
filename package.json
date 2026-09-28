@@ -7,7 +7,7 @@
     "build": "node build.js"
   },
   "dependencies": {
-    "@netlify/blobs": "^7.4.0"
+    "@netlify/blobs": "^11.1.1"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",
