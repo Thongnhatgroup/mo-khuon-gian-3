@@ -3877,6 +3877,20 @@ function QuanLyKhachHang({ config, setConfig, events, addEvent }) {
     addEvent({ id: genId('DP'), type: 'customer_deposit', customerId: c.id, amount, time: new Date().toISOString() });
     notify(`Đã ghi nhận ${c.name} nộp thêm ${tienVN(amount)}`);
   };
+  // (Bổ sung 26/09 — theo yêu cầu Chủ tịch HĐQT) Trước đây tại màn "Khách hàng
+  // & điều chuyển xe" của Kế toán công ty chỉ thêm được khách hàng mới, không
+  // sửa được tên/đơn giá bán của khách hàng đã có (khai nhầm tên, hoặc thay
+  // đổi đơn giá theo hợp đồng mới). Nay bổ sung sửa cả 2 thông tin cùng lúc.
+  const suaKH = async (c) => {
+    const kq = await hoi(`Sửa thông tin khách hàng`, [
+      { key: 'ten', nhan: 'Tên khách hàng', giaTri: c.name || '' },
+      { key: 'donGia', nhan: 'Đơn giá bán (đ/m³)', kieu: 'number', giaTri: String(c.donGia || '') },
+    ]);
+    if (!kq || !kq.ten?.trim()) return;
+    const soMoi = Number((kq.donGia || '').toString().replace(/\D/g, ''));
+    setConfig({ ...config, customers: config.customers.map((x) => (x.id === c.id ? { ...x, name: kq.ten.trim(), donGia: soMoi || x.donGia } : x)) });
+    notify(`Đã cập nhật thông tin khách hàng "${kq.ten.trim()}"`);
+  };
   return (
     <Card>
       <div className="font-bold text-white text-sm mb-3">Danh sách khách hàng</div>
@@ -3886,7 +3900,10 @@ function QuanLyKhachHang({ config, setConfig, events, addEvent }) {
         return (
           <div key={c.id} className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
             <div><div className="text-white font-semibold text-sm">{c.name}</div><div className="text-slate-500 text-xs">Đơn giá {tienVN(c.donGia)}/m³ · Số dư: <span className={mucCanhBao === 'do' ? 'text-red-400' : mucCanhBao === 'vang' ? 'text-amber-400' : 'text-emerald-400'}>{tienVN(soDu)}</span></div></div>
-            <button onClick={() => napTien(c)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Wallet className="w-3.5 h-3.5" /> Nạp tiền</button>
+            <div className="flex gap-1.5 flex-shrink-0">
+              <button onClick={() => suaKH(c)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg font-semibold">Sửa</button>
+              <button onClick={() => napTien(c)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Wallet className="w-3.5 h-3.5" /> Nạp tiền</button>
+            </div>
           </div>
         );
       })}
@@ -3916,11 +3933,19 @@ function QuanLyMayXuc({ config, setConfig }) {
     setConfig({ ...config, excavators: [...config.excavators, { id, name: kq.name.trim(), chuSoHuu: kq.chuSoHuu?.trim() || '' }] });
     notify(`Đã thêm "${kq.name.trim()}"`);
   };
+  // (Bổ sung 26/09 — theo yêu cầu Chủ tịch HĐQT) Trước đây chỉ sửa được chủ sở
+  // hữu, không sửa được TÊN máy xúc khi khai báo nhầm/cần đổi tên. Tên máy xúc
+  // chỉ dùng để hiển thị (các phiếu/sự kiện đã lập trước đó lưu tên theo dạng
+  // "ảnh chụp" tại thời điểm lập, tham chiếu qua mã excavatorId cố định) nên
+  // đổi tên ở đây không ảnh hưởng dữ liệu lịch sử đã có.
   const suaChuSoHuu = async (x) => {
-    const kq = await hoi(`Sửa chủ sở hữu — ${x.name}`, [{ key: 'chuSoHuu', nhan: 'Máy của ai / nhà cung cấp nào', giaTri: x.chuSoHuu || '' }]);
-    if (!kq) return;
-    setConfig({ ...config, excavators: config.excavators.map((m) => (m.id === x.id ? { ...m, chuSoHuu: kq.chuSoHuu?.trim() || '' } : m)) });
-    notify('Đã cập nhật chủ sở hữu');
+    const kq = await hoi(`Sửa thông tin — ${x.name}`, [
+      { key: 'name', nhan: 'Tên máy xúc', giaTri: x.name || '' },
+      { key: 'chuSoHuu', nhan: 'Máy của ai / nhà cung cấp nào', giaTri: x.chuSoHuu || '' },
+    ]);
+    if (!kq || !kq.name?.trim()) return;
+    setConfig({ ...config, excavators: config.excavators.map((m) => (m.id === x.id ? { ...m, name: kq.name.trim(), chuSoHuu: kq.chuSoHuu?.trim() || '' } : m)) });
+    notify('Đã cập nhật thông tin máy xúc');
   };
 
   return (
@@ -4134,6 +4159,23 @@ function QuanLyTaiKhoan() {
     notify(u.active ? `Đã khoá tài khoản ${u.name}` : `Đã mở khoá tài khoản ${u.name}`);
   };
 
+  // (Bổ sung 26/09 — theo yêu cầu Chủ tịch HĐQT) Trước đây nếu 1 tài khoản đã
+  // đổi mật khẩu rồi đăng xuất, và người dùng quên mật khẩu mới thì KHÔNG còn
+  // cách nào đăng nhập lại (không có chức năng "quên mật khẩu" qua email/SMS).
+  // Nay Tổng Giám đốc (Ban lãnh đạo) có thể đặt lại mật khẩu của bất kỳ tài
+  // khoản nào về mật khẩu mặc định ThongNhat@123 kèm bắt buộc đổi mật khẩu
+  // ngay ở lần đăng nhập kế tiếp (dùng lại đúng cơ chế mustChangePassword đã
+  // có sẵn cho tài khoản mới tạo — không cần thêm màn hình mới).
+  const datLaiMatKhau = async (u) => {
+    const dongY = await hoiXacNhan(`Đặt lại mật khẩu cho "${u.name}" (${u.username}) về mật khẩu mặc định?\nTài khoản này sẽ bắt buộc phải đổi mật khẩu ngay khi đăng nhập lần tới.`);
+    if (!dongY) return;
+    const { salt, hash } = await hashPassword('ThongNhat@123');
+    const next = users.map((x) => (x.id === u.id ? { ...x, salt, hash, mustChangePassword: true } : x));
+    await storageSet('users', next, true);
+    setUsers(next);
+    notify(`Đã đặt lại mật khẩu cho ${u.name} về mặc định ThongNhat@123 — bắt buộc đổi mật khẩu ở lần đăng nhập tới`);
+  };
+
   const xoaTaiKhoan = async (u) => {
     const dongY = await hoiXacNhan(`XOÁ HẲN tài khoản "${u.name}" (${u.username})?\nKhông thể hoàn tác. Dùng để dọn tài khoản giả định/trùng lặp không còn dùng.`);
     if (!dongY) return;
@@ -4207,6 +4249,7 @@ function QuanLyTaiKhoan() {
                     <div className="text-slate-500 text-[11px]">tài khoản: <code>{u.username}</code>{!u.active && <span className="text-red-400 ml-2">ĐÃ KHOÁ</span>}</div>
                   </div>
                   <div className="flex gap-1.5 flex-shrink-0">
+                    <button onClick={() => datLaiMatKhau(u)} className="text-[11px] px-2.5 py-1.5 rounded-full font-semibold bg-amber-900/40 text-amber-300 hover:bg-amber-900/60">Đặt lại mật khẩu</button>
                     <button onClick={() => doiTrangThai(u)} className={`text-[11px] px-2.5 py-1.5 rounded-full font-semibold ${u.active ? 'bg-red-900/40 text-red-300 hover:bg-red-900/60' : 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60'}`}>{u.active ? 'Khoá' : 'Mở khoá'}</button>
                     <button onClick={() => xoaTaiKhoan(u)} className="text-[11px] px-2.5 py-1.5 rounded-full font-semibold bg-slate-700 text-slate-300 hover:bg-slate-600">Xoá</button>
                   </div>
