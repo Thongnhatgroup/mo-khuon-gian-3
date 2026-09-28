@@ -3,29 +3,30 @@
 // đây là nơi DUY NHẤT chịu trách nhiệm "trọng tài" cấp số, không phải chỗ đọc/
 // ghi dữ liệu thông thường.
 //
-// (Bổ sung 26/09 — SỬA LỖI TRÙNG SỐ PHIẾU khi 2 máy xúc cùng xác nhận, theo
-// phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY số phiếu do TRÌNH DUYỆT tự tính (đọc dữ
-// liệu mới nhất từ máy chủ rồi +1) — dù đã đọc dữ liệu mới nhất ngay trước khi
-// tính, 2 thiết bị vẫn có thể cùng đọc được dữ liệu ở ĐÚNG cùng một thời điểm
-// (trước khi bên kia kịp ghi phiếu của họ lên máy chủ), rồi cả 2 cùng tính ra
-// CÙNG 1 số tiếp theo -> trùng số phiếu giữa 2 xe khác nhau.
+// (Bổ sung 28/09 — SỬA TẬN GỐC lỗi VẪN còn trùng số phiếu dù các máy xúc xác
+// nhận cách nhau 1-2 giây, theo phản ánh Chủ tịch HĐQT) Cách làm 26/09 (ghi 1
+// "dấu vân tay" rồi CHỜ một khoảng ngắn rồi ĐỌC LẠI xem có đúng của mình không)
+// chỉ là "PHỎNG ĐOÁN CÓ XÁC SUẤT", không phải đảm bảo tuyệt đối: nếu 1 yêu cầu
+// bị mạng làm chậm bất thường (VD "cold start"), việc GHI của nó có thể đến
+// TRỄ hơn cả lúc 1 yêu cầu KHÁC đã "chờ xong, đọc lại, thấy đúng của mình, và
+// trả kết quả" — khi đó yêu cầu đến trễ ghi ĐÈ lên sau, rồi tự đọc lại thấy
+// đúng dấu vân tay của mình, cũng tưởng mình thắng -> CẤP TRÙNG SỐ. Vì cách
+// làm cũ không có cách nào phân biệt "chưa ai từng thắng số này" với "có ai đó
+// ĐÃ thắng số này rồi nhưng xong việc rồi", nên dù chờ bao lâu cũng còn khe hở.
 //
-// Thư viện Netlify Blobs (@netlify/blobs v7.4.0) KHÔNG hỗ trợ ghi có điều kiện
-// kiểu "chỉ ghi nếu chưa ai đổi" (compare-and-swap/etag) — set()/setJSON() luôn
-// ghi đè thẳng. Vì vậy không thể cấp số bằng 1 lệnh đọc+ghi đơn giản dù đã
-// chuyển hẳn xuống máy chủ (2 yêu cầu chạy song song trên máy chủ vẫn có thể
-// cùng đọc được số cũ trước khi bên nào ghi số mới).
+// Nay chuyển sang dùng đúng tính năng GHI CÓ ĐIỀU KIỆN thật sự của Netlify
+// Blobs: store.set(key, value, { onlyIfNew: true }) — máy chủ Netlify Blobs
+// (không phải trình duyệt/hàm này tự đoán) đảm bảo: trong số nhiều yêu cầu ghi
+// cùng 1 khoá cùng lúc, CHỈ ĐÚNG 1 yêu cầu nhận được modified:true (được tạo
+// mới), tất cả yêu cầu còn lại nhận modified:false NGAY LẬP TỨC — không cần
+// "chờ rồi đoán" nữa, không còn khe hở nào dù độ trễ mạng lớn đến đâu. Tính
+// năng này cần @netlify/blobs bản 11.1.0 trở lên (bản cũ 7.4.0 trước đây CHƯA
+// hỗ trợ — xem package.json), đã nâng cấp kèm theo bản sửa lỗi này.
 //
-// Cách khắc phục (mô phỏng "giữ chỗ rồi tự kiểm tra"): với mỗi số ứng viên N,
-// GHI hẳn 1 "dấu vân tay" ngẫu nhiên DUY NHẤT của chính yêu cầu này vào 1 ô
-// riêng dành cho số N (khoá "giu_cho_N"). Nếu CÙNG lúc có yêu cầu khác cũng
-// đang thử giữ đúng số N, ô đó sẽ bị ghi đè — nhưng vì Netlify Blobs đảm bảo
-// mỗi lần ghi đến sau cùng mới là bản cuối cùng thực sự lưu lại, nên sau khi
-// đợi một khoảng rất ngắn rồi ĐỌC LẠI ô đó, CHỈ ĐÚNG 1 yêu cầu sẽ thấy dấu vân
-// tay của CHÍNH MÌNH còn nguyên — đó là bên "thắng" và được cấp số N; các bên
-// còn lại "thua" sẽ tự động thử số tiếp theo. Nhờ vậy, dù bao nhiêu máy xúc
-// cùng bấm xác nhận trong cùng 1 khoảnh khắc, không bao giờ có 2 bên cùng
-// thắng ở cùng 1 số -> KHÔNG BAO GIỜ trùng số phiếu.
+// Với mỗi số ứng viên N, chỉ cần thử tạo mới khoá "da_cap_N" — nếu tạo được
+// (modified:true) nghĩa là CHẮC CHẮN chưa ai từng được cấp số N, số N thuộc về
+// yêu cầu này; nếu không tạo được (modified:false, do đã tồn tại — dù là từ 1
+// mili-giây trước hay từ nhiều ngày trước) thì bỏ qua, thử số tiếp theo.
 import { getStore } from '@netlify/blobs';
 
 const TEN_KHO_CHINH = 'mo-khuon-gian-v6';
@@ -34,8 +35,8 @@ const TEN_KHO_PHIEN = 'mo-khuon-gian-v6-sessions';
 const THOI_HAN_PHIEN_MS = 30 * 24 * 60 * 60 * 1000; // 30 ngày — khớp với kv.js
 
 const KHOA_BO_DEM = 'bo_dem_so_phieu';
-const SO_LAN_THU_TOI_DA = 25; // đủ dư cho vài chục máy xúc cùng bấm 1 lúc
-const DO_TRE_KIEM_TRA_MS = 60; // đợi trước khi đọc lại để xem có thắng hay không
+const SO_LAN_THU_TOI_DA = 60; // đủ dư cho vài chục máy xúc cùng bấm 1 lúc — mỗi
+// lần thử giờ rất rẻ (không phải chờ) nên có thể để dư nhiều hơn trước.
 
 function json(statusCode, body) {
   return new Response(JSON.stringify(body), {
@@ -66,10 +67,6 @@ async function tokenHopLe(req) {
   }
 }
 
-function cho(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 // Chỉ dùng đúng 1 LẦN khi kho số phiếu còn trống (VD lần đầu triển khai tính
 // năng này) — quét lại toàn bộ phiếu đã từng lập trong kho dữ liệu CHÍNH để
 // biết số lớn nhất đã cấp, làm mốc khởi đầu (không đánh số lại từ 1).
@@ -94,40 +91,34 @@ export default async (req) => {
   if (!hopLe) return json(401, { error: 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn' });
 
   const store = getStore({ name: TEN_KHO_SO_PHIEU, consistency: 'strong' });
-  // Dấu vân tay ngẫu nhiên riêng của đúng yêu cầu này — dùng để nhận ra chính
-  // mình khi đọc lại, phân biệt với dấu vân tay của yêu cầu khác đến cùng lúc.
-  const dauVanTay = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 
+  // Bộ đếm này CHỈ còn là "gợi ý" giúp đỡ mất công dò lại từ số 1 mỗi lần —
+  // KHÔNG còn là nơi quyết định đúng/sai như trước. Dù bộ đếm có bị lệch/cũ
+  // đến đâu, việc "tạo mới có điều kiện" bên dưới vẫn đảm bảo không bao giờ
+  // cấp trùng, chỉ có thể khiến tốn thêm vài lần thử vô hại.
   let hienTai = await store.get(KHOA_BO_DEM, { type: 'json' });
   if (hienTai === null || hienTai === undefined) {
-    // Kho số phiếu chưa từng khởi tạo — lấy mốc từ dữ liệu chính (chỉ xảy ra 1
-    // lần duy nhất trong đời hệ thống, những lần sau luôn đọc được bộ đếm này).
     hienTai = await locSoLonNhatTuDuLieuChinh();
   }
 
   for (let lan = 0; lan < SO_LAN_THU_TOI_DA; lan++) {
     const ungVien = hienTai + 1;
-    const khoaGiuCho = `giu_cho_${ungVien}`;
+    const khoaDaCap = `da_cap_${ungVien}`;
     try {
-      await store.set(khoaGiuCho, dauVanTay);
-      await cho(DO_TRE_KIEM_TRA_MS + Math.floor(Math.random() * 40));
-      const aiDangGiu = await store.get(khoaGiuCho);
-      if (aiDangGiu === dauVanTay) {
-        // Thắng — chắc chắn không ai khác cũng đang giữ đúng số này. Cập nhật
-        // bộ đếm để lần cấp số TIẾP THEO (của bất kỳ ai) bắt đầu từ đây, rồi
-        // trả số vừa giành được. Cập nhật bộ đếm là "cố gắng tốt nhất" — nếu
-        // lỡ thất bại cũng không sao, vì vòng lặp trên vẫn luôn dò tiếp từ số
-        // lớn nhất đọc được ở lần gọi sau.
+      const { modified } = await store.set(khoaDaCap, String(Date.now()), { onlyIfNew: true });
+      if (modified) {
+        // Máy chủ Netlify Blobs xác nhận CHẮC CHẮN chính yêu cầu này là nơi
+        // ĐẦU TIÊN VÀ DUY NHẤT tạo được khoá này — không cần chờ/đoán thêm.
         await store.setJSON(KHOA_BO_DEM, ungVien).catch(() => {});
         const ticketNo = String(ungVien).padStart(9, '0');
         return json(200, { ticketNo });
       }
+      // modified:false -> số này đã có người khác được cấp (từ trước đó rất
+      // lâu, hoặc chỉ vừa 1 mili-giây trước) -> bỏ qua, không bao giờ tranh
+      // chấp lại số này, thử ngay số tiếp theo.
     } catch {
-      // Lỗi tạm thời khi ghi/đọc — coi như thua lượt này, thử số tiếp theo.
+      // Lỗi tạm thời khi ghi -> coi như thua lượt này, thử số tiếp theo.
     }
-    // Thua (hoặc lỗi tạm thời) — ai đó vừa giành số này, hoặc gặp trục trặc
-    // mạng, luôn LUÔN nhích lên thử số kế tiếp, không bao giờ thử lại đúng số
-    // vừa thua (tránh lặp vô ích khi đối thủ vẫn còn giữ số đó).
     hienTai = ungVien;
   }
 
