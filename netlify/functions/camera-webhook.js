@@ -1,8 +1,8 @@
 import { getStore } from '@netlify/blobs';
 
 const STORE_CONFIG = {
-  main: 'mining-app-main',
-  sessions: 'mining-app-sessions'
+  main: 'mo-khuon-gian-v6',
+  sessions: 'mo-khuon-gian-v6-sessions'
 };
 
 /**
