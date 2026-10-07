@@ -2952,7 +2952,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
             </div>
             {/* (Thêm 07/10) Input tìm kiếm biển số xe */}
             <input value={searchBienSo} onChange={(e) => setSearchBienSo(e.target.value.toUpperCase())} placeholder="Tìm kiếm theo biển số..." className="w-full mb-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
-            {chiTietKH.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có phiếu nào trong kỳ.</div> : (
+            {chiTietKH.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có phiếu nào trong kỳ.</div> : chiTietKHLoc.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không tìm thấy biển số xe "{searchBienSo}".</div> : (
               <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Số phiếu</th><th className="text-right pb-2">m³</th><th className="text-right pb-2">Thành tiền</th>{choSuaKhachHang && <th></th>}</tr></thead>
                 <tbody>{chiTietKHLoc.map((t) => (
                   <tr key={t.id} className={`border-t border-slate-700 ${t.daHuy ? 'opacity-50' : ''}`}>
