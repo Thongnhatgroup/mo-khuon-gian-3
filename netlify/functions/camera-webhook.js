@@ -77,12 +77,12 @@ function parseMultipartData(body, contentType) {
   }
 }
 
-export default async (event, context) => {
+export default async (req) => {
   console.log(`[${new Date().toISOString()}] Webhook request received`);
-  console.log(`Method: ${event.httpMethod}`);
-  console.log(`Headers:`, Object.keys(event.headers));
+  console.log(`Method: ${req.method}`);
+  console.log(`Headers:`, Object.keys(Object.fromEntries(req.headers)));
 
-  if (event.httpMethod !== 'POST') {
+  if (req.method !== 'POST') {
     console.warn('Non-POST request rejected');
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
@@ -91,7 +91,7 @@ export default async (event, context) => {
   }
 
   try {
-    const contentType = event.headers['content-type'] || '';
+    const contentType = req.headers.get('content-type') || '';
     console.log(`Content-Type: ${contentType}`);
 
     // Kiểm tra xem Blobs có available không
@@ -119,7 +119,8 @@ export default async (event, context) => {
     if (contentType.includes('multipart/form-data')) {
       // Định dạng từ camera Hikvision thực tế
       console.log('Parsing multipart/form-data from HikCentral camera');
-      const parsed = parseMultipartData(event.body, contentType);
+      const body = await req.text();
+      const parsed = parseMultipartData(body, contentType);
       
       if (parsed) {
         plate = parsed.plate;
@@ -131,9 +132,9 @@ export default async (event, context) => {
         console.warn('Failed to extract plate from multipart data');
         debugInfo.format = 'multipart/form-data';
         debugInfo.xmlParsed = false;
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
           error: 'Could not extract license plate from XML',
-          debug: debugInfo 
+          debug: debugInfo
         }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' }
@@ -142,7 +143,12 @@ export default async (event, context) => {
     } else if (contentType.includes('application/json')) {
       // Định dạng JSON (hỗ trợ để test)
       console.log('Parsing JSON format');
-      const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+      let body;
+      try {
+        body = await req.json();
+      } catch {
+        body = {};
+      }
       plate = body.plate || null;
       timestamp = body.timestamp || Date.now();
       imageUrl = body.imageUrl || null;
@@ -158,7 +164,7 @@ export default async (event, context) => {
     } else {
       // Định dạng không được hỗ trợ
       console.error(`Unsupported Content-Type: ${contentType}`);
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         error: 'Unsupported Media Type',
         expected: 'multipart/form-data or application/json'
       }), {
