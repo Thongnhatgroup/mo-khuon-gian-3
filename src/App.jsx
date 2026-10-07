@@ -1493,8 +1493,7 @@ function GateScreen({ events, addEvent, addEvents }) {
                   <input 
                     type="checkbox" 
                     checked={daRaCong} 
-                    onChange={(e) => {
-                      e.preventDefault();
+                    onClick={() => {
                       if (!daRaCong) {
                         xacNhanRaCongKhongHang(g);
                       }
