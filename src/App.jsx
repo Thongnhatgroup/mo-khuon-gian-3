@@ -1520,6 +1520,14 @@ function GateScreen({ events, addEvent, addEvents }) {
                     <div className="text-slate-400 text-[11px]">vào cổng lúc {gioVN(g.time)}</div>
                   </div>
                 </div>
+                {!daRaCong && (
+                  <input value={ghiChuKhongHang[g.id] || ''} onChange={(e) => setGhiChuKhongHang((s) => ({ ...s, [g.id]: e.target.value }))}
+                    placeholder="Ghi chú lý do (không bắt buộc)" className="w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs ml-8" style={{ width: 'calc(100% - 2rem)' }} />
+                )}
+              </div>
+              );
+            })}
+          </div>
         )}
       </Card>
 
