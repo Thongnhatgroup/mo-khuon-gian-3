@@ -1486,16 +1486,27 @@ function GateScreen({ events, addEvent, addEvents }) {
         {xeChuaXucHang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có xe nào.</div> : (
           <div className="divide-y divide-slate-700">
             {xeChuaXucHang.map((g) => {
-              const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false && !e.ticketId);
+              const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false);
               return (
               <div key={g.id} className="py-2.5">
-                <div className="flex items-center gap-3">
-                  <input type="checkbox" checked={daRaCong} onChange={() => xacNhanRaCongKhongHang(g)} className="w-5 h-5 accent-amber-500 flex-shrink-0 cursor-pointer" disabled={daRaCong} />
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={daRaCong} 
+                    onChange={(e) => {
+                      e.preventDefault();
+                      if (!daRaCong) {
+                        xacNhanRaCongKhongHang(g);
+                      }
+                    }} 
+                    className="w-5 h-5 accent-amber-500 flex-shrink-0" 
+                    disabled={daRaCong} 
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="text-white font-bold tabular-nums">{g.plate}</div>
                     <div className="text-slate-400 text-[11px]">vào cổng lúc {gioVN(g.time)}</div>
                   </div>
-                </div>
+                </label>
                 {!daRaCong && (
                   <input value={ghiChuKhongHang[g.id] || ''} onChange={(e) => setGhiChuKhongHang((s) => ({ ...s, [g.id]: e.target.value }))}
                     placeholder="Ghi chú lý do (không bắt buộc)" className="w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs ml-8" style={{ width: 'calc(100% - 2rem)' }} />
