@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Camera Webhook - Mỏ Khuôn Giàn</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #1e3c72;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        input[type="text"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #2a5298;
+            box-shadow: 0 0 0 3px rgba(42, 82, 152, 0.1);
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #2a5298;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #1e3c72;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(42, 82, 152, 0.3);
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 6px;
+            display: none;
+        }
+        
+        .result.success {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            color: #2e7d32;
+            display: block;
+        }
+        
+        .result.error {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            color: #c62828;
+            display: block;
+        }
+        
+        .result.loading {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            color: #1565c0;
+            display: block;
+        }
+        
+        .result h3 {
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .result p {
+            margin-bottom: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        .result code {
+            background: rgba(0,0,0,0.05);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #2a5298;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #555;
+            line-height: 1.6;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #2a5298;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Test Camera Webhook</h1>
+        <p class="subtitle">Gửi test dữ liệu camera để kiểm tra webhook hoạt động</p>
+        
+        <div class="info-box">
+            <strong>ℹ️ Hướng dẫn:</strong> Nhập biển số xe test và gửi. Nếu thành công, biển số sẽ xuất hiện trong "Log dữ liệu camera" của phần mềm sau vài giây.
+        </div>
+        
+        <form id="webhookForm">
+            <div class="form-group">
+                <label for="licensePlate">Biển số xe (test):</label>
+                <input type="text" id="licensePlate" name="licensePlate" placeholder="VD: 98H-12345" value="TEST-001" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="format">Định dạng test:</label>
+                <select id="format" name="format">
+                    <option value="json">JSON (test đơn giản)</option>
+                    <option value="multipart">Multipart (giả lập camera thực)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="xmlData">XML Content (nếu chọn Multipart):</label>
+                <textarea id="xmlData" name="xmlData" placeholder='&lt;?xml version="1.0"?&gt;&#10;&lt;ANPR&gt;&#10;&lt;licensePlate&gt;TEST-001&lt;/licensePlate&gt;&#10;&lt;/ANPR&gt;'>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;EventNotificationAlert version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema"&gt;
+  &lt;ipAddress&gt;192.168.1.251&lt;/ipAddress&gt;
+  &lt;ipv6Address&gt;2001:ee0:425d:c160::81b&lt;/ipv6Address&gt;
+  &lt;protocol&gt;HTTPS&lt;/protocol&gt;
+  &lt;macAddress&gt;54:8c:81:d8:aa:ba&lt;/macAddress&gt;
+  &lt;dynChannelID&gt;1&lt;/dynChannelID&gt;
+  &lt;licensePlate&gt;TEST-001&lt;/licensePlate&gt;
+&lt;/EventNotificationAlert&gt;</textarea>
+            </div>
+            
+            <div class="button-group">
+                <button type="submit" class="btn-primary">📤 Gửi Test</button>
+                <button type="reset" class="btn-secondary">🔄 Clear</button>
+            </div>
+        </form>
+        
+        <div id="result" class="result"></div>
+    </div>
+    
+    <script>
+        document.getElementById('webhookForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const licensePlate = document.getElementById('licensePlate').value.trim().toUpperCase();
+            const format = document.getElementById('format').value;
+            const resultDiv = document.getElementById('result');
+            
+            if (!licensePlate) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = '<h3>❌ Lỗi</h3><p>Vui lòng nhập biển số xe</p>';
+                return;
+            }
+            
+            resultDiv.className = 'result loading';
+            resultDiv.innerHTML = '<h3><span class="loading-spinner"></span>Đang gửi...</h3>';
+            
+            try {
+                let response;
+                const webhookUrl = window.location.origin + '/api/camera-webhook';
+                
+                if (format === 'json') {
+                    response = await fetch(webhookUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            plate: licensePlate,
+                            timestamp: Date.now(),
+                            imageUrl: null
+                        })
+                    });
+                } else {
+                    const xmlData = document.getElementById('xmlData').value;
+                    const boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW';
+                    const body = 
+                        `--${boundary}\r\n` +
+                        `Content-Disposition: form-data; name="anpr"; filename="anpr.xml"\r\n` +
+                        `Content-Type: text/xml\r\n\r\n` +
+                        xmlData + '\r\n' +
+                        `--${boundary}--\r\n`;
+                    
+                    response = await fetch(webhookUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': `multipart/form-data; boundary=${boundary}`
+                        },
+                        body: body
+                    });
+                }
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <h3>✅ Thành công!</h3>
+                        <p><strong>Biển số:</strong> <code>${licensePlate}</code></p>
+                        <p><strong>Event ID:</strong> <code>${data.eventId}</code></p>
+                        <p><strong>Thời gian:</strong> ${new Date().toLocaleString('vi-VN')}</p>
+                        <p><strong>Kết quả:</strong> Biển số sẽ xuất hiện trong "Log dữ liệu camera" của phần mềm sau vài giây. Hãy bấm "Tải lại" để xem.</p>
+                    `;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `
+                        <h3>❌ Lỗi từ server</h3>
+                        <p><strong>Status:</strong> ${response.status}</p>
+                        <p><strong>Lỗi:</strong> ${data.error || 'Không rõ'}</p>
+                        <p><strong>Chi tiết:</strong> ${data.message ? data.message : (data.debug ? JSON.stringify(data.debug) : 'Không có')}</p>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <h3>❌ Lỗi kết nối</h3>
+                    <p><strong>Lỗi:</strong> ${error.message}</p>
+                    <p><strong>Kiểm tra:</strong></p>
+                    <p>1. Đường dẫn webhook: <code>${window.location.origin}/api/camera-webhook</code></p>
+                    <p>2. Kiểm tra xem Netlify đã deploy thành công chưa</p>
+                    <p>3. Kiểm tra lại console (F12) để xem chi tiết lỗi</p>
+                `;
+            }
+        });
+        
+        document.getElementById('format').addEventListener('change', (e) => {
+            const xmlDataGroup = document.querySelector('label[for="xmlData"]').parentElement;
+            if (e.target.value === 'json') {
+                xmlDataGroup.style.display = 'none';
+            } else {
+                xmlDataGroup.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
