@@ -1485,19 +1485,24 @@ function GateScreen({ events, addEvent, addEvents }) {
         <p className="text-slate-400 text-xs mb-2">Xe vào mỏ nhưng chưa được xúc hàng mà ra cổng — ghi chú lý do (không bắt buộc) rồi tích chọn xác nhận, hệ thống tự lưu giờ ra ngay. Chỉ hiển thị trong Báo cáo hết ca, không ảnh hưởng các báo cáo khác.</p>
         {xeChuaXucHang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có xe nào.</div> : (
           <div className="divide-y divide-slate-700">
-            {xeChuaXucHang.map((g) => (
+            {xeChuaXucHang.map((g) => {
+              const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false && !e.ticketId);
+              return (
               <div key={g.id} className="py-2.5">
                 <div className="flex items-center gap-3">
-                  <input type="checkbox" onChange={() => xacNhanRaCongKhongHang(g)} className="w-5 h-5 accent-amber-500 flex-shrink-0" />
+                  <input type="checkbox" checked={daRaCong} onChange={() => xacNhanRaCongKhongHang(g)} className="w-5 h-5 accent-amber-500 flex-shrink-0 cursor-pointer" disabled={daRaCong} />
                   <div className="flex-1 min-w-0">
                     <div className="text-white font-bold tabular-nums">{g.plate}</div>
                     <div className="text-slate-400 text-[11px]">vào cổng lúc {gioVN(g.time)}</div>
                   </div>
                 </div>
-                <input value={ghiChuKhongHang[g.id] || ''} onChange={(e) => setGhiChuKhongHang((s) => ({ ...s, [g.id]: e.target.value }))}
-                  placeholder="Ghi chú lý do (không bắt buộc)" className="w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs ml-8" style={{ width: 'calc(100% - 2rem)' }} />
+                {!daRaCong && (
+                  <input value={ghiChuKhongHang[g.id] || ''} onChange={(e) => setGhiChuKhongHang((s) => ({ ...s, [g.id]: e.target.value }))}
+                    placeholder="Ghi chú lý do (không bắt buộc)" className="w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs ml-8" style={{ width: 'calc(100% - 2rem)' }} />
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
