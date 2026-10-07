@@ -3893,6 +3893,7 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
                 <button onClick={() => inTrucTiep(chiTietMayHTML(), `Chi tiết ${mayDangXem.excavatorName}`)} className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️</button>
               </div>
             </div>
+            <input value={searchBienSoMay} onChange={(e) => setSearchBienSoMay(e.target.value.toUpperCase())} placeholder="Tìm kiếm theo biển số..." className="w-full mb-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
             {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : dsBienSoLoc.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không tìm thấy biển số xe "{searchBienSoMay}".</div> : (
               <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th>{choSuaMayXuc && <th></th>}</tr></thead>
                 <tbody>{dsBienSoLoc.map((b) => (
