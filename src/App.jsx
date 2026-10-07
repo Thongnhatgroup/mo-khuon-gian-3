@@ -1504,18 +1504,37 @@ function GateScreen({ events, addEvent, addEvents }) {
 
       <Card className="mt-4 border-amber-600/50">
         <div className="font-bold text-white text-sm mb-1">🚪 Xe ra cổng — KHÔNG CÓ HÀNG ({xeChuaXucHang.length})</div>
-        <p className="text-slate-400 text-xs mb-2">Xe vào mỏ nhưng chưa được xúc hàng mà ra cổng — tích chọn để xác nhận xe ra cổng, hệ thống tự lưu giờ ra ngay.</p>
+        <p className="text-slate-400 text-xs mb-2">Xe vào mỏ nhưng chưa được xúc hàng mà ra cổng — ghi chú lý do (không bắt buộc) rồi tích chọn xác nhận.</p>
         {xeChuaXucHang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có xe nào.</div> : (
           <div className="divide-y divide-slate-700">
-            {xeChuaXucHang.map((g) => (
-              <label key={g.id} className="flex items-center gap-3 py-2.5 cursor-pointer">
-                <input type="checkbox" onChange={() => xacNhanRaCongKhongHang(g)} className="w-5 h-5 accent-amber-600 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-white font-bold tabular-nums">{g.plate}</div>
-                  <div className="text-slate-400 text-[11px]">vào cổng lúc {gioVN(g.time)}</div>
+            {xeChuaXucHang.map((g) => {
+              const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false);
+              return (
+                <div key={g.id} className="py-2.5 border-l-4 border-amber-500 pl-3">
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="checkbox" 
+                      checked={daRaCong}
+                      onChange={() => !daRaCong && xacNhanRaCongKhongHang(g)}
+                      disabled={daRaCong}
+                      className="w-5 h-5 accent-amber-600 flex-shrink-0 cursor-pointer"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white font-bold tabular-nums">{g.plate}</div>
+                      <div className="text-slate-400 text-[11px]">vào cổng lúc {gioVN(g.time)}</div>
+                    </div>
+                  </div>
+                  {!daRaCong && (
+                    <input 
+                      value={ghiChuKhongHang[g.id] || ''} 
+                      onChange={(e) => setGhiChuKhongHang((s) => ({ ...s, [g.id]: e.target.value }))}
+                      placeholder="Ghi chú lý do (không bắt buộc)" 
+                      className="w-full mt-2 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs"
+                    />
+                  )}
                 </div>
-              </label>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
