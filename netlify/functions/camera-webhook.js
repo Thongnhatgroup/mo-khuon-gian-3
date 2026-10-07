@@ -213,7 +213,12 @@ export default async (req) => {
       type: 'gate_in',
       plate: plate.toUpperCase().trim(),
       source: 'camera_hikcentral',
-      timestamp: timestamp,
+      // Lưu time (ISO string) thay vì timestamp (milliseconds)
+      // Thêm offset múi giờ Việt Nam
+      const vietnamOffset = 7 * 60 * 60 * 1000;
+      const vietnamTime = new Date(timestamp + vietnamOffset);
+      const isoTime = vietnamTime.toISOString();
+      time: isoTime,
       imageUrl: imageUrl || null,
       createdAt: Date.now(),
       format: debugInfo.format
@@ -248,7 +253,7 @@ export default async (req) => {
       }
       
       cameraLog.push({
-        timestamp: Date.now(),
+        time: isoTime,
         plate: newEvent.plate,
         status: 'success',
         imageUrl: imageUrl || null,
