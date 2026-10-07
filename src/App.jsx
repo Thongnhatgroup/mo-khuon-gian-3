@@ -2302,9 +2302,19 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
     // (Sửa lỗi nhập lặp biển số) Kiểm tra xem biển số này đã có load_confirm trong ngày chưa
     // Nếu có và chưa ra cổng thì không cho thêm nữa (tránh trùng)
     const plateDaChon = selectedPlate;
-    const daCoLoadConfirmHomNay = loadsToday.some((l) => l.plate === plateDaChon);
-    if (daCoLoadConfirmHomNay) {
-      return notify(`⚠️ Biển số ${plateDaChon} đã được xúc lần trước hôm nay. Nếu xe chưa ra cổng thì không thể xúc thêm lần nữa — kiểm tra lại hệ thống.`, true);
+    const loadHomNayGanNhat = loadsToday.filter((l) => l.plate === plateDaChon).sort(compareTimeDesc)[0];
+    if (loadHomNayGanNhat) {
+      // Có load_confirm trong ngày — kiểm tra xem có gate_out sau lần xúc đó không
+      const daRaCoiSauLoadHomNay = events.some((e) => 
+        e.type === 'gate_out' && 
+        e.plate === plateDaChon && 
+        e.time > loadHomNayGanNhat.time
+      );
+      if (!daRaCoiSauLoadHomNay) {
+        // Load_confirm đó tồn tại nhưng xe CHƯA ra cổng → không cho xúc thêm
+        return notify(`⚠️ Biển số ${plateDaChon} đã được xúc lần trước hôm nay nhưng chưa ra cổng. Nếu xe chưa ra cổng thì không thể xúc thêm lần nữa — kiểm tra lại hệ thống.`, true);
+      }
+      // Xe ĐÃ ra cổng rồi → cho phép xúc lần nữa
     }
 
     const kb = khaiBaoCuaXeDangChon;
