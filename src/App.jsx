@@ -2584,7 +2584,7 @@ function KhaiBaoBoSungCongNoCoiNoi({ config, events, addEvent, myName }) {
     }
   };
 
-  const xacNhan = () => {
+  const xacNhanBoSungCoiNoi = () => {
     const p = plate.trim().toUpperCase();
     if (!p) return notify('Chưa nhập biển số xe', true);
     if (!khach) return notify('Chưa chọn khách hàng', true);
@@ -2665,7 +2665,7 @@ function KhaiBaoBoSungCongNoCoiNoi({ config, events, addEvent, myName }) {
         <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2"><div className="text-slate-500 text-xs">Tổng khối lượng bổ sung = Khối lượng bổ sung × Số chuyến</div><div className="text-white font-bold">{soVN(tongKhoiLuong)} m³</div></div>
         <div className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2"><div className="text-slate-500 text-xs">Thành tiền = Tổng khối lượng × Đơn giá</div><div className="text-amber-400 font-bold">{tienVN(thanhTien)}</div></div>
       </div>
-      <button onClick={xacNhan} className="w-full mt-3 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-lg text-sm">✔ Xác nhận — ghi vào công nợ khách hàng</button>
+      <button onClick={xacNhanBoSungCoiNoi} className="w-full mt-3 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-lg text-sm">✔ Xác nhận — ghi vào công nợ khách hàng</button>
       {boSungGanDay.length > 0 && (
         <div className="mt-4 pt-3 border-t border-slate-700">
           <div className="text-slate-400 text-xs font-semibold mb-2">Đã khai báo gần đây</div>
