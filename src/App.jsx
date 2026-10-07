@@ -2677,6 +2677,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
   const [range, setRange] = useState('day');
   const [search, setSearch] = useState('');
   const [searchKhachHang, setSearchKhachHang] = useState(''); // (Thêm 07/10) Tìm kiếm theo tên khách hàng
+  const [searchBienSo, setSearchBienSo] = useState(''); // (Thêm 07/10) Tìm kiếm theo biển số xe trong chi tiết khách hàng
   const [xemChiTiet, setXemChiTiet] = useState(null); // customerId đang xem chi tiết
   const [tuTuyChinh, setTuTuyChinh] = useState(todayStr());
   const [denTuyChinh, setDenTuyChinh] = useState(todayStr());
@@ -2821,6 +2822,8 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
   // đúng khách hàng đó, để tổng chi tiết luôn khớp với tổng trên bảng công nợ
   // ở trên (2 khoản này được cộng chung vào "Thành tiền" phát sinh).
   const chiTietKH = xemChiTiet ? events.filter((e) => (e.type === 'ticket_print' || e.type === 'bo_sung_cong_no_coi_noi') && e.customerId === xemChiTiet && inRange(e, range)) : [];
+  // (Thêm 07/10) Lọc theo biển số xe trong chi tiết khách hàng
+  const chiTietKHLoc = searchBienSo.trim() ? chiTietKH.filter((e) => e.plate?.toUpperCase().includes(searchBienSo.trim().toUpperCase())) : chiTietKH;
   const khDangXem = config.customers.find((c) => c.id === xemChiTiet);
   const donGiaXem = khDangXem?.donGia || 0;
 
@@ -2938,16 +2941,20 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
       )}
 
       {xemChiTiet && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemChiTiet(null)}>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => { setXemChiTiet(null); setSearchBienSo(''); }}>
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-white font-bold">Chi tiết công nợ — {khDangXem?.name}</div>
-              <button onClick={xuatChiTietExcel} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
-              <button onClick={inChiTiet} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️ In</button>
+              <div className="flex gap-1.5">
+                <button onClick={xuatChiTietExcel} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg"><FileSpreadsheet className="w-3.5 h-3.5" /> Excel</button>
+                <button onClick={inChiTiet} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️ In</button>
+              </div>
             </div>
+            {/* (Thêm 07/10) Input tìm kiếm biển số xe */}
+            <input value={searchBienSo} onChange={(e) => setSearchBienSo(e.target.value.toUpperCase())} placeholder="Tìm kiếm theo biển số..." className="w-full mb-3 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
             {chiTietKH.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có phiếu nào trong kỳ.</div> : (
               <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Số phiếu</th><th className="text-right pb-2">m³</th><th className="text-right pb-2">Thành tiền</th>{choSuaKhachHang && <th></th>}</tr></thead>
-                <tbody>{chiTietKH.map((t) => (
+                <tbody>{chiTietKHLoc.map((t) => (
                   <tr key={t.id} className={`border-t border-slate-700 ${t.daHuy ? 'opacity-50' : ''}`}>
                     <td className="py-1.5 text-slate-300">{gioVN(t.time)}{t.daSuaNgayGioBienSo && <span className="text-amber-400"> (đã sửa)</span>}</td>
                     <td className="py-1.5 text-white font-bold">{t.plate}</td>
@@ -2965,7 +2972,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
                 ))}</tbody>
               </table>
             )}
-            <button onClick={() => setXemChiTiet(null)} className="w-full mt-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm">Đóng</button>
+            <button onClick={() => { setXemChiTiet(null); setSearchBienSo(''); }} className="w-full mt-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-lg text-sm">Đóng</button>
           </div>
         </div>
       )}
