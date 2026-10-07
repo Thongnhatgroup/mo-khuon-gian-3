@@ -3653,6 +3653,7 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
   const [denThang, setDenThang] = useState(todayStr());
   const [xemChiTietMay, setXemChiTietMay] = useState(null); // excavatorId đang xem chi tiết theo biển số
   // (Bổ sung 22/09 — yêu cầu Chủ tịch HĐQT) Lái máy xúc vào ca CHỌN NHẦM máy
+  const [searchBienSoMay, setSearchBienSoMay] = useState('');
   // xúc của mình, đã xúc được vài chuyến trước khi phát hiện. Cho phép Kế
   // toán công ty (choSuaMayXuc) sửa lại ĐÚNG máy xúc cho cả nhóm phiếu (cùng
   // biển số, cùng ngày, đang dưới máy xúc đang xem) trong 1 lần — xem
@@ -3778,6 +3779,7 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
   const mayDangXem = dsMayThang.find((m) => m.excavatorId === xemChiTietMay);
   const { ds: dsBienSo, tong: tongBienSo } = mayDangXem ? layChiTietTheoBienSo(mayDangXem.excavatorId) : { ds: [], tong: { soChuyen: 0, khoiLuong: 0 } };
   // (Yêu cầu 24/09) "Chi tiết theo xe" giờ hiển thị 1 dòng = 1 chuyến cụ thể
+  const dsBienSoLoc = searchBienSoMay.trim() ? dsBienSo.filter((b) => b.plate?.toUpperCase().includes(searchBienSoMay.trim().toUpperCase())) : dsBienSo;
   // (xem layChiTietTheoBienSo) -> đổi máy xúc cũng chỉ áp dụng cho ĐÚNG
   // chuyến (phiếu) đang bấm, không còn gộp cả ngày như trước (tránh đổi
   // nhầm cả những chuyến khác đúng máy của cùng xe, cùng ngày).
@@ -3891,9 +3893,9 @@ function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
                 <button onClick={() => inTrucTiep(chiTietMayHTML(), `Chi tiết ${mayDangXem.excavatorName}`)} className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️</button>
               </div>
             </div>
-            {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : (
+            {dsBienSo.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không có dữ liệu.</div> : dsBienSoLoc.length === 0 ? <div className="text-slate-500 text-sm text-center py-6">Không tìm thấy biển số xe "{searchBienSoMay}".</div> : (
               <table className="w-full text-sm"><thead><tr className="text-slate-500 text-xs uppercase"><th className="text-left pb-2">Ngày</th><th className="text-left pb-2">Biển số</th><th className="text-left pb-2">Thời gian xúc</th><th className="text-right pb-2">Số chuyến</th><th className="text-right pb-2">m³</th>{choSuaMayXuc && <th></th>}</tr></thead>
-                <tbody>{dsBienSo.map((b) => (
+                <tbody>{dsBienSoLoc.map((b) => (
                   <tr key={b.id} className={`border-t border-slate-700 ${b.daHuy ? 'opacity-50' : ''}`}>
                     <td className="py-1.5 text-slate-400 text-xs">{ngayVN(b.ngay)}</td>
                     <td className="py-1.5 text-white font-bold">{b.plate}</td>
