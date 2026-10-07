@@ -59,7 +59,7 @@ function parseMultipartData(body, contentType) {
           extractedData.xmlContent = xmlContent;
           
           // Trích xuất biển số từ XML
-          const plate = extractPlateAndDirectionFromXML(xmlContent);
+          const plate = extractPlateFromXML(xmlContent);
           if (plate) {
             extractedData.plate = plate;
           }
@@ -70,7 +70,7 @@ function parseMultipartData(body, contentType) {
       // (tạm thời bỏ qua vì hàm chỉ cần lưu biển số)
     }
 
-    return extractedData.plate && extractedData.direction.includes('Reverse') ? extractedData : null;
+    return extractedData.plate ? extractedData : null;
   } catch (e) {
     console.error('Error parsing multipart data:', e);
     return null;

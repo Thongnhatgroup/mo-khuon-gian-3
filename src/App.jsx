@@ -382,18 +382,40 @@ function vnDateTimeToISO(ngay, gio) {
 }
 function gioVN(iso) {
   try {
-    const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
+    // Kiểm tra nếu iso không hợp lệ hoặc undefined
+    if (!iso || typeof iso !== 'string') {
+      return '—';
+    }
+
+    const parsed = new Date(iso);
+    // Kiểm tra nếu date parsing thất bại (Invalid Date)
+    if (isNaN(parsed.getTime())) {
+      return '—';
+    }
+
+    const d = new Date(parsed.getTime() + 7 * 60 * 60 * 1000);
     const hh = String(d.getUTCHours()).padStart(2, '0');
     const mm = String(d.getUTCMinutes()).padStart(2, '0');
     const dd = String(d.getUTCDate()).padStart(2, '0');
     const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+
+    // Double-check kết quả có hợp lệ không
+    if (hh === 'NaN' || mm === 'NaN' || dd === 'NaN' || mo === 'NaN') {
+      return '—';
+    }
+
     return `${hh}:${mm} ${dd}/${mo}`;
-  } catch { return iso; }
+  } catch {
+    return '—';
+  }
 }
 // (Sửa lỗi 09/09, mục 6) Chỉ lấy giờ:phút — dùng cho cột "Thời gian xúc" liệt
 // kê nhiều lượt xúc của cùng 1 xe trong báo cáo máy xúc, không cần lặp lại
 // ngày/tháng (đã có ở đầu báo cáo).
-function gioNgan(iso) { return gioVN(iso).split(' ')[0]; }
+function gioNgan(iso) {
+  const gio = gioVN(iso);
+  return gio === '—' ? '—' : gio.split(' ')[0];
+}
 function lastNDays(n) {
   const out = [];
   for (let i = n - 1; i >= 0; i--) { const d = new Date(Date.now() + 7 * 60 * 60 * 1000 - i * 86400000); out.push(d.toISOString().slice(0, 10)); }
