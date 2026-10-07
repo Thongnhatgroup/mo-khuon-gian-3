@@ -101,8 +101,8 @@ function soVN(n) { return Number(n || 0).toLocaleString('vi-VN'); }
 // và khi lưu khai báo, để tránh số lẻ dài do nhân 3 số thập phân với nhau.
 function lamTron1(n) { return Math.round((Number(n) || 0) * 10) / 10; }
 function tienVN(n) { return Number(n || 0).toLocaleString('vi-VN') + ' đ'; }
-function todayStr() { const d = new Date(Date.now() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); }
-function dayStrOf(iso) { const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); }
+function todayStr() { const d = new Date(Date.now() + 7 * 60 * 60 * 1000); try { return d.toISOString().slice(0, 10); } catch { return ''; } }
+function dayStrOf(iso) { try { if (!iso) return ''; const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); } catch { return ''; } }
 // (Yêu cầu 18/09) Xe vào mỏ từ hôm trước, chưa ra khỏi mỏ, mà Kỹ thuật đã bấm
 // "Lập biên bản" xác nhận xe còn ở lại (sinh sự kiện bien_ban_khong_ra) thì
 // coi như xe đó đã được "đưa trở lại" xử lý bình thường — dùng hàm chung này ở
