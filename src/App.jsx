@@ -1488,32 +1488,16 @@ function GateScreen({ events, addEvent, addEvents }) {
             {xeChuaXucHang.map((g) => {
               const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false);
               return (
-              <div key={g.id} className="py-2.5">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={daRaCong} 
-                    onClick={() => {
-                      if (!daRaCong) {
-                        xacNhanRaCongKhongHang(g);
-                      }
-                    }} 
-                    className="w-5 h-5 accent-amber-500 flex-shrink-0" 
-                    disabled={daRaCong} 
-                  />
+                <div key={g.id} className="py-2.5 border-l-4 border-amber-500 pl-3">
+                <div className="flex items-center gap-2 cursor-pointer hover:bg-slate-700/30 p-2 rounded" onClick={() => !daRaCong && xacNhanRaCongKhongHang(g)}>
+                  <div className={`text-xl font-bold w-6 text-center ${daRaCong ? 'text-amber-400' : 'text-slate-500'}`}>
+                    {daRaCong ? '✓' : '☐'}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-white font-bold tabular-nums">{g.plate}</div>
                     <div className="text-slate-400 text-[11px]">vào cổng lúc {gioVN(g.time)}</div>
                   </div>
-                </label>
-                {!daRaCong && (
-                  <input value={ghiChuKhongHang[g.id] || ''} onChange={(e) => setGhiChuKhongHang((s) => ({ ...s, [g.id]: e.target.value }))}
-                    placeholder="Ghi chú lý do (không bắt buộc)" className="w-full mt-1.5 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs ml-8" style={{ width: 'calc(100% - 2rem)' }} />
-                )}
-              </div>
-              );
-            })}
-          </div>
+                </div>
         )}
       </Card>
 
