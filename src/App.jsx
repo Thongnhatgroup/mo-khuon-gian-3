@@ -103,6 +103,9 @@ function lamTron1(n) { return Math.round((Number(n) || 0) * 10) / 10; }
 function tienVN(n) { return Number(n || 0).toLocaleString('vi-VN') + ' đ'; }
 function todayStr() { const d = new Date(Date.now() + 7 * 60 * 60 * 1000); try { return d.toISOString().slice(0, 10); } catch { return ''; } }
 function dayStrOf(iso) { try { if (!iso) return ''; const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000); return d.toISOString().slice(0, 10); } catch { return ''; } }
+// Hàm so sánh thời gian an toàn (time có thể undefined)
+function compareTime(a, b) { const at = (a?.time || ''); const bt = (b?.time || ''); return at.localeCompare(bt); }
+function compareTimeDesc(a, b) { const at = (a?.time || ''); const bt = (b?.time || ''); return bt.localeCompare(at); }
 // (Yêu cầu 18/09) Xe vào mỏ từ hôm trước, chưa ra khỏi mỏ, mà Kỹ thuật đã bấm
 // "Lập biên bản" xác nhận xe còn ở lại (sinh sự kiện bien_ban_khong_ra) thì
 // coi như xe đó đã được "đưa trở lại" xử lý bình thường — dùng hàm chung này ở
@@ -129,8 +132,8 @@ function daLapBienBanKhongRa(events, plate, tuThoiDiem) {
 // tại nơi gọi); màn Bảo vệ/báo cáo không truyền tham số này, ghép với TẤT CẢ
 // lượt ra cổng như trước, không đổi hành vi.
 function ghepVaoRaTheoXe(events, locGateOut) {
-  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate).sort((a, b) => a.time.localeCompare(b.time));
-  const gateOuts = events.filter((e) => e.type === 'gate_out' && e.plate && (!locGateOut || locGateOut(e))).sort((a, b) => a.time.localeCompare(b.time));
+  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate).sort(compareTime);
+  const gateOuts = events.filter((e) => e.type === 'gate_out' && e.plate && (!locGateOut || locGateOut(e))).sort(compareTime);
   const gateOutsByPlate = {};
   gateOuts.forEach((e) => { (gateOutsByPlate[e.plate] = gateOutsByPlate[e.plate] || []).push(e); });
   const daDungOutId = new Set();
@@ -788,7 +791,7 @@ function phieuGiaoNhanHTML(t, events) {
   // TRƯỚC thời điểm lập phiếu này (sort giảm dần theo giờ, lấy lượt mới nhất
   // trước t.time) — đúng chuyến xe đang xét, không giới hạn trong ngày nữa
   // (phòng trường hợp xe vào cuối ngày hôm trước, xúc ngay sau nửa đêm).
-  const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === t.plate && e.time <= t.time).sort((a, b) => b.time.localeCompare(a.time))[0];
+  const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === t.plate && e.time <= t.time).sort(compareTimeDesc)[0];
   const lienList = ['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'];
   // (Bảng hiệu chỉnh 25/08) — bỏ mã QR giả trên phiếu, cỡ chữ đồng nhất 12pt
   // (như Word/Excel) thay vì 9–13pt lẫn lộn trước đây, TẤT CẢ chữ in đậm,
@@ -1258,14 +1261,14 @@ function GateScreen({ events, addEvent, addEvents }) {
   // hết ca (không ảnh hưởng các báo cáo khác).
   const veTheoXeDaXuc = (plate, tuThoiDiem) => events
     .filter((e) => e.type === 'ticket_print' && e.plate === plate && e.time > tuThoiDiem)
-    .sort((a, b) => a.time.localeCompare(b.time))[0];
+    .sort(compareTime)[0];
   const xeDaXucHang = dangTrongMo
     .map((g) => ({ gateIn: g, ticket: veTheoXeDaXuc(g.plate, g.time) }))
     .filter((x) => x.ticket)
     .sort((a, b) => a.ticket.time.localeCompare(b.ticket.time));
   const xeChuaXucHang = dangTrongMo
     .filter((g) => !xeDaXucHang.some((x) => x.gateIn.id === g.id))
-    .sort((a, b) => a.time.localeCompare(b.time));
+    .sort(compareTime);
 
   const xacNhanRaCongCoHang = ({ gateIn, ticket }) => {
     addEvent({ id: genId('GO'), type: 'gate_out', plate: gateIn.plate, coHang: true, ticketId: ticket.id, ticketNo: ticket.ticketNo, time: new Date().toISOString() });
@@ -1281,7 +1284,7 @@ function GateScreen({ events, addEvent, addEvents }) {
   // cảnh báo "xe lạ" như trước.
   const daKyNhanPhieu = (ticketId) => events.some((e) => e.type === 'phieu_lai_xe_ky' && e.ticketId === ticketId);
   const phieuDoiChieu = plateRa.trim()
-    ? events.filter((e) => e.type === 'ticket_print' && e.plate === plateRa.trim().toUpperCase()).sort((a, b) => b.time.localeCompare(a.time))[0]
+    ? events.filter((e) => e.type === 'ticket_print' && e.plate === plateRa.trim().toUpperCase()).sort(compareTimeDesc)[0]
     : null;
   const xeRaCong = () => {
     const p = plateRa.trim().toUpperCase();
@@ -1574,7 +1577,7 @@ function GateScreen({ events, addEvent, addEvents }) {
 function banDauKhaiBao(khaiBao, events) {
   const cungPlate = events
     .filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === khaiBao.plate)
-    .sort((a, b) => a.time.localeCompare(b.time));
+    .sort(compareTime);
   const banDau = cungPlate[0];
   return banDau && banDau.id !== khaiBao.id ? banDau : null;
 }
@@ -1692,10 +1695,10 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   // bộ các danh sách/báo cáo khác trong phần mềm.
   const dsBienBanTraCuu = khaiBaos
     .filter((k) => dayStrOf(k.time) >= tuNgayBB && dayStrOf(k.time) <= denNgayBB)
-    .slice().sort((a, b) => a.time.localeCompare(b.time));
+    .slice().sort(compareTime);
 
   const kichThuocBanDauTheoPlate = {};
-  khaiBaos.slice().sort((a, b) => a.time.localeCompare(b.time)).forEach((k) => { if (!kichThuocBanDauTheoPlate[k.plate]) kichThuocBanDauTheoPlate[k.plate] = k; });
+  khaiBaos.slice().sort(compareTime).forEach((k) => { if (!kichThuocBanDauTheoPlate[k.plate]) kichThuocBanDauTheoPlate[k.plate] = k; });
 
   // Xe hôm nay: nếu có khai báo còn hiệu lực (trong hạn 3 ngày, không có báo cơi
   // nới sau đó) -> MIỄN, không cần thao tác gì (theo Bảng hiệu chỉnh V4.0 mục II.2)
@@ -1842,7 +1845,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   const nhanTrangThai = { do: 'QUÁ HẠN', vang: 'Chờ khai báo', xanh: 'Đã khai báo', mien: 'Miễn (trong hạn 3 ngày)' };
   const mauNhan = { do: 'bg-red-500/20 text-red-400', vang: 'bg-amber-500/20 text-amber-400', xanh: 'bg-emerald-500/20 text-emerald-400', mien: 'bg-slate-600/30 text-slate-300' };
 
-  const lichSuCuaPlate = xemLichSuPlate ? khaiBaos.filter((k) => k.plate === xemLichSuPlate).sort((a, b) => a.time.localeCompare(b.time)) : [];
+  const lichSuCuaPlate = xemLichSuPlate ? khaiBaos.filter((k) => k.plate === xemLichSuPlate).sort(compareTime) : [];
 
   return (
     <div className="max-w-2xl mx-auto p-4">
@@ -2224,7 +2227,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
   // lượt vào cổng đó (không chỉ load_confirm trong ngày hôm nay) — tránh trường
   // hợp xe vào mỏ từ hôm trước, đã xúc hàng từ hôm trước nhưng Bảo vệ chưa kịp
   // xác nhận ra cổng, bị hiện NHẦM trở lại danh sách "chờ xúc" của máy xúc.
-  const xeChoXuc = gateIns.filter((g) => !events.some((l) => l.type === 'load_confirm' && l.plate === g.plate && l.time > g.time)).sort((a, b) => a.time.localeCompare(b.time));
+  const xeChoXuc = gateIns.filter((g) => !events.some((l) => l.type === 'load_confirm' && l.plate === g.plate && l.time > g.time)).sort(compareTime);
   const ketQuaTimKiem = xeChoXuc.filter((e) => {
     if (!search.trim()) return true;
     const s = search.trim().toLowerCase();
@@ -2472,7 +2475,7 @@ function tinhCongNoTheoKy(customerId, tuNgay, denNgay, events, config) {
 // "cơi nới thùng" nào mới hơn (nếu có báo cơi nới thì bắt buộc khai báo lại dù
 // chưa hết hạn 3 ngày). Theo Bảng hiệu chỉnh V4.0 mục II.2.
 function khaiBaoHopLe(plate, events) {
-  const khaiBaoGanNhat = events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === plate).sort((a, b) => b.time.localeCompare(a.time))[0];
+  const khaiBaoGanNhat = events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === plate).sort(compareTimeDesc)[0];
   if (!khaiBaoGanNhat) return null;
   if (ngayConLai(khaiBaoGanNhat.time) < 0) return null; // quá 3 ngày kể từ lần khai báo gần nhất
   const baoCoiNoiSauDo = events.some((e) => e.type === 'bao_coi_noi' && e.plate === plate && e.time > khaiBaoGanNhat.time);
@@ -2484,13 +2487,13 @@ function khaiBaoHopLe(plate, events) {
 // loại xe/khối lượng dự kiến/kích thước cho lần khai báo mới, đỡ phải nhập
 // lại từ đầu. Kỹ thuật vẫn có thể sửa nếu lần này khác lần trước.
 function khaiBaoGanNhatTheoPlate(plate, events) {
-  return events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === plate).sort((a, b) => b.time.localeCompare(a.time))[0] || null;
+  return events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === plate).sort(compareTimeDesc)[0] || null;
 }
 // lần khai báo gần nhất trước đó của chính biển số này (nếu xe quay lại nhiều lần)
 function goiYKhachHangTheoPlate(plate, events) {
-  const dangKy = events.filter((e) => e.type === 'dang_ky_xe_khach_hang' && e.plate === plate).sort((a, b) => b.time.localeCompare(a.time))[0];
+  const dangKy = events.filter((e) => e.type === 'dang_ky_xe_khach_hang' && e.plate === plate).sort(compareTimeDesc)[0];
   if (dangKy) return dangKy.customerId;
-  const khaiBaoTruoc = events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === plate).sort((a, b) => b.time.localeCompare(a.time))[0];
+  const khaiBaoTruoc = events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === plate).sort(compareTimeDesc)[0];
   if (khaiBaoTruoc) return khaiBaoTruoc.customerId;
   return null;
 }
@@ -3039,7 +3042,7 @@ const KHOA_PHIEU_DA_XU_LY = 'ktMo_phieuDaXuLy_v1';
 function layDongXeKhongHang(danhSachRaKhongHang, events) {
   const layGioVaoTuongUng = (goEvent) => {
     const gi = events.filter((e) => e.type === 'gate_in' && e.plate === goEvent.plate && e.time <= goEvent.time)
-      .sort((a, b) => b.time.localeCompare(a.time))[0];
+      .sort(compareTimeDesc)[0];
     return gi ? gioNgan(gi.time) : '';
   };
   return danhSachRaKhongHang.map((e) => ({
@@ -3473,7 +3476,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
         // (Sửa lỗi 25/09 — đồng bộ với phieuGiaoNhanHTML()) Lấy đúng lượt vào
         // cổng GẦN NHẤT trước thời điểm lập phiếu — không lấy nhầm lượt vào
         // ĐẦU TIÊN trong ngày khi xe vào nhiều chuyến.
-        const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === xemLai.plate && e.time <= xemLai.time).sort((a, b) => b.time.localeCompare(a.time))[0];
+        const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === xemLai.plate && e.time <= xemLai.time).sort(compareTimeDesc)[0];
         return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4" onClick={() => setXemLai(null)}>
           <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-3">
@@ -3559,7 +3562,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     nhom[key].push(s);
   });
   const nhomInfo = thuTuNhom.map((key) => {
-    const dsLuot = nhom[key].slice().sort((a, b) => a.time.localeCompare(b.time));
+    const dsLuot = nhom[key].slice().sort(compareTime);
     const s = dsLuot[0]; // đại diện nhóm — lấy đúng lượt "Nhận ca" SỚM NHẤT trong ngày
     return { key, s, dsLuot, sessionIds: dsLuot.map((x) => x.id), ngay: dayStrOf(s.time) };
   });
@@ -3633,7 +3636,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
   // kỳ/tháng; KHÔNG dùng để in "Biên bản xác nhận" thay cho ca thật.
   const ketQuaCaAo = Object.entries(caAoTheoMayNgay).map(([k, loads]) => {
     const [excavatorId] = k.split('|');
-    const t0 = loads.slice().sort((a, b) => a.time.localeCompare(b.time))[0];
+    const t0 = loads.slice().sort(compareTime)[0];
     const laiXe = Array.from(new Set(loads.map((l) => l.operatorName).filter(Boolean))).join(', ');
     return {
       id: `ca-ao-${k}`, type: 'shift_start_ao', excavatorId, excavatorName: t0.excavatorName,
@@ -3644,7 +3647,7 @@ function phienCaLamViec(events, tuNgay, denNgay) {
     };
   });
 
-  return ketQuaCaThat.concat(ketQuaCaAo).sort((a, b) => a.time.localeCompare(b.time));
+  return ketQuaCaThat.concat(ketQuaCaAo).sort(compareTime);
 }
 function BaoCaoMayXuc({ events, config, addEvent, myName, choSuaMayXuc }) {
   const [tab, setTab] = useState('ngay');
