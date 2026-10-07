@@ -2258,8 +2258,16 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
     // BẮT BUỘC phải có khai báo kỹ thuật còn hiệu lực mới được xúc (V4.0, mục II.2)
     if (!khaiBaoCuaXeDangChon) return notify('⛔ Xe này CHƯA được Kỹ thuật xác nhận (hoặc đã quá hạn 3 ngày) — không thể xúc. Báo Kỹ thuật kiểm tra trước.', true);
     if (dangLapPhieu) return; // đang chờ máy chủ cấp số cho lần bấm trước — không cho bấm chồng
-    const kb = khaiBaoCuaXeDangChon;
+
+    // (Sửa lỗi nhập lặp biển số) Kiểm tra xem biển số này đã có load_confirm trong ngày chưa
+    // Nếu có và chưa ra cổng thì không cho thêm nữa (tránh trùng)
     const plateDaChon = selectedPlate;
+    const daCoLoadConfirmHomNay = loadsToday.some((l) => l.plate === plateDaChon);
+    if (daCoLoadConfirmHomNay) {
+      return notify(`⚠️ Biển số ${plateDaChon} đã được xúc lần trước hôm nay. Nếu xe chưa ra cổng thì không thể xúc thêm lần nữa — kiểm tra lại hệ thống.`, true);
+    }
+
+    const kb = khaiBaoCuaXeDangChon;
     const loadEv = {
       id: genId('LD'), type: 'load_confirm', plate: plateDaChon,
       excavatorId: session.excavatorId, excavatorName: session.excavatorName,
@@ -2668,6 +2676,7 @@ function KhaiBaoBoSungCongNoCoiNoi({ config, events, addEvent, myName }) {
 function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, addEvent, myName, choKhaiBaoBoSung, choSuaKhachHang, choSuaMayXuc }) {
   const [range, setRange] = useState('day');
   const [search, setSearch] = useState('');
+  const [searchKhachHang, setSearchKhachHang] = useState(''); // (Thêm 07/10) Tìm kiếm theo tên khách hàng
   const [xemChiTiet, setXemChiTiet] = useState(null); // customerId đang xem chi tiết
   const [tuTuyChinh, setTuTuyChinh] = useState(todayStr());
   const [denTuyChinh, setDenTuyChinh] = useState(todayStr());
@@ -2689,6 +2698,10 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
 
   const soCongNo = config.customers.map((c) => tinhCongNoTheoKy(c.id, tuNgay, denNgay, events, config)).map((r, i) => ({ ...r, id: config.customers[i].id }));
   const tongCong = soCongNo.reduce((s, r) => ({ khoiLuong: s.khoiLuong + r.khoiLuong, thanhTien: s.thanhTien + r.thanhTien, daThanhToan: s.daThanhToan + r.daThanhToan }), { khoiLuong: 0, thanhTien: 0, daThanhToan: 0 });
+
+  // (Thêm 07/10) Lọc khách hàng theo tên tìm kiếm
+  const soCongNoLoc = searchKhachHang.trim() ? soCongNo.filter((r) => r.customerName.toLowerCase().includes(searchKhachHang.trim().toLowerCase())) : soCongNo;
+  const tongCongLoc = soCongNoLoc.reduce((s, r) => ({ khoiLuong: s.khoiLuong + r.khoiLuong, thanhTien: s.thanhTien + r.thanhTien, daThanhToan: s.daThanhToan + r.daThanhToan }), { khoiLuong: 0, thanhTien: 0, daThanhToan: 0 });
 
   const suaDonGia = async (c) => {
     const kq = await hoi(`Sửa đơn giá — ${c.customerName}`, [{ key: 'donGia', nhan: 'Đơn giá mới (đ/m³)', kieu: 'number', giaTri: String(c.donGia) }]);
@@ -2877,8 +2890,13 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
           <button onClick={inCongNo} className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg">🖨️ In</button>
         </div>
       </div>
+      {/* (Thêm 07/10) Input tìm kiếm khách hàng */}
+      <Card className="mb-4 bg-slate-900/50">
+        <label className="block text-slate-400 text-xs mb-2 flex items-center gap-1.5"><Search className="w-3.5 h-3.5" /> Tìm kiếm khách hàng</label>
+        <input value={searchKhachHang} onChange={(e) => setSearchKhachHang(e.target.value)} placeholder="Nhập tên khách hàng..." className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm" />
+      </Card>
       <Card>
-        {soCongNo.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có khách hàng.</div> : (
+        {soCongNoLoc.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">{searchKhachHang.trim() ? 'Không tìm thấy khách hàng phù hợp.' : 'Chưa có khách hàng.'}</div> : (
           <div className="overflow-x-auto"><table className="w-full text-sm min-w-[820px]">
             <thead><tr className="text-slate-500 text-xs uppercase">
               <th className="text-left pb-2">Tên khách hàng</th><th className="text-right pb-2">Dư đầu kỳ</th>
@@ -2887,7 +2905,7 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
               <th className="text-right pb-2">Dư cuối kỳ</th><th></th>
             </tr></thead>
             <tbody>
-              {soCongNo.map((r) => {
+              {soCongNoLoc.map((r) => {
                 const mucCanhBao = canhBaoCongNo(r.duCuoiKy, config);
                 return (
                   <tr key={r.id} className="border-t border-slate-700">
@@ -2905,10 +2923,10 @@ function BaoCaoKhachHangVaTraSoat({ events, config, setConfig, choSuaDonGia, add
                 );
               })}
               <tr className="border-t-2 border-slate-600 font-bold">
-                <td className="py-2 text-white">Cộng</td><td></td>
-                <td className="py-2 text-right text-white">{soVN(tongCong.khoiLuong)}</td><td></td>
-                <td className="py-2 text-right text-white">{tienVN(tongCong.thanhTien)}</td>
-                <td className="py-2 text-right text-white">{tienVN(tongCong.daThanhToan)}</td><td></td><td></td>
+                <td className="py-2 text-white">Cộng{searchKhachHang.trim() && <span className="text-slate-500 text-xs font-normal"> (lọc)</span>}</td><td></td>
+                <td className="py-2 text-right text-white">{soVN(tongCongLoc.khoiLuong)}</td><td></td>
+                <td className="py-2 text-right text-white">{tienVN(tongCongLoc.thanhTien)}</td>
+                <td className="py-2 text-right text-white">{tienVN(tongCongLoc.daThanhToan)}</td><td></td><td></td>
               </tr>
             </tbody>
           </table></div>
@@ -4969,17 +4987,33 @@ export default function App() {
   // mọi máy xúc, dùng cơ chế giữ-chỗ-rồi-tự-kiểm-tra để đảm bảo không bao giờ
   // phát trùng số dù nhiều máy xúc cùng bấm một lúc.
   const buildTicket = useCallback(async (loadEv) => {
-    const res = await fetch('/api/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } });
-    if (res.status === 401) { baoHetPhien(); throw new Error('Phiên đăng nhập đã hết hạn — vui lòng đăng nhập lại.'); }
-    if (!res.ok) {
-      let thongBao = 'Máy chủ không cấp được số phiếu — vui lòng thử lại.';
-      try { const j = await res.json(); if (j?.error) thongBao = j.error; } catch {}
-      throw new Error(thongBao);
+    // (Sửa 07/10 — xử lý mạng yếu) Thêm retry logic — thử lại tối đa 3 lần với delay từ 1-3 giây
+    const MAX_RETRIES = 3;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch('/api/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, timeout: 10000 });
+        if (res.status === 401) { baoHetPhien(); throw new Error('Phiên đăng nhập đã hết hạn — vui lòng đăng nhập lại.'); }
+        if (!res.ok) {
+          let thongBao = 'Máy chủ không cấp được số phiếu — vui lòng thử lại.';
+          try { const j = await res.json(); if (j?.error) thongBao = j.error; } catch {}
+          throw new Error(thongBao);
+        }
+        const { ticketNo } = await res.json();
+        // (Yêu cầu 24/09) Số phiếu ngắn gọn, nối tiếp xuyên suốt — không còn tiền
+        // tố "PKG-YYMMDD-" và không reset về 1 mỗi ngày như trước.
+        return { id: genId('TK'), type: 'ticket_print', loadId: loadEv.id, plate: loadEv.plate, volume: loadEv.estVolume, ticketNo, soLien: 3, excavatorId: loadEv.excavatorId, excavatorName: loadEv.excavatorName, sessionId: loadEv.sessionId, operatorId: loadEv.operatorId, operatorName: loadEv.operatorName, customerId: loadEv.customerId, customerName: loadEv.customerName, autoGenerated: true, time: new Date().toISOString() };
+      } catch (error) {
+        lastError = error;
+        if (attempt < MAX_RETRIES - 1) {
+          // Chờ 1-3 giây rồi thử lại
+          const delayMs = 1000 + Math.random() * 2000;
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
     }
-    const { ticketNo } = await res.json();
-    // (Yêu cầu 24/09) Số phiếu ngắn gọn, nối tiếp xuyên suốt — không còn tiền
-    // tố "PKG-YYMMDD-" và không reset về 1 mỗi ngày như trước.
-    return { id: genId('TK'), type: 'ticket_print', loadId: loadEv.id, plate: loadEv.plate, volume: loadEv.estVolume, ticketNo, soLien: 3, excavatorId: loadEv.excavatorId, excavatorName: loadEv.excavatorName, sessionId: loadEv.sessionId, operatorId: loadEv.operatorId, operatorName: loadEv.operatorName, customerId: loadEv.customerId, customerName: loadEv.customerName, autoGenerated: true, time: new Date().toISOString() };
+    throw lastError || new Error('Không thể cấp số phiếu sau 3 lần thử — vui lòng kiểm tra kết nối mạng.');
   }, []);
 
   const setClaim = useCallback((plate, operatorName) => { setClaims((prev) => { const next = { ...prev, [plate]: { operatorName, time: Date.now() } }; storageSet('claims', next, true); return next; }); }, []);
