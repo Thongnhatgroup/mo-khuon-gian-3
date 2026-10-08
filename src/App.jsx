@@ -1273,7 +1273,7 @@ function GateScreen({ events, addEvent, addEvents }) {
   // thay vì chỉ kiểm tra "có lượt ra nào sau đó không", để xe chạy nhiều
   // chuyến/ngày không bị mất lượt vào khỏi danh sách cần xác nhận ra cổng.
   const ghepVaoRa = ghepVaoRaTheoXe(events).cap;
-  const dangTrongMo = ghepVaoRaTheoXe(events).cap.filter((r) => !r.gateOut).map((r) => r.gateIn);
+  const dangTrongMo = ghepVaoRaTheoXe(events).cap.filter((r) => !r.gateOut).filter((r) => r.gateIn.time).map((r) => r.gateIn);
   // (I.1) Camera tự động đối chiếu: xe vào cổng từ NGÀY TRƯỚC mà vẫn chưa ra -> cảnh báo ĐỎ
   const xeQuaHanChuaRa = dangTrongMo.filter((g) => dayStrOf(g.time) !== today);
 
@@ -1291,7 +1291,6 @@ function GateScreen({ events, addEvent, addEvents }) {
     .sort((a, b) => a.ticket.time.localeCompare(b.ticket.time));
   const xeChuaXucHang = dangTrongMo
     .filter((g) => !xeDaXucHang.some((x) => x.gateIn.id === g.id))
-    .filter((g) => g.time) // Loại bỏ xe vào cổng không ghi nhận thời gian
     .sort(compareTime);
 
   const xacNhanRaCongCoHang = ({ gateIn, ticket }) => {
