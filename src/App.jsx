@@ -1508,7 +1508,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         {xeChuaXucHang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có xe nào.</div> : (
           <div className="divide-y divide-slate-700">
             {xeChuaXucHang.map((g) => {
-              const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false);
+              const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false && e.time > g.time);
               return (
                 <div key={g.id} className="py-2.5 border-l-4 border-amber-500 pl-3">
                   <div className="flex items-center gap-3">
