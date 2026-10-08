@@ -1272,6 +1272,7 @@ function GateScreen({ events, addEvent, addEvents }) {
   // (Sửa lỗi 18/09) Ghép vào/ra theo ĐÚNG từng lượt (xem hàm ghepVaoRaTheoXe)
   // thay vì chỉ kiểm tra "có lượt ra nào sau đó không", để xe chạy nhiều
   // chuyến/ngày không bị mất lượt vào khỏi danh sách cần xác nhận ra cổng.
+  const ghepVaoRa = ghepVaoRaTheoXe(events).cap;
   const dangTrongMo = ghepVaoRaTheoXe(events).cap.filter((r) => !r.gateOut).map((r) => r.gateIn);
   // (I.1) Camera tự động đối chiếu: xe vào cổng từ NGÀY TRƯỚC mà vẫn chưa ra -> cảnh báo ĐỎ
   const xeQuaHanChuaRa = dangTrongMo.filter((g) => dayStrOf(g.time) !== today);
@@ -1508,7 +1509,8 @@ function GateScreen({ events, addEvent, addEvents }) {
         {xeChuaXucHang.length === 0 ? <div className="text-slate-500 text-sm text-center py-4">Chưa có xe nào.</div> : (
           <div className="divide-y divide-slate-700">
             {xeChuaXucHang.map((g) => {
-              const daRaCong = events.some((e) => e.type === 'gate_out' && e.plate === g.plate && e.coHang === false && e.time > g.time);
+              const pair = ghepVaoRa.find((r) => r.gateIn.id === g.id);
+              const daRaCong = pair && pair.gateOut && pair.gateOut.coHang === false;
               return (
                 <div key={g.id} className="py-2.5 border-l-4 border-amber-500 pl-3">
                   <div className="flex items-center gap-3">
