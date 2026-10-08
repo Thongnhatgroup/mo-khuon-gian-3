@@ -1719,7 +1719,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   const daRaKhongCoHangTheoLuotVao = new Set(
     capVaoRaTheoBaoVe.filter((r) => r.gateOut && r.gateOut.coHang === false).map((r) => r.gateIn.id)
   );
-  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate
+  const gateIns = events.filter((e) => e.type === 'gate_in' && e.plate && e.time
     && (dayStrOf(e.time) === today || daLapBienBanKhongRa(events, e.plate, e.time))
     && !daRaKhongCoHangTheoLuotVao.has(e.id));
   const khaiBaos = events.filter((e) => e.type === 'ky_thuat_khai_bao');
@@ -2258,13 +2258,11 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
     capVaoRaTheoBaoVe.filter((r) => r.gateOut && r.gateOut.coHang === false).map((r) => r.gateIn.id)
   );
   const gateIns = events.filter((e) => {
-    if (e.type !== 'gate_in' || !e.plate || daRaKhongCoHangTheoLuotVao.has(e.id)) return false;
+    if (e.type !== 'gate_in' || !e.plate || !e.time || daRaKhongCoHangTheoLuotVao.has(e.id)) return false;
     const dayStr = dayStrOf(e.time);
     const laHomNay = dayStr === today;
     const coBienBanKhongRa = daLapBienBanKhongRa(events, e.plate, e.time);
-    // Bao gồm: (1) xe vào hôm nay, (2) xe có biên bản không ra, hoặc (3) xe có thời gian không xác định nhưng chưa ra cổng
-    const coThangKhongXacDinh = dayStr === '' && !events.some((g) => g.type === 'gate_out' && g.plate === e.plate && g.time > e.time);
-    return laHomNay || coBienBanKhongRa || coThangKhongXacDinh;
+    return laHomNay || coBienBanKhongRa;
   });
   const loadsToday = events.filter((e) => e.type === 'load_confirm' && dayStrOf(e.time) === today);
 
