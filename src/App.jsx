@@ -1830,7 +1830,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   // Cảnh báo xe không qua cổng (lái máy xúc báo) — Kỹ thuật cũng xử lý được tại đây
   const canhBaoXeLa = events.filter((e) => e.type === 'missing_plate_alert' && !events.some((r) => r.type === 'missing_plate_resolved' && r.alertId === e.id));
   // Cảnh báo xe vào cổng nhưng hết ngày (hôm qua trở về trước) chưa ghi nhận ra cổng
-  const homQuaTroVeTruoc = events.filter((e) => e.type === 'gate_in' && e.plate && dayStrOf(e.time) < today);
+  const homQuaTroVeTruoc = events.filter((e) => e.type === 'gate_in' && e.plate && e.time && dayStrOf(e.time) < today);
   const xeChuaRaQuaNgay = homQuaTroVeTruoc.filter((g) => !events.some((o) => o.type === 'gate_out' && o.plate === g.plate && o.time > g.time) && !daLapBienBanKhongRa(events, g.plate, g.time)).slice(-10);
 
   // (III) Xử lý ngay cảnh báo xe không qua cổng: lập biên bản + xác nhận khối
