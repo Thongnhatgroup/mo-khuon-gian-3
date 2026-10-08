@@ -1291,6 +1291,7 @@ function GateScreen({ events, addEvent, addEvents }) {
     .sort((a, b) => a.ticket.time.localeCompare(b.ticket.time));
   const xeChuaXucHang = dangTrongMo
     .filter((g) => !xeDaXucHang.some((x) => x.gateIn.id === g.id))
+    .filter((g) => g.time) // Loại bỏ xe vào cổng không ghi nhận thời gian
     .sort(compareTime);
 
   const xacNhanRaCongCoHang = ({ gateIn, ticket }) => {
