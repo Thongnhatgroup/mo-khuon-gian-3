@@ -1,296 +1,179 @@
+// netlify/functions/camera-webhook.js
+// (Viết lại 09/10 — yêu cầu Chủ tịch HĐQT) Nhận dữ liệu biển số từ camera ANPR
+// Hikvision (192.168.1.199 tại cổng mỏ) và TỰ ĐỘNG ghi nhận xe VÀO / RA cổng.
+//
+// Bản cũ có LỖI CÚ PHÁP (khai báo biến nằm giữa object) nên hàm không chạy
+// được — đây là nguyên nhân chính "phần mềm không nhận dữ liệu từ camera".
+// Bản cũ cũng không phân biệt chiều di chuyển (ghi cả biển đầu lẫn biển đuôi
+// thành xe vào) và cộng sai 7 tiếng vào giờ.
+//
+// Nhận 3 dạng dữ liệu:
+//  1) JSON từ chương trình cầu nối camera-agent/isapi-agent.js (khuyến nghị):
+//       { luotDoc: [{ plate, direction, dateTime, uuid, confidence, line }] }
+//     hoặc báo trạng thái kết nối: { loai: 'trang_thai', ... }
+//  2) multipart/form-data do camera tự đẩy thẳng (chế độ HTTP Listening):
+//       anpr.xml + licensePlatePicture.jpg + detectionPicture.jpg
+//  3) XML thô (EventNotificationAlert).
+//
+// Bảo mật: nếu khai báo biến môi trường CAMERA_WEBHOOK_KEY trên Netlify thì
+// mọi lượt gửi phải kèm đúng khoá (header "X-Camera-Key" hoặc ?key=...).
 import { getStore } from '@netlify/blobs';
+import { docThongTinAnpr, xuLyLuotDoc } from '../lib/camera-logic.js';
 
-const STORE_CONFIG = {
-  main: 'mo-khuon-gian-v6',
-  sessions: 'mo-khuon-gian-v6-sessions'
-};
+const TEN_KHO = 'mo-khuon-gian-v6';
+const SO_LOG_TOI_DA = 300;
 
-/**
- * Hàm trích xuất biển số từ XML
- * Camera Hikvision gửi XML với định dạng:
- * <ANPR><licensePlate>ABC123</licensePlate>...</ANPR>
- */
-function extractPlateFromXML(xmlStr) {
-  try {
-    const match = xmlStr.match(/<licensePlate>([^<]+)<\/licensePlate>/i);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-  } catch (e) {
-    console.error('Error parsing XML for license plate:', e);
-  }
-  return null;
+function json(status, body) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Camera-Key',
+      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    },
+  });
 }
 
-/**
- * Hàm parse multipart/form-data
- * Camera gửi data dạng: boundary + anpr.xml + images
- */
-function parseMultipartData(body, contentType) {
-  try {
-    // Tìm boundary từ Content-Type header
-    const boundaryMatch = contentType.match(/boundary=([^;]+)/);
-    if (!boundaryMatch) {
-      console.error('No boundary found in Content-Type');
-      return null;
-    }
+function khoaHopLe(req) {
+  const can = (process.env.CAMERA_WEBHOOK_KEY || '').trim();
+  if (!can) return true;
+  const url = new URL(req.url);
+  const gui = (req.headers.get('x-camera-key') || url.searchParams.get('key') || '').trim();
+  return gui === can;
+}
 
-    const boundary = boundaryMatch[1].trim();
-    const parts = body.split(`--${boundary}`);
-    
-    let extractedData = {
-      plate: null,
-      imageUrl: null,
-      timestamp: Date.now(),
-      xmlContent: null
-    };
-
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      
-      // Tìm phần anpr.xml
-      if (part.includes('anpr.xml') || part.includes('name="anpr"')) {
-        // Tách header và content của phần này
-        const headerEndIndex = part.indexOf('\r\n\r\n');
-        if (headerEndIndex !== -1) {
-          const content = part.substring(headerEndIndex + 4);
-          // Loại bỏ trailing CRLF trước boundary
-          const xmlContent = content.replace(/\r\n$/, '');
-          extractedData.xmlContent = xmlContent;
-          
-          // Trích xuất biển số từ XML
-          const plate = extractPlateFromXML(xmlContent);
-          if (plate) {
-            extractedData.plate = plate;
-          }
-        }
-      }
-      
-      // Nếu cần, có thể xử lý ảnh JPEG ở đây
-      // (tạm thời bỏ qua vì hàm chỉ cần lưu biển số)
-    }
-
-    return extractedData.plate ? extractedData : null;
-  } catch (e) {
-    console.error('Error parsing multipart data:', e);
-    return null;
+// Tách các phần XML/JSON ra khỏi gói multipart (bỏ qua phần ảnh nhị phân).
+export function tachMultipart(buf, contentType) {
+  const m = /boundary="?([^";]+)"?/i.exec(contentType || '');
+  const latin = buf.toString('latin1');
+  let boundary = m ? m[1].trim() : null;
+  if (!boundary) {
+    const m2 = /^--([^\r\n]+)/.exec(latin);
+    if (m2) boundary = m2[1].trim();
   }
+  if (!boundary) return [];
+  const ketQua = [];
+  for (const phan of latin.split(`--${boundary}`)) {
+    const cuoiDau = phan.indexOf('\r\n\r\n');
+    if (cuoiDau === -1) continue;
+    const dau = phan.slice(0, cuoiDau).toLowerCase();
+    if (/image\/|\.jpe?g|octet-stream/.test(dau)) continue;
+    const than = Buffer.from(phan.slice(cuoiDau + 4).replace(/\r\n$/, ''), 'latin1').toString('utf8');
+    if (/<EventNotificationAlert|<ANPR|licensePlate/i.test(than)) ketQua.push(than);
+  }
+  return ketQua;
+}
+
+async function docLuotDoc(req) {
+  const ct = (req.headers.get('content-type') || '').toLowerCase();
+  const buf = Buffer.from(await req.arrayBuffer());
+  if (ct.includes('multipart/')) {
+    return { dang: 'multipart', raw: buf.toString('latin1').slice(0, 600), luot: tachMultipart(buf, ct).map(docThongTinAnpr).filter(Boolean) };
+  }
+  const text = buf.toString('utf8');
+  if (ct.includes('json') || text.trim().startsWith('{')) {
+    let body = {};
+    try { body = JSON.parse(text); } catch { return { dang: 'json', raw: text.slice(0, 600), loi: 'JSON không hợp lệ', luot: [] }; }
+    if (body.loai === 'trang_thai') return { dang: 'trang_thai', body };
+    const ds = Array.isArray(body.luotDoc) ? body.luotDoc : [body];
+    return {
+      dang: 'json',
+      raw: text.slice(0, 600),
+      luot: ds.map((x) => (x.xml ? docThongTinAnpr(x.xml) : {
+        plate: x.plate || x.licensePlate || null,
+        direction: (x.direction || '').toString().toLowerCase() || null,
+        dateTime: x.dateTime || null,
+        uuid: x.uuid || x.UUID || null,
+        confidence: x.confidence != null ? Number(x.confidence) : null,
+        line: x.line != null ? String(x.line) : null,
+        eventType: 'ANPR',
+      })).filter(Boolean),
+    };
+  }
+  return { dang: 'xml', raw: text.slice(0, 600), luot: [docThongTinAnpr(text)].filter(Boolean) };
 }
 
 export default async (req) => {
-  console.log(`[${new Date().toISOString()}] Webhook request received`);
-  console.log(`Method: ${req.method}`);
-  console.log(`Headers:`, Object.keys(Object.fromEntries(req.headers)));
+  if (req.method === 'OPTIONS') return json(200, {});
+  if (req.method === 'GET') {
+    // Dùng để kiểm tra nhanh địa chỉ có hoạt động không (mở bằng trình duyệt).
+    return json(200, { ok: true, thongDiep: 'Địa chỉ nhận dữ liệu camera đang hoạt động', canKhoa: !!process.env.CAMERA_WEBHOOK_KEY });
+  }
+  if (req.method !== 'POST') return json(405, { error: 'Chỉ hỗ trợ POST' });
+  if (!khoaHopLe(req)) return json(401, { error: 'Sai khoá bảo mật camera (X-Camera-Key)' });
 
-  if (req.method !== 'POST') {
-    console.warn('Non-POST request rejected');
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' }
+  const store = getStore({ name: TEN_KHO, consistency: 'strong' });
+  const nowMs = Date.now();
+  let goi;
+  try { goi = await docLuotDoc(req); } catch (e) { return json(400, { error: 'Không đọc được dữ liệu gửi lên', message: e.message }); }
+
+  // ---- Báo trạng thái kết nối từ chương trình cầu nối ----
+  if (goi.dang === 'trang_thai') {
+    const b = goi.body;
+    await store.setJSON('camera_status', {
+      capNhatLuc: new Date(nowMs).toISOString(),
+      ketNoiCamera: !!b.ketNoiCamera,
+      thongDiep: String(b.thongDiep || '').slice(0, 300),
+      cameraIp: b.cameraIp || null,
+      cameraModel: b.cameraModel || null,
+      congIsapi: b.congIsapi || null,
+      lanCuoiNhanSuKien: b.lanCuoiNhanSuKien || null,
+      phienBanCauNoi: b.phienBan || null,
     });
+    return json(200, { ok: true });
+  }
+
+  // Bỏ qua nếu đang trong lúc "Đặt lại dữ liệu vận hành" (giống import-plates.js).
+  // Trả 503 để chương trình cầu nối giữ lại và gửi lại sau, không mất lượt xe.
+  try {
+    const khoa = await store.get('reset_lock', { type: 'json' });
+    if (khoa && nowMs - Number(khoa) < 90000) return json(503, { error: 'Đang đặt lại dữ liệu, gửi lại sau' });
+  } catch { /* không đọc được khoá -> xử lý bình thường */ }
+
+  const [events0, log0] = await Promise.all([
+    store.get('events', { type: 'json' }).catch(() => null),
+    store.get('camera_log', { type: 'json' }).catch(() => null),
+  ]);
+  let events = Array.isArray(events0) ? events0 : [];
+  const log = Array.isArray(log0) ? log0 : [];
+  const uuidDaXuLy = new Set(log.map((l) => l.uuid).filter(Boolean));
+
+  const ketQuaTraVe = [];
+  let coSuKienMoi = false;
+  const luot = goi.luot || [];
+  if (luot.length === 0) {
+    log.push({ time: new Date(nowMs).toISOString(), contentType: goi.dang, nhanDangDuoc: false, ketQua: 'loi', thongDiep: goi.loi || 'Không tìm thấy dữ liệu biển số trong gói tin', raw: goi.raw });
+  }
+  for (const l of luot) {
+    if (l.eventType && !/anpr|vehicle|traffic/i.test(l.eventType)) continue; // nhịp tim / sự kiện khác
+    if (l.uuid && uuidDaXuLy.has(l.uuid)) { ketQuaTraVe.push({ plate: l.plate, ketQua: 'trung_uuid' }); continue; }
+    const kq = xuLyLuotDoc({ events, plate: l.plate, direction: l.direction, dateTime: l.dateTime, nowMs });
+    if (kq.suKienMoi.length) { events = [...events, ...kq.suKienMoi]; coSuKienMoi = true; }
+    if (l.uuid) uuidDaXuLy.add(l.uuid);
+    log.push({
+      time: kq.iso,
+      nhanLuc: new Date(nowMs).toISOString(),
+      contentType: goi.dang,
+      nhanDangDuoc: !!l.plate && kq.ketQua !== 'bo_qua',
+      plate: l.plate || null,
+      direction: l.direction || null,
+      confidence: l.confidence,
+      uuid: l.uuid || null,
+      ketQua: kq.ketQua,
+      thongDiep: kq.thongDiep,
+      raw: goi.dang === 'json' ? undefined : goi.raw?.slice(0, 300),
+    });
+    ketQuaTraVe.push({ plate: l.plate, direction: l.direction, ketQua: kq.ketQua, thongDiep: kq.thongDiep });
   }
 
   try {
-    const contentType = req.headers.get('content-type') || '';
-    console.log(`Content-Type: ${contentType}`);
-
-    // Kiểm tra xem Blobs có available không
-    let store;
-    try {
-      store = getStore({ name: STORE_CONFIG.main, consistency: 'strong' });
-      console.log('✓ Netlify Blobs store initialized');
-    } catch (blobErr) {
-      console.error('❌ Failed to initialize Netlify Blobs:', blobErr);
-      return new Response(JSON.stringify({
-        error: 'Storage service unavailable',
-        message: blobErr.message
-      }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    let plate = null;
-    let timestamp = Date.now();
-    let imageUrl = null;
-    let debugInfo = {};
-
-    // Phát hiện định dạng dữ liệu
-    if (contentType.includes('multipart/form-data')) {
-      // Định dạng từ camera Hikvision thực tế
-      console.log('Parsing multipart/form-data from HikCentral camera');
-      const body = await req.text();
-      const parsed = parseMultipartData(body, contentType);
-      
-      if (parsed) {
-        plate = parsed.plate;
-        timestamp = parsed.timestamp;
-        debugInfo.format = 'multipart/form-data';
-        debugInfo.xmlParsed = true;
-        console.log(`✓ Parsed from XML: ${plate}`);
-      } else {
-        console.warn('Failed to extract plate from multipart data');
-        debugInfo.format = 'multipart/form-data';
-        debugInfo.xmlParsed = false;
-        return new Response(JSON.stringify({
-          error: 'Could not extract license plate from XML',
-          debug: debugInfo
-        }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    } else if (contentType.includes('application/json')) {
-      // Định dạng JSON (hỗ trợ để test)
-      console.log('Parsing JSON format');
-      let body;
-      try {
-        body = await req.json();
-      } catch {
-        body = {};
-      }
-      plate = body.plate || null;
-      timestamp = body.timestamp || Date.now();
-      imageUrl = body.imageUrl || null;
-      debugInfo.format = 'json';
-      
-      if (!plate) {
-        console.warn('Plate number missing in JSON body');
-        return new Response(JSON.stringify({ error: 'Plate number required' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    } else {
-      // Định dạng không được hỗ trợ
-      console.error(`Unsupported Content-Type: ${contentType}`);
-      return new Response(JSON.stringify({
-        error: 'Unsupported Media Type',
-        expected: 'multipart/form-data or application/json'
-      }), {
-        status: 415,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    if (!plate) {
-      console.error('No plate number found');
-      return new Response(JSON.stringify({ error: 'Plate number required', debug: debugInfo }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Kiểm tra reset lock
-    let resetLock = null;
-    try {
-      resetLock = await store.get('reset_lock');
-    } catch (e) {
-      console.error('Error reading reset_lock:', e);
-    }
-    
-    if (resetLock && parseInt(resetLock) > Date.now()) {
-      console.log('Reset in progress, returning 409');
-      return new Response(JSON.stringify({ error: 'Reset in progress, please retry' }), {
-        status: 409,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Đọc danh sách events hiện tại
-    let events = [];
-    try {
-      const eventsData = await store.get('events', { type: 'json' });
-      events = eventsData ? eventsData : [];
-    } catch (e) {
-      console.error('Error reading events:', e);
-      events = [];
-    }
-
-    // Tạo event mới
-    const newEvent = {
-      id: `camera_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      type: 'gate_in',
-      plate: plate.toUpperCase().trim(),
-      source: 'camera_hikcentral',
-      // Lưu time (ISO string) thay vì timestamp (milliseconds)
-      // Thêm offset múi giờ Việt Nam
-      const vietnamOffset = 7 * 60 * 60 * 1000;
-      const vietnamTime = new Date(timestamp + vietnamOffset);
-      const isoTime = vietnamTime.toISOString();
-      time: isoTime,
-      imageUrl: imageUrl || null,
-      createdAt: Date.now(),
-      format: debugInfo.format
-    };
-
-    events.push(newEvent);
-
-    // Lưu events vào Netlify Blobs
-    try {
-      await store.setJSON('events', events);
-      console.log(`✓ Event saved successfully: ${newEvent.plate} (ID: ${newEvent.id})`);
-    } catch (e) {
-      console.error('Error saving events to store:', e);
-      return new Response(JSON.stringify({
-        error: 'Failed to save event',
-        message: e.message
-      }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Cập nhật camera log
-    try {
-      let cameraLog = [];
-      try {
-        const cameraLogData = await store.get('camera_log', { type: 'json' });
-        cameraLog = cameraLogData ? cameraLogData : [];
-      } catch (e) {
-        console.error('Error reading camera_log:', e);
-        cameraLog = [];
-      }
-      
-      cameraLog.push({
-        time: isoTime,
-        plate: newEvent.plate,
-        status: 'success',
-        imageUrl: imageUrl || null,
-        format: debugInfo.format
-      });
-
-      // Giữ lại tối đa 1000 bản ghi
-      if (cameraLog.length > 1000) {
-        cameraLog = cameraLog.slice(-1000);
-      }
-
-      await store.setJSON('camera_log', cameraLog);
-      console.log(`✓ Camera log updated: ${cameraLog.length} records`);
-    } catch (logErr) {
-      console.error('Error saving camera log:', logErr);
-      // Không return lỗi ở đây, vì log là phụ
-    }
-
-    console.log(`[${new Date().toISOString()}] ✓ Webhook processed successfully for ${newEvent.plate}`);
-    return new Response(JSON.stringify({
-      success: true,
-      eventId: newEvent.id,
-      plate: newEvent.plate,
-      message: 'Vehicle recorded successfully'
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    console.error('Webhook error:', error);
-    return new Response(JSON.stringify({
-      error: 'Failed to process webhook',
-      message: error.message
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    if (coSuKienMoi) await store.setJSON('events', events);
+  } catch (e) {
+    // Trả lỗi để chương trình cầu nối / camera gửi lại lần sau
+    return json(500, { error: 'Không lưu được sự kiện', message: e.message });
   }
+  try { await store.setJSON('camera_log', log.slice(-SO_LOG_TOI_DA)); } catch { /* log là phụ */ }
+
+  return json(200, { ok: true, ketQua: ketQuaTraVe });
 };

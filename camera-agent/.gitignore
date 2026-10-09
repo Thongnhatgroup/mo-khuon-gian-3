@@ -2,3 +2,8 @@ config.json
 node_modules/
 *.traineddata
 package-lock.json
+
+# Cau noi ISAPI: file cau hinh co mat khau camera + du lieu tam tren may tai mo
+cau-hinh-camera.json
+hang-doi-chua-gui.json
+nhat-ky-camera.log*

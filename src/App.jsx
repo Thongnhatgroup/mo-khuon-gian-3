@@ -1257,6 +1257,23 @@ function GateScreen({ events, addEvent, addEvents }) {
   const canBoSung = homNay.filter((e) => e.needsManualPlate);
   const daXacDinh = homNay.filter((e) => !e.needsManualPlate);
   const xeRaHomNay = events.filter((e) => e.type === 'gate_out' && dayStrOf(e.time) === today);
+  // (Bổ sung 09/10 — yêu cầu Chủ tịch HĐQT) Camera ANPR tự ghi nhận xe RA cổng
+  // (chiều "forward", đọc biển ĐẦU) — xem netlify/lib/camera-logic.js.
+  const camXeRaHomNay = xeRaHomNay.filter((e) => e.source === 'camera_hikcentral');
+  const daXuLyChoGhep = new Set(events.filter((e) => e.type === 'camera_xe_ra_da_xu_ly').map((e) => e.pendingId));
+  const camChoGhep = events
+    .filter((e) => e.type === 'camera_xe_ra_cho_ghep' && !daXuLyChoGhep.has(e.id) && Date.now() - new Date(e.time).getTime() < 3 * 24 * 3600 * 1000)
+    .sort(compareTime);
+  const [chonDuoiChoGhep, setChonDuoiChoGhep] = useState({}); // {pendingId: gateInId}
+  // Trạng thái chương trình cầu nối camera (camera-agent/isapi-agent.js tự báo 60 giây/lần)
+  const [camStatus, setCamStatus] = useState(null);
+  useEffect(() => {
+    let huy = false;
+    const tai = async () => { const s = await storageGet('camera_status', true, null); if (!huy) setCamStatus(s); };
+    tai(); const t = setInterval(tai, 30000);
+    return () => { huy = true; clearInterval(t); };
+  }, []);
+  const camStatusMoi = camStatus?.capNhatLuc && Date.now() - new Date(camStatus.capNhatLuc).getTime() < 3 * 60 * 1000;
 
   const canhBaoXeLa = events.filter((e) => e.type === 'missing_plate_alert' && !events.some((r) => r.type === 'missing_plate_resolved' && r.alertId === e.id));
 
@@ -1301,6 +1318,35 @@ function GateScreen({ events, addEvent, addEvents }) {
     addEvent({ id: genId('GO'), type: 'gate_out', plate: gateIn.plate, coHang: false, ghiChu: (ghiChuKhongHang[gateIn.id] || '').trim(), time: new Date().toISOString() });
     notify(`Đã ghi nhận xe ${gateIn.plate} ra cổng (không có hàng)`);
   };
+  // Camera thấy xe RA (biển đầu) nhưng chưa biết thuộc biển đuôi nào -> Bảo vệ
+  // chọn 1 lần. Phần mềm lưu biển đầu vào lượt ra (bienSoDauXe) để các lần sau
+  // máy chủ tự ghép (tự "học"), không cần chọn lại.
+  const ungVienChoGhep = (p) => {
+    const truoc = dangTrongMo.filter((g) => g.time < p.time);
+    const goiY = new Set(p.goiY || []);
+    return [...truoc.filter((g) => goiY.has(g.plate)), ...truoc.filter((g) => !goiY.has(g.plate))];
+  };
+  const xacNhanChoGhep = (p) => {
+    const ds = ungVienChoGhep(p);
+    const gateIn = ds.find((g) => g.id === chonDuoiChoGhep[p.id]) || (ds.length === 1 ? ds[0] : null);
+    if (!gateIn) return notify('Chọn biển ĐUÔI của xe vừa ra cổng', true);
+    const ve = veTheoXeDaXuc(gateIn.plate, gateIn.time);
+    const now = new Date().toISOString();
+    addEvents([
+      {
+        id: genId('GO'), type: 'gate_out', plate: gateIn.plate, gateInId: gateIn.id, bienSoDauXe: p.plateDau,
+        source: 'camera_hikcentral', cachGhep: 'bao_ve_xac_nhan', coHang: !!ve,
+        ...(ve ? { ticketId: ve.id, ticketNo: ve.ticketNo } : { ghiChu: 'Camera ghi nhận ra cổng — chưa có phiếu xúc hàng' }),
+        time: p.time > gateIn.time ? p.time : now,
+      },
+      { id: genId('CXX'), type: 'camera_xe_ra_da_xu_ly', pendingId: p.id, plate: gateIn.plate, plateDau: p.plateDau, time: now },
+    ]);
+    notify(`Đã ghi nhận xe ${gateIn.plate} (đầu ${p.plateDau}) ra cổng — lần sau camera sẽ tự ghép`);
+  };
+  const boQuaChoGhep = (p) => {
+    addEvent({ id: genId('CXX'), type: 'camera_xe_ra_da_xu_ly', pendingId: p.id, plateDau: p.plateDau, boQua: true, time: new Date().toISOString() });
+    notify(`Đã bỏ qua lượt camera đọc ${p.plateDau}`);
+  };
 
   // Nhập tay biển số khác — dùng cho trường hợp đặc biệt (xe không có trong 2
   // danh sách trên, VD: dữ liệu vào cổng bị thiếu). Giữ lại cơ chế đối chiếu +
@@ -1322,24 +1368,46 @@ function GateScreen({ events, addEvent, addEvents }) {
   return (
     <div className="max-w-lg mx-auto p-4">
       <h1 className="text-xl font-bold text-white mt-2">🚧 Cổng vào / ra mỏ</h1>
-      <p className="text-slate-400 text-sm mb-4">Nhận biển số xe từ Camera HikCentral (tự động) — nhập tay/chụp ảnh chỉ dùng khi cần bổ sung.</p>
+      <p className="text-slate-400 text-sm mb-4">Camera ANPR tự động ghi nhận xe VÀO (biển đuôi) và xe RA (biển đầu) — nhập tay/chụp ảnh chỉ dùng khi cần bổ sung.</p>
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
-        {camHikStats.last ? (
+        {/* (Bổ sung 09/10) Trạng thái chương trình cầu nối camera ANPR (isapi-agent.js) */}
+        {camStatus ? (
+          <div className={`rounded-lg p-3 mb-2 border ${camStatusMoi && camStatus.ketNoiCamera ? 'bg-emerald-900/20 border-emerald-600/50' : camStatusMoi ? 'bg-amber-900/20 border-amber-600/50' : 'bg-red-900/20 border-red-600/50'}`}>
+            <div className={`text-xs font-bold ${camStatusMoi && camStatus.ketNoiCamera ? 'text-emerald-400' : camStatusMoi ? 'text-amber-400' : 'text-red-400'}`}>
+              {camStatusMoi && camStatus.ketNoiCamera ? `🟢 Cầu nối camera: đang kết nối camera ${camStatus.cameraIp || ''}${camStatus.congIsapi ? ` (cổng ${camStatus.congIsapi})` : ''}`
+                : camStatusMoi ? `🟠 Cầu nối đang chạy nhưng CHƯA kết nối được camera: ${camStatus.thongDiep || ''}`
+                : `🔴 Cầu nối camera không hoạt động — báo lần cuối lúc ${gioVN(camStatus.capNhatLuc)}. Kiểm tra máy tính chạy cầu nối tại mỏ.`}
+            </div>
+            <div className="text-slate-400 text-[11px] mt-0.5">
+              Hôm nay camera ghi nhận: <b className="text-white">{camHikStats.homNayCount}</b> xe vào · <b className="text-white">{camXeRaHomNay.length}</b> xe ra · <b className={camChoGhep.length ? 'text-amber-400' : 'text-white'}>{camChoGhep.length}</b> chờ ghép biển
+              {camHikStats.last && <> · gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)}</>}
+            </div>
+          </div>
+        ) : camHikStats.last ? (
           <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
-            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera (Cách 2, Cách 3, hoặc HikCentral tự gửi)</div>
-            <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} lượt hôm nay</div>
+            <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera</div>
+            <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} xe vào · {camXeRaHomNay.length} xe ra hôm nay</div>
           </div>
         ) : (
-          <p className="text-slate-500 text-xs mb-2">Chưa từng nhận dữ liệu qua Camera — Bảo vệ vẫn ghi nhận xe vào cổng bằng tay bình thường ở khu vực bên dưới.</p>
+          <p className="text-slate-500 text-xs mb-2">Chưa nhận dữ liệu từ Camera — cần chạy chương trình cầu nối <b>isapi-agent.js</b> trên 1 máy tính trong mạng nội bộ mỏ (xem hướng dẫn bên dưới). Trong lúc chờ, Bảo vệ vẫn ghi nhận bằng tay bình thường.</p>
         )}
         <button onClick={() => setXemKhoiHuongDanCamera(!xemKhoiHuongDanCamera)} className="w-full flex items-center justify-center gap-1.5 text-brand-400 text-xs font-semibold underline py-1">
           {xemKhoiHuongDanCamera ? '▲ Ẩn hướng dẫn kết nối Camera' : '▾ Xem hướng dẫn kết nối Camera (chỉ cần khi lắp mới / khắc phục sự cố)'}
         </button>
         {xemKhoiHuongDanCamera && (
         <div className="mt-2">
-        <p className="text-slate-400 text-xs mb-2">Lấy biển số xe từ hệ thống camera HikCentral Professional của mỏ, nạp vào đây làm nguồn ghi nhận xe vào cổng.</p>
+        <div className="bg-emerald-900/20 border border-emerald-600/40 rounded-lg p-3 mb-3 text-xs text-slate-300 leading-relaxed space-y-1.5">
+          <div className="text-emerald-400 font-bold">⭐ Cách khuyến nghị (từ 09/10): chương trình cầu nối ISAPI — kết nối thẳng camera ANPR 192.168.1.199</div>
+          <div>Tự động ghi nhận cả <b>xe VÀO</b> (camera báo chiều <b>reverse</b> — đọc biển <b>ĐUÔI</b>) và <b>xe RA</b> (chiều <b>forward</b> — đọc biển <b>ĐẦU</b>, phần mềm tự ghép với biển đuôi). Bảo vệ không cần thao tác; chỉ khi camera gặp biển đầu lần đầu, Bảo vệ chọn biển đuôi 1 lần ở mục "Camera thấy xe RA — chờ ghép biển đuôi".</div>
+          <div><b className="text-white">B1.</b> Trên 1 máy tính Windows trong mạng nội bộ mỏ (luôn bật): cài Node.js bản LTS tại <a className="text-brand-400 underline" href="https://nodejs.org" target="_blank" rel="noreferrer">nodejs.org</a>.</div>
+          <div><b className="text-white">B2.</b> Tải thư mục <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">camera-agent</a> (nút "Code" → "Download ZIP"), giải nén.</div>
+          <div><b className="text-white">B3.</b> Bấm đúp <code>Kiem-tra-ket-noi-camera.bat</code> — lần đầu nhập IP, tên đăng nhập, mật khẩu camera (mật khẩu chỉ lưu trên máy đó, không đưa lên Internet). Phải thấy 2 dòng [OK].</div>
+          <div><b className="text-white">B4.</b> Bấm đúp <code>Chay-camera-ISAPI.bat</code> để chạy, và <code>Cai-tu-chay-khi-bat-may.bat</code> để tự chạy khi bật máy. Khung trạng thái phía trên sẽ chuyển 🟢.</div>
+          <div className="text-slate-500">Lưu ý: ISAPI thường ở cổng 80 (HTTP); cổng 8000 của Hikvision thường là cổng SDK riêng — chương trình tự thử 80 → 8000 → 443. Chưa thử trên camera thật tại mỏ — nếu báo lỗi, chụp màn hình cửa sổ chương trình gửi lại để chỉnh.</div>
+        </div>
+        <p className="text-slate-400 text-xs mb-2">Các cách cũ dưới đây chỉ dùng khi không chạy được cách trên.</p>
         <button onClick={() => setXemHuongDanTruocTien(!xemHuongDanTruocTien)} className="text-brand-400 text-xs underline mb-2">{xemHuongDanTruocTien ? 'Ẩn' : 'Xem'} hướng dẫn kết nối (nên thử trước tiên)</button>
         {xemHuongDanTruocTien && (
           <div className="bg-emerald-900/20 border border-emerald-600/40 rounded-lg p-3 mb-3 text-xs text-slate-300 leading-relaxed">
@@ -1424,12 +1492,13 @@ function GateScreen({ events, addEvent, addEvents }) {
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {logCamera.map((l, i) => (
                 <div key={i} className="bg-slate-950 border border-slate-700 rounded-lg p-2 text-[11px]">
-                  <div className="text-slate-400">{gioVN(l.time)} · {l.contentType || '(không rõ content-type)'}</div>
-                  <div className={l.nhanDangDuoc ? 'text-emerald-400 font-bold' : 'text-red-400'}>{l.nhanDangDuoc ? `Đã nhận diện được biển số: ${l.plate || ''}` : 'KHÔNG nhận diện được biển số'}</div>
-                  {l.direction && (l.direction === 'reverse'
-                    ? <div className="text-slate-400">Chiều (Driving Direction): {l.direction}</div>
-                    : <div className="text-amber-400">Chiều (Driving Direction): {l.direction} — <span className="font-semibold">BỎ QUA</span> (chỉ ghi nhận chiều "reverse")</div>)}
-                  <div className="text-slate-500 mt-1 break-all">{l.raw?.slice(0, 300)}</div>
+                  <div className="text-slate-400">{gioVN(l.time)} · {l.plate || '(không đọc được)'}{l.direction ? ` · chiều ${l.direction}` : ''}{l.confidence != null ? ` · tin cậy ${l.confidence}` : ''}</div>
+                  {l.thongDiep ? (
+                    <div className={l.ketQua === 'xe_vao' || l.ketQua === 'xe_ra' ? 'text-emerald-400 font-bold' : l.ketQua === 'cho_ghep' ? 'text-amber-400 font-semibold' : l.ketQua === 'loi' ? 'text-red-400' : 'text-slate-400'}>{l.thongDiep}</div>
+                  ) : (
+                    <div className={l.nhanDangDuoc ? 'text-emerald-400 font-bold' : 'text-red-400'}>{l.nhanDangDuoc ? `Đã nhận diện được biển số: ${l.plate || ''}` : 'KHÔNG nhận diện được biển số'}</div>
+                  )}
+                  {l.raw && <div className="text-slate-500 mt-1 break-all">{l.raw.slice(0, 300)}</div>}
                 </div>
               ))}
             </div>
@@ -1484,6 +1553,53 @@ function GateScreen({ events, addEvent, addEvents }) {
         {photo && <img src={photo} alt="ảnh xe" className="rounded-lg mb-2 max-h-32" />}
         <button onClick={() => ghiNhan()} className="w-full mt-1 bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg">✅ Xác nhận xe vào cổng</button>
       </Card>
+
+      {camChoGhep.length > 0 && (
+        <Card className="mt-4 border-amber-500">
+          <div className="font-bold text-amber-400 text-sm mb-1 flex items-center gap-1.5"><Camera className="w-4 h-4" /> Camera thấy xe RA — chờ ghép biển đuôi ({camChoGhep.length})</div>
+          <p className="text-slate-400 text-xs mb-2">Camera đọc được biển ĐẦU xe khi ra cổng nhưng chưa biết thuộc biển ĐUÔI nào. Chọn đúng biển đuôi 1 lần — từ lần sau xe này ra cổng phần mềm sẽ tự ghi nhận.</p>
+          <div className="divide-y divide-slate-700">
+            {camChoGhep.map((p) => {
+              const ds = ungVienChoGhep(p);
+              return (
+                <div key={p.id} className="py-2.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div><span className="text-white font-bold tabular-nums">Đầu: {p.plateDau}</span><span className="text-slate-500 text-[11px]"> · ra lúc {gioVN(p.time)}</span></div>
+                    <button onClick={() => boQuaChoGhep(p)} className="text-slate-400 hover:text-white text-[11px] underline flex-shrink-0">Bỏ qua (không phải xe chở đất)</button>
+                  </div>
+                  {p.lyDo && <div className="text-slate-500 text-[11px]">{p.lyDo}</div>}
+                  {ds.length === 0 ? (
+                    <div className="text-slate-500 text-xs mt-1">Không có xe nào đang trong mỏ vào trước thời điểm này để ghép.</div>
+                  ) : (
+                    <div className="flex gap-2 mt-1.5">
+                      <select value={chonDuoiChoGhep[p.id] || (ds.length === 1 ? ds[0].id : '')} onChange={(e) => setChonDuoiChoGhep((s) => ({ ...s, [p.id]: e.target.value }))}
+                        className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm">
+                        {ds.length > 1 && <option value="">— Chọn biển ĐUÔI —</option>}
+                        {ds.map((g) => <option key={g.id} value={g.id}>{g.plate} (vào {gioVN(g.time)}){(p.goiY || []).includes(g.plate) ? ' — gợi ý' : ''}</option>)}
+                      </select>
+                      <button onClick={() => xacNhanChoGhep(p)} className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex-shrink-0">Xác nhận ra</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {camXeRaHomNay.length > 0 && (
+        <Card className="mt-4 border-emerald-600/50">
+          <div className="font-bold text-white text-sm mb-1">📷 Camera đã tự ghi nhận xe RA hôm nay ({camXeRaHomNay.length})</div>
+          <div className="divide-y divide-slate-700 max-h-56 overflow-y-auto">
+            {camXeRaHomNay.map((o) => (
+              <div key={o.id} className="py-1.5 text-xs flex justify-between gap-2">
+                <span><b className="text-white tabular-nums">{o.plate}</b>{o.bienSoDauXe && o.bienSoDauXe !== o.plate ? <span className="text-slate-500"> (đầu {o.bienSoDauXe})</span> : null}</span>
+                <span className={o.coHang ? 'text-emerald-400' : 'text-amber-400'}>{gioVN(o.time)} · {o.coHang ? `phiếu ${o.ticketNo || ''}` : 'không có hàng'}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card className="mt-4 border-emerald-600/50">
         <div className="font-bold text-white text-sm mb-1">🚪 Xe ra cổng — ĐÃ XÚC HÀNG ({xeDaXucHang.length})</div>
@@ -4143,6 +4259,7 @@ const NHAN_LOAI_SU_KIEN = {
   phieu_lai_xe_ky: 'Lái xe ký nhận phiếu', customer_deposit: 'Khách hàng thanh toán',
   dang_ky_xe_khach_hang: 'Đăng ký/điều chuyển biển số',
   bo_sung_cong_no_coi_noi: 'Bổ sung công nợ (cơi nới thùng)',
+  camera_xe_ra_cho_ghep: 'Camera thấy xe ra (chờ ghép biển)', camera_xe_ra_da_xu_ly: 'Bảo vệ ghép biển đầu/đuôi xe ra',
 };
 function NhatKyHoatDong({ events }) {
   const [tuNgay, setTuNgay] = useState(todayStr());

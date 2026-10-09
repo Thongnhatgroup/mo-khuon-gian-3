@@ -6,7 +6,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "doc-man-hinh": "node doc-man-hinh.js"
+    "doc-man-hinh": "node doc-man-hinh.js",
+    "camera-isapi": "node isapi-agent.js",
+    "kiem-tra-camera": "node isapi-agent.js --kiem-tra"
   },
   "engines": {
     "node": ">=18"

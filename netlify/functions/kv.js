@@ -82,7 +82,28 @@ export default async (req) => {
     try { body = await req.json(); } catch { return json(400, { error: 'Body không hợp lệ' }); }
     const { key, value } = body || {};
     if (!key) return json(400, { error: 'Thiếu tham số key' });
-    await store.setJSON(key, value);
+    let giaTriGhi = value;
+    // (Bổ sung 09/10) Sự kiện do MÁY CHỦ tự tạo (camera ghi nhận xe vào/ra —
+    // đánh dấu mayChuTao: true) có thể chưa kịp tới trình duyệt khi trình duyệt
+    // ghi đè cả mảng "events" (đồng bộ 6 giây/lần). Giữ lại các sự kiện đó thay
+    // vì để bị ghi đè mất — trừ khi đang "Đặt lại dữ liệu vận hành" hoặc sự
+    // kiện được tạo TRƯỚC lần đặt lại gần nhất.
+    if (key === 'events' && Array.isArray(value) && value.length > 0) {
+      try {
+        const [hienTai, khoa, epoch] = await Promise.all([
+          store.get('events', { type: 'json' }),
+          store.get('reset_lock', { type: 'json' }),
+          store.get('data_epoch', { type: 'json' }),
+        ]);
+        const dangDatLai = khoa && Date.now() - Number(khoa) < 90000;
+        if (!dangDatLai && Array.isArray(hienTai)) {
+          const idsMoi = new Set(value.map((e) => e && e.id));
+          const thieu = hienTai.filter((e) => e && e.mayChuTao && !idsMoi.has(e.id) && (!epoch || (e.createdAt || 0) > Number(epoch)));
+          if (thieu.length) giaTriGhi = [...value, ...thieu];
+        }
+      } catch { /* đọc lỗi -> ghi như cũ */ }
+    }
+    await store.setJSON(key, giaTriGhi);
     return json(200, { ok: true });
   }
 

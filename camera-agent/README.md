@@ -1,4 +1,47 @@
-# Cầu nối camera nhận diện biển số (HikCentral Professional) → Phần mềm quản lý mỏ
+# Cầu nối camera nhận diện biển số → Phần mềm quản lý mỏ Khuôn Giàn 3
+
+## ⭐ CÁCH KHUYẾN NGHỊ (từ 09/10/2026): `isapi-agent.js` — kết nối thẳng camera ANPR 192.168.1.199
+
+Tự động ghi nhận **xe VÀO** và **xe RA** cổng, Bảo vệ không cần thao tác.
+
+| Camera báo chiều (Driving Direction) | Camera đọc được | Phần mềm ghi nhận |
+|---|---|---|
+| `reverse` | Biển **đuôi** xe | **Xe VÀO cổng** (biển đuôi) |
+| `forward` | Biển **đầu** xe | **Xe RA cổng** — tự ghép với biển đuôi đang trong mỏ |
+| `unknown` / không đọc được | — | Chỉ ghi log, bỏ qua |
+
+**Ghép biển đầu ↔ biển đuôi khi xe ra** (vì xe đầu kéo có 2 biển khác nhau):
+1. Biển đầu trùng đúng 1 xe đang trong mỏ (xe thường) → tự ghi ra.
+2. Biển đầu đã được Bảo vệ ghép trước đây (phần mềm tự "học") → tự ghi ra.
+3. Chưa biết → hiện ở mục **"Camera thấy xe RA — chờ ghép biển đuôi"** trên màn Bảo vệ,
+   Bảo vệ bấm chọn 1 lần; từ lần sau xe đó ra cổng sẽ tự động.
+
+### Cài đặt (làm 1 lần, trên 1 máy Windows trong mạng nội bộ mỏ, luôn bật)
+1. Cài **Node.js bản LTS** (nodejs.org — Next/Next/Finish).
+2. Tải thư mục `camera-agent` (GitHub → Code → Download ZIP), giải nén ra ví dụ `C:\camera-agent`.
+3. Bấm đúp **`Kiem-tra-ket-noi-camera.bat`**. Lần đầu chương trình hỏi IP camera, tên đăng
+   nhập, **mật khẩu camera** → lưu vào file `cau-hinh-camera.json` **chỉ nằm trên máy này**
+   (không đưa lên GitHub/Internet). Kết quả phải có 2 dòng `[OK]`: camera và phần mềm.
+4. Bấm đúp **`Chay-camera-ISAPI.bat`** — để cửa sổ chạy; mỗi xe qua cổng sẽ hiện 1 dòng.
+5. Bấm đúp **`Cai-tu-chay-khi-bat-may.bat`** để tự chạy mỗi khi bật máy.
+6. Mở phần mềm → màn Bảo vệ: khung trạng thái hiện **"Cầu nối camera: đang kết nối"**.
+
+### Lưu ý kỹ thuật
+- **Cổng ISAPI**: ISAPI là giao thức web, thường chạy ở cổng **80** (HTTP) hoặc **443** (HTTPS).
+  Cổng **8000** của Hikvision thường là cổng SDK riêng, không phải ISAPI. Chương trình tự thử
+  lần lượt 80 → 8000 → 443 và dùng cổng trả lời đúng (sửa danh sách ở `cacCongThu`).
+- Mất Internet: lượt xe được giữ trong `hang-doi-chua-gui.json`, có mạng tự gửi bù (giữ đúng giờ camera).
+- Mất kết nối camera / quá 2 phút không có nhịp tim: tự kết nối lại.
+- Nhật ký chạy: `nhat-ky-camera.log`.
+- Tăng bảo mật (khuyến nghị): đặt biến môi trường `CAMERA_WEBHOOK_KEY` trên Netlify (Site
+  configuration → Environment variables) và điền đúng giá trị đó vào `khoaBaoMat` trong
+  `cau-hinh-camera.json` — khi đó chỉ chương trình cầu nối mới gửi được dữ liệu xe lên.
+- Trong cấu hình camera phải bật **nhận diện cả 2 chiều** (không lọc bỏ chiều forward/reverse).
+
+---
+
+## Các cách cũ (chỉ dùng khi không chạy được cách trên)
+
 
 Thư mục này chứa **2 chương trình nhỏ độc lập** (chọn dùng 1 trong 2), chạy trên **1 máy
 tính đặt trong mạng nội bộ của mỏ** (khác với phần mềm chính đang chạy trên Netlify), có
