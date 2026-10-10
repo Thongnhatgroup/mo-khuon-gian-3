@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const PHIEN_BAN = '1.2.1 (10/10/2026)';
+const PHIEN_BAN = '1.2.2 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -87,6 +87,7 @@ function hoi(cauHoi, macDinh) {
   return new Promise((resolve) => rl.question(`${cauHoi}${macDinh ? ` [${macDinh}]` : ''}: `, (tl) => { rl.close(); resolve((tl || '').trim() || macDinh || ''); }));
 }
 
+let daSuaCauHinhCu = false;
 async function docCauHinh() {
   let ch = {};
   if (fs.existsSync(FILE_CAU_HINH)) {
@@ -96,6 +97,13 @@ async function docCauHinh() {
     }
   }
   ch = { ...MAC_DINH, ...ch };
+  // (10/10) Tự sửa cấu hình cũ: bản trước chỉ có .199 (thực tế thiết bị gửi biển
+  // số là .251) và có máy đã lỡ nhập địa chỉ IP vào ô mật khẩu.
+  if (String(ch.cameraIp).trim() === '192.168.1.199') { ch.cameraIp = '192.168.1.199,192.168.1.251'; daSuaCauHinhCu = true; }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(String(ch.matKhau || '').trim())) {
+    console.log('\n  !! Mật khẩu camera đang lưu lại là 1 ĐỊA CHỈ IP (nhập nhầm ở lần cài trước) — cần nhập lại.');
+    ch.matKhau = '';
+  }
   if (!ch.matKhau || /NHAP_MAT_KHAU/i.test(ch.matKhau)) {
     console.log('\n=== CÀI ĐẶT LẦN ĐẦU — nhập thông tin camera (bấm Enter để giữ giá trị trong ngoặc) ===');
     ch.cameraIp = await hoi('Địa chỉ IP camera (nhiều địa chỉ cách nhau dấu phẩy)', ch.cameraIp);
@@ -111,6 +119,7 @@ async function docCauHinh() {
     log.ok(`Đã lưu cấu hình vào ${path.basename(FILE_CAU_HINH)} (chỉ nằm trên máy này).`);
   }
   if (!Array.isArray(ch.cacCongThu) || !ch.cacCongThu.length) ch.cacCongThu = MAC_DINH.cacCongThu;
+  if (daSuaCauHinhCu) { try { fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2)); log.info('Đã tự thêm địa chỉ camera 192.168.1.251 vào cấu hình.'); } catch { /* bỏ qua */ } }
   return ch;
 }
 
@@ -446,7 +455,7 @@ async function chayLienTuc(ch) {
 async function kiemTra(ch) {
   console.log('\n=== KIỂM TRA KẾT NỐI ===');
   let datCamera = false; let datPhanMem = false;
-  for (let lanThu = 0; lanThu < 3 && !datCamera; lanThu++) {
+  for (let lanThu = 0; lanThu < 4 && !datCamera; lanThu++) {
     let saiMatKhau = false;
     for (const ip of dsCamera(ch)) {
       try {
@@ -454,6 +463,16 @@ async function kiemTra(ch) {
         datCamera = true;
         log.ok(`Camera ${ip}: kết nối ISAPI được ở cổng ${tb.cong} · ${tb.ten || ''} · model ${tb.model} · firmware ${tb.firmware}`);
       } catch (e) { log.err(`Camera ${ip}: ${e.message}`); if (/401/.test(e.message)) saiMatKhau = true; }
+    }
+    // (10/10) Không địa chỉ nào mở cổng web -> có thể nhập sai địa chỉ camera
+    if (!datCamera && !saiMatKhau && process.stdin.isTTY) {
+      console.log('\n  >> Không địa chỉ nào ở trên là camera (ping được nhưng từ chối kết nối, hoặc không trả lời).');
+      console.log('     Dữ liệu thực tế cho thấy thiết bị gửi biển số có địa chỉ 192.168.1.251.');
+      const ipMoi = await hoi('     Gõ địa chỉ IP camera khác để thử (VD 192.168.1.251), hoặc Enter để bỏ qua', '');
+      if (!ipMoi) break;
+      ch.cameraIp = ipMoi;
+      try { fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2)); log.ok(`Đã lưu địa chỉ camera mới: ${ipMoi} — kiểm tra lại...`); } catch { /* bỏ qua */ }
+      continue;
     }
     // (10/10) Sai mật khẩu -> cho nhập lại ngay, không phải xoá file cấu hình
     if (datCamera || !saiMatKhau || !process.stdin.isTTY) break;
