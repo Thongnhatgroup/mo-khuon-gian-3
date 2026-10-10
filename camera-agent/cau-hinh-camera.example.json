@@ -1,5 +1,5 @@
 {
-  "cameraIp": "192.168.1.199",
+  "cameraIp": "192.168.1.199,192.168.1.251",
   "cacCongThu": [80, 8000, 443],
   "tenDangNhap": "admin",
   "matKhau": "NHAP_MAT_KHAU_CAMERA_TAI_DAY",

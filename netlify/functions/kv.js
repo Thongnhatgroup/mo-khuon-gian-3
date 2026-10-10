@@ -82,28 +82,38 @@ export default async (req) => {
     try { body = await req.json(); } catch { return json(400, { error: 'Body không hợp lệ' }); }
     const { key, value } = body || {};
     if (!key) return json(400, { error: 'Thiếu tham số key' });
-    let giaTriGhi = value;
-    // (Bổ sung 09/10) Sự kiện do MÁY CHỦ tự tạo (camera ghi nhận xe vào/ra —
-    // đánh dấu mayChuTao: true) có thể chưa kịp tới trình duyệt khi trình duyệt
-    // ghi đè cả mảng "events" (đồng bộ 6 giây/lần). Giữ lại các sự kiện đó thay
-    // vì để bị ghi đè mất — trừ khi đang "Đặt lại dữ liệu vận hành" hoặc sự
-    // kiện được tạo TRƯỚC lần đặt lại gần nhất.
+    // (Bổ sung 09/10, sửa 10/10) Sự kiện do MÁY CHỦ tự tạo (camera ghi nhận xe
+    // vào/ra — đánh dấu mayChuTao: true) có thể chưa kịp tới trình duyệt khi
+    // trình duyệt ghi đè cả mảng "events" (đồng bộ 6 giây/lần). Giữ lại các sự
+    // kiện đó thay vì để bị ghi đè mất — trừ khi đang "Đặt lại dữ liệu vận
+    // hành" hoặc sự kiện được tạo TRƯỚC lần đặt lại gần nhất. Ghi có điều kiện
+    // (chỉ ghi nếu từ lúc đọc chưa có ai ghi thêm) để camera ghi đúng lúc này
+    // cũng không bị mất.
     if (key === 'events' && Array.isArray(value) && value.length > 0) {
+      let xong = false;
       try {
-        const [hienTai, khoa, epoch] = await Promise.all([
-          store.get('events', { type: 'json' }),
+        const [khoa, epoch] = await Promise.all([
           store.get('reset_lock', { type: 'json' }),
           store.get('data_epoch', { type: 'json' }),
         ]);
         const dangDatLai = khoa && Date.now() - Number(khoa) < 90000;
-        if (!dangDatLai && Array.isArray(hienTai)) {
-          const idsMoi = new Set(value.map((e) => e && e.id));
-          const thieu = hienTai.filter((e) => e && e.mayChuTao && !idsMoi.has(e.id) && (!epoch || (e.createdAt || 0) > Number(epoch)));
-          if (thieu.length) giaTriGhi = [...value, ...thieu];
+        if (!dangDatLai) {
+          for (let lan = 0; lan < 8 && !xong; lan++) {
+            const r = await store.getWithMetadata('events', { type: 'json' });
+            const hienTai = r && Array.isArray(r.data) ? r.data : [];
+            const idsMoi = new Set(value.map((e) => e && e.id));
+            const thieu = hienTai.filter((e) => e && e.mayChuTao && !idsMoi.has(e.id) && (!epoch || (e.createdAt || 0) > Number(epoch)));
+            const giaTriGhi = thieu.length ? [...value, ...thieu] : value;
+            const w = await store.setJSON('events', giaTriGhi, r && r.etag ? { onlyIfMatch: r.etag } : { onlyIfNew: true });
+            if (!w || w.modified !== false) xong = true;
+            else await new Promise((ok) => setTimeout(ok, 40 + Math.random() * 150 * (lan + 1)));
+          }
         }
-      } catch { /* đọc lỗi -> ghi như cũ */ }
+      } catch { /* lỗi đọc/ghi có điều kiện -> ghi như cũ bên dưới */ }
+      if (!xong) await store.setJSON(key, value);
+    } else {
+      await store.setJSON(key, value);
     }
-    await store.setJSON(key, giaTriGhi);
     return json(200, { ok: true });
   }
 

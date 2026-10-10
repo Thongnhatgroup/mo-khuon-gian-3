@@ -18,7 +18,7 @@
 // Bảo mật: nếu khai báo biến môi trường CAMERA_WEBHOOK_KEY trên Netlify thì
 // mọi lượt gửi phải kèm đúng khoá (header "X-Camera-Key" hoặc ?key=...).
 import { getStore } from '@netlify/blobs';
-import { docThongTinAnpr, xuLyLuotDoc } from '../lib/camera-logic.js';
+import { docThongTinAnpr, xuLyLuotDoc, capNhatNguyenTu } from '../lib/camera-logic.js';
 
 const TEN_KHO = 'mo-khuon-gian-v6';
 const SO_LOG_TOI_DA = 300;
@@ -87,6 +87,7 @@ async function docLuotDoc(req) {
         uuid: x.uuid || x.UUID || null,
         confidence: x.confidence != null ? Number(x.confidence) : null,
         line: x.line != null ? String(x.line) : null,
+        ipAddress: x.ipAddress || x.ip || null,
         eventType: 'ANPR',
       })).filter(Boolean),
     };
@@ -131,49 +132,52 @@ export default async (req) => {
     if (khoa && nowMs - Number(khoa) < 90000) return json(503, { error: 'Đang đặt lại dữ liệu, gửi lại sau' });
   } catch { /* không đọc được khoá -> xử lý bình thường */ }
 
-  const [events0, log0] = await Promise.all([
-    store.get('events', { type: 'json' }).catch(() => null),
-    store.get('camera_log', { type: 'json' }).catch(() => null),
-  ]);
-  let events = Array.isArray(events0) ? events0 : [];
-  const log = Array.isArray(log0) ? log0 : [];
-  const uuidDaXuLy = new Set(log.map((l) => l.uuid).filter(Boolean));
+  const luot = (goi.luot || []).filter((l) => !(l.eventType && !/anpr|vehicle|traffic/i.test(l.eventType))); // bỏ nhịp tim / sự kiện khác
+  const nhanLucIso = new Date(nowMs).toISOString();
 
-  const ketQuaTraVe = [];
-  let coSuKienMoi = false;
-  const luot = goi.luot || [];
-  if (luot.length === 0) {
-    log.push({ time: new Date(nowMs).toISOString(), contentType: goi.dang, nhanDangDuoc: false, ketQua: 'loi', thongDiep: goi.loi || 'Không tìm thấy dữ liệu biển số trong gói tin', raw: goi.raw });
-  }
-  for (const l of luot) {
-    if (l.eventType && !/anpr|vehicle|traffic/i.test(l.eventType)) continue; // nhịp tim / sự kiện khác
-    if (l.uuid && uuidDaXuLy.has(l.uuid)) { ketQuaTraVe.push({ plate: l.plate, ketQua: 'trung_uuid' }); continue; }
-    const kq = xuLyLuotDoc({ events, plate: l.plate, direction: l.direction, dateTime: l.dateTime, nowMs });
-    if (kq.suKienMoi.length) { events = [...events, ...kq.suKienMoi]; coSuKienMoi = true; }
-    if (l.uuid) uuidDaXuLy.add(l.uuid);
-    log.push({
-      time: kq.iso,
-      nhanLuc: new Date(nowMs).toISOString(),
-      contentType: goi.dang,
-      nhanDangDuoc: !!l.plate && kq.ketQua !== 'bo_qua',
-      plate: l.plate || null,
-      direction: l.direction || null,
-      confidence: l.confidence,
-      uuid: l.uuid || null,
-      ketQua: kq.ketQua,
-      thongDiep: kq.thongDiep,
-      raw: goi.dang === 'json' ? undefined : goi.raw?.slice(0, 300),
-    });
-    ketQuaTraVe.push({ plate: l.plate, direction: l.direction, ketQua: kq.ketQua, thongDiep: kq.thongDiep });
-  }
+  // (Bổ sung 10/10) Lưu BẢN GỐC từng lượt đọc vào 1 khoá riêng (không bao giờ
+  // bị ghi đè) — dùng để đối soát khi nghi ngờ mất dữ liệu.
+  const ngayVN = new Date(nowMs + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  await Promise.all(luot.map((l, i) => store.setJSON(`camera_doc/${ngayVN}/${nowMs}-${i}-${Math.random().toString(36).slice(2, 7)}`, {
+    nhanLuc: nhanLucIso, dang: goi.dang, plate: l.plate || null, direction: l.direction || null,
+    dateTime: l.dateTime || null, uuid: l.uuid || null, confidence: l.confidence ?? null, ip: l.ipAddress || null,
+  }).catch(() => null)));
 
+  // Ghi sự kiện "nguyên tử": nếu 2 lượt camera (hoặc trình duyệt Bảo vệ) ghi
+  // cùng lúc thì lượt sau tự đọc lại và làm lại, không ghi đè mất của nhau.
+  let ketQuaTungLuot = [];
   try {
-    if (coSuKienMoi) await store.setJSON('events', events);
+    ketQuaTungLuot = await capNhatNguyenTu(store, 'events', (hienTai) => {
+      let events = Array.isArray(hienTai) ? hienTai : [];
+      const uuidDaCo = new Set(events.map((e) => e.cameraUuid).filter(Boolean));
+      const kq = []; let coMoi = false;
+      for (const l of luot) {
+        if (l.uuid && uuidDaCo.has(l.uuid)) { kq.push({ l, ketQua: 'trung', thongDiep: `Lượt đọc ${l.plate || ''} đã nhận trước đó (gửi lại) — bỏ qua`, iso: nhanLucIso }); continue; }
+        const r = xuLyLuotDoc({ events, plate: l.plate, direction: l.direction, dateTime: l.dateTime, uuid: l.uuid, nowMs });
+        if (r.suKienMoi.length) { events = [...events, ...r.suKienMoi]; coMoi = true; }
+        if (l.uuid) uuidDaCo.add(l.uuid);
+        kq.push({ l, ketQua: r.ketQua, thongDiep: r.thongDiep, iso: r.iso });
+      }
+      return { giaTri: coMoi ? events : undefined, ketQua: kq };
+    });
   } catch (e) {
     // Trả lỗi để chương trình cầu nối / camera gửi lại lần sau
     return json(500, { error: 'Không lưu được sự kiện', message: e.message });
   }
-  try { await store.setJSON('camera_log', log.slice(-SO_LOG_TOI_DA)); } catch { /* log là phụ */ }
+
+  const dongLog = luot.length === 0
+    ? [{ time: nhanLucIso, contentType: goi.dang, nhanDangDuoc: false, ketQua: 'loi', thongDiep: goi.loi || 'Không tìm thấy dữ liệu biển số trong gói tin', raw: goi.raw }]
+    : ketQuaTungLuot.map(({ l, ketQua, thongDiep, iso }) => ({
+      time: iso, nhanLuc: nhanLucIso, contentType: goi.dang,
+      nhanDangDuoc: !!l.plate && ketQua !== 'bo_qua',
+      plate: l.plate || null, direction: l.direction || null, confidence: l.confidence, uuid: l.uuid || null, ip: l.ipAddress || null,
+      ketQua, thongDiep,
+      raw: goi.dang === 'json' ? undefined : goi.raw?.slice(0, 300),
+    }));
+  try {
+    await capNhatNguyenTu(store, 'camera_log', (hienTai) => ({ giaTri: [...(Array.isArray(hienTai) ? hienTai : []), ...dongLog].slice(-SO_LOG_TOI_DA) }));
+  } catch { /* log là phụ */ }
+  const ketQuaTraVe = ketQuaTungLuot.map(({ l, ketQua, thongDiep }) => ({ plate: l.plate, direction: l.direction, ketQua, thongDiep }));
 
   return json(200, { ok: true, ketQua: ketQuaTraVe });
 };

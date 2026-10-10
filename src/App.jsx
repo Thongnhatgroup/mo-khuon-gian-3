@@ -1234,6 +1234,11 @@ function GateScreen({ events, addEvent, addEvents }) {
   const ghiNhan = (plateOverride) => {
     const p = (plateOverride || plate).trim().toUpperCase();
     if (!p) return notify('Vui lòng nhập biển số xe', true);
+    // (Bổ sung 10/10) Chặn nhập tay TRÙNG xe camera vừa ghi nhận (thực tế 10/10:
+    // Bảo vệ nhập lại xe camera đã ghi 1 phút trước -> xe bị tính vào mỏ 2 lần).
+    const chuan = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const daCo = dangTrongMo.find((g) => chuan(g.plate) === chuan(p) && Date.now() - new Date(g.time).getTime() < 30 * 60 * 1000);
+    if (daCo) return notify(`Xe ${daCo.plate} đã được ${daCo.source === 'camera_hikcentral' ? 'CAMERA' : 'ghi nhận'} vào cổng lúc ${gioVN(daCo.time)} và chưa ra — không cần nhập lại`, true);
     addEvent({ id: genId('GI'), type: 'gate_in', plate: p, source: 'thu_cong', loaiXe, photo: photo || null, time: new Date().toISOString() });
     setPlate(''); setPhoto(null);
     notify(`Đã ghi nhận xe ${p} vào cổng`);
@@ -1273,6 +1278,12 @@ function GateScreen({ events, addEvent, addEvents }) {
     tai(); const t = setInterval(tai, 30000);
     return () => { huy = true; clearInterval(t); };
   }, []);
+  // (Bổ sung 10/10) Đối soát nhanh: xe Bảo vệ nhập tay hôm nay mà camera KHÔNG
+  // gửi lượt vào nào cùng biển trong ±15 phút -> camera bỏ sót / gửi không tới.
+  const chuanBien = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const camVaoHomNay = events.filter((e) => e.type === 'gate_in' && e.source === 'camera_hikcentral' && dayStrOf(e.time) === today);
+  const tayVaoHomNay = events.filter((e) => e.type === 'gate_in' && e.source !== 'camera_hikcentral' && e.plate && dayStrOf(e.time) === today);
+  const camBoSotHomNay = camVaoHomNay.length === 0 ? [] : tayVaoHomNay.filter((e) => !camVaoHomNay.some((c) => chuanBien(c.plate) === chuanBien(e.plate) && Math.abs(new Date(c.time) - new Date(e.time)) < 15 * 60 * 1000));
   const camStatusMoi = camStatus?.capNhatLuc && Date.now() - new Date(camStatus.capNhatLuc).getTime() < 3 * 60 * 1000;
 
   const canhBaoXeLa = events.filter((e) => e.type === 'missing_plate_alert' && !events.some((r) => r.type === 'missing_plate_resolved' && r.alertId === e.id));
@@ -1321,17 +1332,31 @@ function GateScreen({ events, addEvent, addEvents }) {
   // Camera thấy xe RA (biển đầu) nhưng chưa biết thuộc biển đuôi nào -> Bảo vệ
   // chọn 1 lần. Phần mềm lưu biển đầu vào lượt ra (bienSoDauXe) để các lần sau
   // máy chủ tự ghép (tự "học"), không cần chọn lại.
+  // (Bổ sung 10/10) Ứng viên gồm: xe ĐANG trong mỏ (vào trước lượt camera) +
+  // xe Bảo vệ VỪA ghi ra bằng tay trong ±15 phút (thực tế Bảo vệ hay xác nhận ra
+  // ở danh sách có phiếu trước khi lượt camera tới) — ghép với xe đã ra chỉ để
+  // phần mềm HỌC biển đầu ↔ biển đuôi, không tạo thêm lượt ra.
   const ungVienChoGhep = (p) => {
     const truoc = dangTrongMo.filter((g) => g.time < p.time);
     const goiY = new Set(p.goiY || []);
-    return [...truoc.filter((g) => goiY.has(g.plate)), ...truoc.filter((g) => !goiY.has(g.plate))];
+    const tP = new Date(p.time).getTime();
+    const daRa = events
+      .filter((o) => o.type === 'gate_out' && !o.bienSoDauXe && Math.abs(new Date(o.time).getTime() - tP) < 15 * 60 * 1000)
+      .sort((a, b) => Math.abs(new Date(a.time).getTime() - tP) - Math.abs(new Date(b.time).getTime() - tP))
+      .map((o) => ({ id: o.id, plate: o.plate, time: o.time, daRa: true }));
+    return [...truoc.filter((g) => goiY.has(g.plate)), ...truoc.filter((g) => !goiY.has(g.plate)), ...daRa];
   };
   const xacNhanChoGhep = (p) => {
     const ds = ungVienChoGhep(p);
-    const gateIn = ds.find((g) => g.id === chonDuoiChoGhep[p.id]) || (ds.length === 1 ? ds[0] : null);
-    if (!gateIn) return notify('Chọn biển ĐUÔI của xe vừa ra cổng', true);
-    const ve = veTheoXeDaXuc(gateIn.plate, gateIn.time);
+    const chon = ds.find((g) => g.id === chonDuoiChoGhep[p.id]) || (ds.length === 1 ? ds[0] : null);
+    if (!chon) return notify('Chọn biển ĐUÔI của xe vừa ra cổng', true);
     const now = new Date().toISOString();
+    if (chon.daRa) {
+      addEvent({ id: genId('CXX'), type: 'camera_xe_ra_da_xu_ly', pendingId: p.id, plate: chon.plate, plateDau: p.plateDau, chiHoc: true, time: now });
+      return notify(`Đã ghép đầu ${p.plateDau} ↔ đuôi ${chon.plate} (xe đã ghi ra trước đó) — lần sau camera sẽ tự ghép`);
+    }
+    const gateIn = chon;
+    const ve = veTheoXeDaXuc(gateIn.plate, gateIn.time);
     addEvents([
       {
         id: genId('GO'), type: 'gate_out', plate: gateIn.plate, gateInId: gateIn.id, bienSoDauXe: p.plateDau,
@@ -1392,6 +1417,9 @@ function GateScreen({ events, addEvent, addEvents }) {
           </div>
         ) : (
           <p className="text-slate-500 text-xs mb-2">Chưa nhận dữ liệu từ Camera — cần chạy chương trình cầu nối <b>isapi-agent.js</b> trên 1 máy tính trong mạng nội bộ mỏ (xem hướng dẫn bên dưới). Trong lúc chờ, Bảo vệ vẫn ghi nhận bằng tay bình thường.</p>
+        )}
+        {camBoSotHomNay.length > 0 && (
+          <div className="bg-amber-900/20 border border-amber-600/50 rounded-lg p-2 mb-2 text-amber-300 text-[11px]">⚠ Hôm nay Bảo vệ phải nhập tay <b>{camBoSotHomNay.length}</b> xe vào mà camera KHÔNG gửi lên (camera đã gửi {camVaoHomNay.length} xe). Nếu con số này lớn: kiểm tra chương trình cầu nối tại mỏ và đường Internet của camera.</div>
         )}
         <button onClick={() => setXemKhoiHuongDanCamera(!xemKhoiHuongDanCamera)} className="w-full flex items-center justify-center gap-1.5 text-brand-400 text-xs font-semibold underline py-1">
           {xemKhoiHuongDanCamera ? '▲ Ẩn hướng dẫn kết nối Camera' : '▾ Xem hướng dẫn kết nối Camera (chỉ cần khi lắp mới / khắc phục sự cố)'}
@@ -1557,7 +1585,7 @@ function GateScreen({ events, addEvent, addEvents }) {
       {camChoGhep.length > 0 && (
         <Card className="mt-4 border-amber-500">
           <div className="font-bold text-amber-400 text-sm mb-1 flex items-center gap-1.5"><Camera className="w-4 h-4" /> Camera thấy xe RA — chờ ghép biển đuôi ({camChoGhep.length})</div>
-          <p className="text-slate-400 text-xs mb-2">Camera đọc được biển ĐẦU xe khi ra cổng nhưng chưa biết thuộc biển ĐUÔI nào. Chọn đúng biển đuôi 1 lần — từ lần sau xe này ra cổng phần mềm sẽ tự ghi nhận.</p>
+          <p className="text-slate-400 text-xs mb-2">Camera đọc được biển ĐẦU xe khi ra cổng nhưng chưa biết thuộc biển ĐUÔI nào. Chọn đúng biển đuôi 1 lần (kể cả xe đã xác nhận ra ở danh sách bên dưới) — từ lần sau xe này ra cổng phần mềm sẽ tự ghi nhận. Chỉ bấm "Bỏ qua" khi không phải xe chở đất.</p>
           <div className="divide-y divide-slate-700">
             {camChoGhep.map((p) => {
               const ds = ungVienChoGhep(p);
@@ -1569,13 +1597,13 @@ function GateScreen({ events, addEvent, addEvents }) {
                   </div>
                   {p.lyDo && <div className="text-slate-500 text-[11px]">{p.lyDo}</div>}
                   {ds.length === 0 ? (
-                    <div className="text-slate-500 text-xs mt-1">Không có xe nào đang trong mỏ vào trước thời điểm này để ghép.</div>
+                    <div className="text-slate-500 text-xs mt-1">Không có xe nào đang trong mỏ hoặc vừa ra cổng quanh thời điểm này để ghép.</div>
                   ) : (
                     <div className="flex gap-2 mt-1.5">
                       <select value={chonDuoiChoGhep[p.id] || (ds.length === 1 ? ds[0].id : '')} onChange={(e) => setChonDuoiChoGhep((s) => ({ ...s, [p.id]: e.target.value }))}
                         className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm">
                         {ds.length > 1 && <option value="">— Chọn biển ĐUÔI —</option>}
-                        {ds.map((g) => <option key={g.id} value={g.id}>{g.plate} (vào {gioVN(g.time)}){(p.goiY || []).includes(g.plate) ? ' — gợi ý' : ''}</option>)}
+                        {ds.map((g) => <option key={g.id} value={g.id}>{g.daRa ? `${g.plate} — ĐÃ ghi ra lúc ${gioVN(g.time)}` : `${g.plate} (vào ${gioVN(g.time)})${(p.goiY || []).includes(g.plate) ? ' — gợi ý' : ''}`}</option>)}
                       </select>
                       <button onClick={() => xacNhanChoGhep(p)} className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex-shrink-0">Xác nhận ra</button>
                     </div>

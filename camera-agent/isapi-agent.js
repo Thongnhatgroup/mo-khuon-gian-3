@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const PHIEN_BAN = '1.1.0 (10/10/2026)';
+const PHIEN_BAN = '1.2.0 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -41,7 +41,9 @@ const FILE_HANG_DOI = path.join(THU_MUC, 'hang-doi-chua-gui.json');
 const FILE_NHAT_KY = path.join(THU_MUC, 'nhat-ky-camera.log');
 
 const MAC_DINH = {
-  cameraIp: '192.168.1.199',
+  // (10/10) Dữ liệu thực tế cho thấy thiết bị gửi biển số có địa chỉ .251 —
+  // khai báo cả 2, chương trình tự kết nối địa chỉ nào trả lời đúng.
+  cameraIp: '192.168.1.199,192.168.1.251',
   // Cổng ISAPI: thông thường là cổng HTTP 80 (hoặc HTTPS 443). Cổng 8000 của
   // Hikvision thường là cổng SDK riêng (không phải ISAPI) — chương trình sẽ
   // tự thử lần lượt các cổng dưới đây và dùng cổng đầu tiên trả lời đúng.
@@ -96,7 +98,7 @@ async function docCauHinh() {
   ch = { ...MAC_DINH, ...ch };
   if (!ch.matKhau || /NHAP_MAT_KHAU/i.test(ch.matKhau)) {
     console.log('\n=== CÀI ĐẶT LẦN ĐẦU — nhập thông tin camera (bấm Enter để giữ giá trị trong ngoặc) ===');
-    ch.cameraIp = await hoi('Địa chỉ IP camera', ch.cameraIp);
+    ch.cameraIp = await hoi('Địa chỉ IP camera (nhiều địa chỉ cách nhau dấu phẩy)', ch.cameraIp);
     ch.tenDangNhap = await hoi('Tên đăng nhập camera', ch.tenDangNhap);
     ch.matKhau = await hoi('Mật khẩu camera', '');
     ch.diaChiPhanMem = await hoi('Địa chỉ nhận dữ liệu của phần mềm', ch.diaChiPhanMem);
@@ -315,24 +317,40 @@ async function baoTrangThai(ch, tt) {
     await fetch(ch.diaChiPhanMem, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(ch.khoaBaoMat ? { 'X-Camera-Key': ch.khoaBaoMat } : {}) },
-      body: JSON.stringify({ loai: 'trang_thai', phienBan: PHIEN_BAN, cameraIp: ch.cameraIp, ...tt }),
+      body: JSON.stringify({ loai: 'trang_thai', phienBan: PHIEN_BAN, ...tt }),
       signal: AbortSignal.timeout(15000),
     });
   } catch { /* lỗi mạng tạm thời — lần sau báo lại */ }
 }
 
 // ----------------------------------------------------------------------------
-// Vòng nhận sự kiện từ camera
+// Vòng nhận sự kiện từ camera — (Bổ sung 10/10) hỗ trợ NHIỀU địa chỉ camera
+// (VD "192.168.1.199,192.168.1.251"), mỗi camera 1 vòng kết nối riêng.
 // ----------------------------------------------------------------------------
-const trangThai = { ketNoiCamera: false, thongDiep: 'Đang khởi động', congIsapi: null, cameraModel: null, lanCuoiNhanSuKien: null };
-const daThayGanDay = new Map(); // chống gửi trùng trong 60 giây: "BIEN|huong" -> ms
+function dsCamera(ch) { return String(ch.cameraIp || '').split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean); }
+const trangThaiCam = {}; // ip -> { ketNoiCamera, thongDiep, congIsapi, cameraModel, lanCuoiNhanSuKien }
+const daThayGanDay = new Map(); // chống gửi trùng trong 60 giây: "BIEN|huong" -> ms (dùng chung mọi camera)
 
-function xuLySuKien(ch, text) {
+function trangThaiTongHop() {
+  const ds = Object.entries(trangThaiCam);
+  const dangNoi = ds.filter(([, t]) => t.ketNoiCamera);
+  const lanCuoi = ds.map(([, t]) => t.lanCuoiNhanSuKien).filter(Boolean).sort().pop() || null;
+  return {
+    ketNoiCamera: dangNoi.length > 0,
+    cameraIp: (dangNoi.length ? dangNoi : ds).map(([ip]) => ip).join(', '),
+    congIsapi: dangNoi.map(([, t]) => t.congIsapi).filter(Boolean).join(', ') || null,
+    cameraModel: dangNoi.map(([, t]) => t.cameraModel).filter(Boolean).join(', ') || null,
+    lanCuoiNhanSuKien: lanCuoi,
+    thongDiep: ds.map(([ip, t]) => `${ip}: ${t.ketNoiCamera ? 'đang nhận' : t.thongDiep}`).join(' | ').slice(0, 290),
+  };
+}
+
+function xuLySuKien(ch, tt, text) {
   const sk = docSuKien(text);
   if (!sk) return;
   if (/heartbeat/i.test(sk.eventType)) return; // nhịp tim
   if (!/anpr|vehicle|traffic/i.test(sk.eventType) && !sk.plate) return; // sự kiện khác, không liên quan
-  trangThai.lanCuoiNhanSuKien = new Date().toISOString();
+  tt.lanCuoiNhanSuKien = new Date().toISOString();
   const bien = String(sk.plate || '').trim();
   const huong = sk.direction || 'unknown';
   if (ch.doTinCayToiThieu && sk.confidence != null && sk.confidence < ch.doTinCayToiThieu) {
@@ -347,37 +365,38 @@ function xuLySuKien(ch, text) {
 
   const docDuoc = bien && !/^(noplate|unknown)$/i.test(bien);
   const nhan = !docDuoc ? 'không đọc được biển số' : huong === 'reverse' ? 'XE VÀO (biển đuôi)' : huong === 'forward' ? 'XE RA (biển đầu)' : 'chiều không rõ — bỏ qua';
-  log.info(`Camera đọc: ${bien || '(không đọc được)'} · ${huong} -> ${nhan}${sk.confidence != null ? ` · tin cậy ${sk.confidence}` : ''}`);
-  hangDoi.push({ plate: bien, direction: huong, dateTime: sk.dateTime, uuid: sk.uuid, confidence: sk.confidence, line: sk.line });
+  log.info(`[${ch.cameraIp}] Camera đọc: ${bien || '(không đọc được)'} · ${huong} -> ${nhan}${sk.confidence != null ? ` · tin cậy ${sk.confidence}` : ''}`);
+  hangDoi.push({ plate: bien, direction: huong, dateTime: sk.dateTime, uuid: sk.uuid, confidence: sk.confidence, line: sk.line, ipAddress: ch.cameraIp });
   luuHangDoi();
   guiHangDoi(ch);
 }
 
-async function moLuongSuKien(ch, cong) {
+async function moLuongSuKien(ch, tt, cong) {
   const uri = '/ISAPI/Event/notification/alertStream';
   const { res, req } = await yeuCauXacThuc(ch, cong, uri, { timeoutMs: 10000 });
   if (res.statusCode !== 200) {
     const body = await docHet(res).catch(() => '');
-    throw new Error(`Camera từ chối mở luồng sự kiện (mã ${res.statusCode}) ${body.slice(0, 200)}`);
+    throw new Error(`Camera ${ch.cameraIp} từ chối mở luồng sự kiện (mã ${res.statusCode}) ${body.slice(0, 200)}`);
   }
   req.setTimeout(0);
   const ct = res.headers['content-type'] || '';
   const boundary = (/boundary="?([^";]+)"?/i.exec(ct) || [])[1] || null;
-  trangThai.ketNoiCamera = true;
-  trangThai.thongDiep = `Đang nhận sự kiện từ camera ${ch.cameraIp}:${cong}`;
-  log.ok(`Đã mở luồng nhận sự kiện từ camera (${ct || 'không rõ định dạng'}). Đang chờ xe qua cổng...`);
-  baoTrangThai(ch, trangThai);
+  tt.ketNoiCamera = true;
+  tt.thongDiep = `Đang nhận sự kiện từ camera ${ch.cameraIp}:${cong}`;
+  log.ok(`[${ch.cameraIp}] Đã mở luồng nhận sự kiện (${ct || 'không rõ định dạng'}). Đang chờ xe qua cổng...`);
+  baoTrangThai(ch, trangThaiTongHop());
 
   return new Promise((resolve) => {
     let lanCuoiCoDuLieu = Date.now();
-    const bo = new BoTachLuong(boundary, (text) => xuLySuKien(ch, text));
+    const bo = new BoTachLuong(boundary, (text) => xuLySuKien(ch, tt, text));
     const kiemTra = setInterval(() => {
       if (Date.now() - lanCuoiCoDuLieu > ch.giayChoNhipTim * 1000) {
-        log.warn(`Quá ${ch.giayChoNhipTim} giây không nhận được nhịp tim từ camera — kết nối lại.`);
+        log.warn(`[${ch.cameraIp}] Quá ${ch.giayChoNhipTim} giây không nhận được nhịp tim từ camera — kết nối lại.`);
         req.destroy();
       }
     }, 10000);
-    const ket = (lyDo) => { clearInterval(kiemTra); trangThai.ketNoiCamera = false; trangThai.thongDiep = lyDo; resolve(lyDo); };
+    let daKet = false;
+    const ket = (lyDo) => { if (daKet) return; daKet = true; clearInterval(kiemTra); tt.ketNoiCamera = false; tt.thongDiep = lyDo; resolve(lyDo); };
     res.on('data', (c) => { lanCuoiCoDuLieu = Date.now(); bo.them(c); });
     res.on('end', () => ket('Camera đóng kết nối'));
     res.on('error', (e) => ket(`Lỗi luồng: ${e.message}`));
@@ -385,44 +404,52 @@ async function moLuongSuKien(ch, cong) {
   });
 }
 
-async function chayLienTuc(ch) {
+async function chayMotCamera(chGoc, ip) {
+  const ch = { ...chGoc, cameraIp: ip };
+  const tt = trangThaiCam[ip] = { ketNoiCamera: false, thongDiep: 'Đang khởi động', congIsapi: null, cameraModel: null, lanCuoiNhanSuKien: null };
   let choLai = 5;
-  setInterval(() => guiHangDoi(ch), 15000);
-  setInterval(() => baoTrangThai(ch, trangThai), 60000);
   for (;;) {
     try {
-      if (!trangThai.congIsapi) {
+      if (!tt.congIsapi) {
         const tb = await doCongIsapi(ch);
-        trangThai.congIsapi = tb.cong;
-        trangThai.cameraModel = tb.model;
-        log.ok(`Kết nối camera thành công: ${tb.ten || ''} model ${tb.model || '?'} · firmware ${tb.firmware || '?'} · cổng ISAPI ${tb.cong}`);
+        tt.congIsapi = tb.cong;
+        tt.cameraModel = tb.model;
+        log.ok(`[${ip}] Kết nối camera thành công: ${tb.ten || ''} model ${tb.model || '?'} · firmware ${tb.firmware || '?'} · cổng ISAPI ${tb.cong}`);
       }
-      const lyDo = await moLuongSuKien(ch, trangThai.congIsapi);
-      log.warn(`Mất kết nối camera: ${lyDo}. Kết nối lại sau 5 giây...`);
+      const lyDo = await moLuongSuKien(ch, tt, tt.congIsapi);
+      log.warn(`[${ip}] Mất kết nối camera: ${lyDo}. Kết nối lại sau 5 giây...`);
       choLai = 5;
     } catch (e) {
-      trangThai.ketNoiCamera = false;
-      trangThai.thongDiep = e.message.split('\n')[0];
-      log.err(e.message);
+      tt.ketNoiCamera = false;
+      tt.thongDiep = e.message.split('\n')[0];
+      log.err(`[${ip}] ${e.message}`);
       if (/401|mật khẩu/i.test(e.message)) log.err('-> Kiểm tra lại tên đăng nhập / mật khẩu trong file cau-hinh-camera.json');
-      trangThai.congIsapi = null;
-      baoTrangThai(ch, trangThai);
+      tt.congIsapi = null;
+      baoTrangThai(ch, trangThaiTongHop());
       choLai = Math.min(choLai * 2, 120);
-      log.info(`Thử lại sau ${choLai} giây...`);
+      log.info(`[${ip}] Thử lại sau ${choLai} giây...`);
     }
     await new Promise((r) => setTimeout(r, choLai * 1000));
   }
 }
 
+async function chayLienTuc(ch) {
+  setInterval(() => guiHangDoi(ch), 15000);
+  setInterval(() => baoTrangThai(ch, trangThaiTongHop()), 60000);
+  await Promise.all(dsCamera(ch).map((ip) => chayMotCamera(ch, ip)));
+}
+
 async function kiemTra(ch) {
   console.log('\n=== KIỂM TRA KẾT NỐI ===');
   let datCamera = false; let datPhanMem = false;
-  try {
-    const tb = await doCongIsapi(ch);
-    datCamera = true;
-    log.ok(`Camera ${ch.cameraIp}: kết nối ISAPI được ở cổng ${tb.cong} · ${tb.ten || ''} · model ${tb.model} · firmware ${tb.firmware}`);
-    if (Number(tb.cong) !== 8000 && ch.cacCongThu.includes(8000)) log.info('(Cổng 8000 là cổng SDK riêng của Hikvision, không dùng cho ISAPI — đây là điều bình thường.)');
-  } catch (e) { log.err(e.message); }
+  for (const ip of dsCamera(ch)) {
+    try {
+      const tb = await doCongIsapi({ ...ch, cameraIp: ip });
+      datCamera = true;
+      log.ok(`Camera ${ip}: kết nối ISAPI được ở cổng ${tb.cong} · ${tb.ten || ''} · model ${tb.model} · firmware ${tb.firmware}`);
+    } catch (e) { log.err(`Camera ${ip}: ${e.message}`); }
+  }
+  if (dsCamera(ch).length > 1) log.info('(Có nhiều địa chỉ camera: chỉ cần ÍT NHẤT 1 địa chỉ đạt là chương trình hoạt động được.)');
   try {
     const res = await fetch(ch.diaChiPhanMem, { signal: AbortSignal.timeout(15000) });
     const j = await res.json().catch(() => ({}));

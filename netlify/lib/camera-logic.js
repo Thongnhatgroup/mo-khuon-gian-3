@@ -112,13 +112,14 @@ export function xeDangTrongMo(rawEvents) {
 }
 
 // Bảng "biển đầu -> các biển đuôi" đã học được từ các lần ra cổng trước.
+// (Bổ sung 10/10) Học cả từ các lượt Bảo vệ ghép "biển đầu ↔ biển đuôi" cho xe
+// ĐÃ được ghi ra cổng bằng tay trước đó (sự kiện camera_xe_ra_da_xu_ly).
 export function bangDauDuoi(events) {
   const bang = {};
+  const them = (dau, duoi) => { const k = chuanHoaBienSo(dau); (bang[k] = bang[k] || new Set()).add(duoi); };
   events.forEach((e) => {
-    if (e.type === 'gate_out' && e.bienSoDauXe && e.plate) {
-      const k = chuanHoaBienSo(e.bienSoDauXe);
-      (bang[k] = bang[k] || new Set()).add(e.plate);
-    }
+    if (e.type === 'gate_out' && e.bienSoDauXe && e.plate) them(e.bienSoDauXe, e.plate);
+    if (e.type === 'camera_xe_ra_da_xu_ly' && !e.boQua && e.plateDau && e.plate) them(e.plateDau, e.plate);
   });
   return bang;
 }
@@ -155,7 +156,7 @@ export function taoSuKienXeRa({ events, gateIn, bienDau, iso, nowMs, cachGhep })
  * Xử lý 1 lượt đọc biển số.
  * @returns {{ ketQua: string, thongDiep: string, suKienMoi: object[] }}
  */
-export function xuLyLuotDoc({ events, plate, direction, dateTime, nowMs = Date.now() }) {
+export function xuLyLuotDoc({ events, plate, direction, dateTime, uuid = null, nowMs = Date.now() }) {
   const huong = String(direction || '').toLowerCase();
   const bien = String(plate || '').trim().toUpperCase();
   const { iso, dungGioCamera } = chonThoiDiem(dateTime, nowMs);
@@ -183,6 +184,7 @@ export function xuLyLuotDoc({ events, plate, direction, dateTime, nowMs = Date.n
       loaiXe: '25m3',
       photo: null,
       huongCamera: 'reverse',
+      cameraUuid: uuid || undefined,
       mayChuTao: true,
       createdAt: nowMs,
       time: iso,
@@ -195,6 +197,17 @@ export function xuLyLuotDoc({ events, plate, direction, dateTime, nowMs = Date.n
   const daChoGanDay = events.some((e) => e.type === 'camera_xe_ra_cho_ghep' && chuanHoaBienSo(e.plateDau) === nb && ganDay(e));
   if (daRaGanDay || daChoGanDay) {
     return { ketQua: 'trung', thongDiep: `Biển ${bien} vừa được ghi nhận ra trong 10 phút gần đây — bỏ qua lượt đọc trùng`, suKienMoi: [], iso, dungGioCamera };
+  }
+
+  // (Bổ sung 10/10) Biển đầu đã học, xe tương ứng VỪA được Bảo vệ ghi ra bằng
+  // tay (trong 15 phút trước) -> lượt camera này là trùng, không đưa vào chờ ghép.
+  const duoiHoc0 = bangDauDuoi(events)[nb];
+  if (duoiHoc0) {
+    const raTay = events.find((e) => e.type === 'gate_out' && [...duoiHoc0].some((p) => chuanHoaBienSo(p) === chuanHoaBienSo(e.plate))
+      && tMs - Date.parse(e.time) >= -2 * 60000 && tMs - Date.parse(e.time) < 15 * 60000);
+    if (raTay) {
+      return { ketQua: 'trung', thongDiep: `Biển đầu ${bien} = xe ${raTay.plate} đã được ghi ra cổng lúc trước đó — bỏ qua lượt đọc trùng`, suKienMoi: [], iso, dungGioCamera };
+    }
   }
 
   const trongMo = xeDangTrongMo(events).filter((g) => g.time <= iso);
@@ -214,7 +227,7 @@ export function xuLyLuotDoc({ events, plate, direction, dateTime, nowMs = Date.n
     const bienDuoiKhacNhau = new Set(ungVien.map((g) => chuanHoaBienSo(g.plate)));
     const gateIn = ungVien[0];
     if (bienDuoiKhacNhau.size === 1 && duLau(gateIn)) {
-      const ev = taoSuKienXeRa({ events, gateIn, bienDau: bien, iso, nowMs, cachGhep });
+      const ev = { ...taoSuKienXeRa({ events, gateIn, bienDau: bien, iso, nowMs, cachGhep }), cameraUuid: uuid || undefined };
       const cach = cachGhep === 'trung_bien' ? 'trùng biển' : `biển đầu ${bien} đã học`;
       return { ketQua: 'xe_ra', thongDiep: `Đã ghi nhận xe ${gateIn.plate} RA cổng (${cach})${ev.coHang ? ` — phiếu ${ev.ticketNo || ''}` : ' — chưa có phiếu xúc'}`, suKienMoi: [ev], iso, dungGioCamera };
     }
@@ -229,9 +242,30 @@ export function xuLyLuotDoc({ events, plate, direction, dateTime, nowMs = Date.n
     plateDau: bien,
     goiY: ungVien ? ungVien.map((g) => g.plate) : [],
     lyDo,
+    cameraUuid: uuid || undefined,
     mayChuTao: true,
     createdAt: nowMs,
     time: iso,
   };
   return { ketQua: 'cho_ghep', thongDiep: `Camera thấy xe ${bien} RA cổng — ${lyDo}, chờ Bảo vệ ghép biển đuôi`, suKienMoi: [cho], iso, dungGioCamera };
+}
+
+// ---------------------------------------------------------------------------
+// (Bổ sung 10/10) Ghi "nguyên tử" lên Netlify Blobs: đọc kèm mã phiên bản
+// (etag) -> tính giá trị mới -> chỉ ghi nếu từ lúc đọc chưa ai ghi đè; nếu đã
+// có nơi khác ghi (camera gửi 2 lượt cùng lúc, trình duyệt Bảo vệ đang lưu...)
+// thì đọc lại và làm lại, KHÔNG ghi đè làm mất dữ liệu của nhau.
+// fn(giaTriHienTai) -> { giaTri, ketQua }; giaTri === undefined nghĩa là không cần ghi.
+// ---------------------------------------------------------------------------
+export async function capNhatNguyenTu(store, key, fn, soLanThu = 10) {
+  for (let lan = 0; lan < soLanThu; lan++) {
+    const r = await store.getWithMetadata(key, { type: 'json' });
+    const hienTai = r ? r.data : null;
+    const { giaTri, ketQua } = fn(hienTai);
+    if (giaTri === undefined) return ketQua;
+    const w = await store.setJSON(key, giaTri, r && r.etag ? { onlyIfMatch: r.etag } : { onlyIfNew: true });
+    if (!w || w.modified !== false) return ketQua;
+    await new Promise((ok) => setTimeout(ok, 40 + Math.random() * 120 * (lan + 1)));
+  }
+  throw new Error(`Không ghi được "${key}" sau ${soLanThu} lần (quá nhiều nơi ghi cùng lúc)`);
 }
