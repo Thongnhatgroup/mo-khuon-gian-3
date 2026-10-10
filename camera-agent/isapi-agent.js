@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const PHIEN_BAN = '1.2.3 (10/10/2026)';
+const PHIEN_BAN = '1.2.4 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -106,7 +106,12 @@ async function docCauHinh() {
   }
   if (!ch.matKhau || /NHAP_MAT_KHAU/i.test(ch.matKhau)) {
     console.log('\n=== CÀI ĐẶT LẦN ĐẦU — nhập thông tin camera (bấm Enter để giữ giá trị trong ngoặc) ===');
+    const ipHopLe = (v) => v.split(/[,;\s]+/).filter(Boolean).every((x) => /^\d{1,3}(\.\d{1,3}){3}$/.test(x));
     ch.cameraIp = await hoi('Địa chỉ IP camera (nhiều địa chỉ cách nhau dấu phẩy)', ch.cameraIp);
+    while (!ipHopLe(ch.cameraIp)) {
+      console.log('  !! Địa chỉ IP không hợp lệ (phải có dạng 192.168.1.251). Bấm Enter để dùng giá trị có sẵn.');
+      ch.cameraIp = await hoi('Địa chỉ IP camera', MAC_DINH.cameraIp);
+    }
     ch.tenDangNhap = await hoi('Tên đăng nhập camera', ch.tenDangNhap);
     ch.matKhau = await hoi('Mật khẩu camera (mật khẩu đăng nhập admin của camera, KHÔNG phải địa chỉ IP)', '');
     // Nhập giống địa chỉ IP -> nhắc 1 lần; nếu gõ lại ĐÚNG chuỗi đó lần nữa thì
