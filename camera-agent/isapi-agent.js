@@ -33,7 +33,8 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const PHIEN_BAN = '1.0.0 (09/10/2026)';
+const PHIEN_BAN = '1.1.0 (10/10/2026)';
+const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
 const FILE_HANG_DOI = path.join(THU_MUC, 'hang-doi-chua-gui.json');
@@ -415,18 +416,33 @@ async function chayLienTuc(ch) {
 
 async function kiemTra(ch) {
   console.log('\n=== KIỂM TRA KẾT NỐI ===');
+  let datCamera = false; let datPhanMem = false;
   try {
     const tb = await doCongIsapi(ch);
+    datCamera = true;
     log.ok(`Camera ${ch.cameraIp}: kết nối ISAPI được ở cổng ${tb.cong} · ${tb.ten || ''} · model ${tb.model} · firmware ${tb.firmware}`);
     if (Number(tb.cong) !== 8000 && ch.cacCongThu.includes(8000)) log.info('(Cổng 8000 là cổng SDK riêng của Hikvision, không dùng cho ISAPI — đây là điều bình thường.)');
   } catch (e) { log.err(e.message); }
   try {
     const res = await fetch(ch.diaChiPhanMem, { signal: AbortSignal.timeout(15000) });
     const j = await res.json().catch(() => ({}));
+    if (res.ok && j.ok) datPhanMem = true;
     if (res.ok && j.ok) log.ok(`Phần mềm ${ch.diaChiPhanMem}: đang hoạt động${j.canKhoa ? ' (có yêu cầu khoá bảo mật)' : ''}`);
     else log.err(`Phần mềm trả mã ${res.status}`);
   } catch (e) { log.err(`Không kết nối được phần mềm (${ch.diaChiPhanMem}): ${e.message}`); }
   console.log('=== KẾT THÚC KIỂM TRA ===\n');
+  if (datCamera && datPhanMem) console.log('>>> KẾT QUẢ: ĐẠT — có thể chạy chương trình.\n');
+  else console.log(`>>> KẾT QUẢ: CHƯA ĐẠT — ${!datCamera ? 'chưa kết nối được CAMERA' : ''}${!datCamera && !datPhanMem ? ' và ' : ''}${!datPhanMem ? 'chưa kết nối được PHẦN MỀM (Internet)' : ''}. Xem mục "Xử lý sự cố" trong hướng dẫn.\n`);
+  return datCamera && datPhanMem;
+}
+
+// Chỉ cho chạy 1 bản: giữ 1 cổng nội bộ trên máy (127.0.0.1), bản thứ 2 sẽ tự thoát.
+function giuKhoaChay1Ban() {
+  return new Promise((resolve) => {
+    const sv = require('net').createServer();
+    sv.once('error', () => resolve(false));
+    sv.listen(CONG_KHOA_CHAY_1_BAN, '127.0.0.1', () => resolve(true));
+  });
 }
 
 module.exports = { BoTachLuong, docSuKien, phanTichThachThuc, taoHeaderXacThuc };
@@ -437,7 +453,11 @@ if (require.main === module) {
     const ch = await docCauHinh();
     log.info(`Camera: ${ch.cameraIp} · thử các cổng ISAPI: ${ch.cacCongThu.join(', ')} · gửi tới: ${ch.diaChiPhanMem}`);
     if (hangDoi.length) log.info(`Có ${hangDoi.length} lượt xe chưa gửi từ lần chạy trước — sẽ gửi bù.`);
-    if (process.argv.includes('--kiem-tra')) { await kiemTra(ch); process.exit(0); }
+    if (process.argv.includes('--kiem-tra')) { const dat = await kiemTra(ch); process.exit(dat ? 0 : 2); }
+    if (!(await giuKhoaChay1Ban())) {
+      log.warn('Chương trình cầu nối ĐÃ ĐANG CHẠY ở 1 cửa sổ khác trên máy này — cửa sổ này tự đóng (không cần chạy 2 lần).');
+      process.exit(3);
+    }
     await chayLienTuc(ch);
   })().catch((e) => { log.err(e.stack || e.message); process.exit(1); });
 }

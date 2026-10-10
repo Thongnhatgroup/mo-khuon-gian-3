@@ -16,7 +16,12 @@ Tự động ghi nhận **xe VÀO** và **xe RA** cổng, Bảo vệ không cầ
 3. Chưa biết → hiện ở mục **"Camera thấy xe RA — chờ ghép biển đuôi"** trên màn Bảo vệ,
    Bảo vệ bấm chọn 1 lần; từ lần sau xe đó ra cổng sẽ tự động.
 
-### Cài đặt (làm 1 lần, trên 1 máy Windows trong mạng nội bộ mỏ, luôn bật)
+### Cài đặt nhanh (khuyến nghị)
+Bấm đúp **`CAI-DAT.bat`** — tự cài vào `C:\CauNoiCamera`, tự tải Node.js nếu thiếu, hỏi mật khẩu camera,
+kiểm tra kết nối, cài tự chạy khi bật máy và tạo biểu tượng trên màn hình. Hướng dẫn in được:
+**`HUONG-DAN-CAI-DAT.pdf`**.
+
+### Cài đặt thủ công (làm 1 lần, trên 1 máy Windows trong mạng nội bộ mỏ, luôn bật)
 1. Cài **Node.js bản LTS** (nodejs.org — Next/Next/Finish).
 2. Tải thư mục `camera-agent` (GitHub → Code → Download ZIP), giải nén ra ví dụ `C:\camera-agent`.
 3. Bấm đúp **`Kiem-tra-ket-noi-camera.bat`**. Lần đầu chương trình hỏi IP camera, tên đăng
