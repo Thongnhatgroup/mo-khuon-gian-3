@@ -1264,7 +1264,6 @@ function GateScreen({ events, addEvent, addEvents }) {
   const xeRaHomNay = events.filter((e) => e.type === 'gate_out' && dayStrOf(e.time) === today);
   // (Bổ sung 09/10 — yêu cầu Chủ tịch HĐQT) Camera ANPR tự ghi nhận xe RA cổng
   // (chiều "forward", đọc biển ĐẦU) — xem netlify/lib/camera-logic.js.
-  const camXeRaHomNay = xeRaHomNay.filter((e) => e.source === 'camera_hikcentral');
   // (Sửa 10/10) Đã BỎ việc ghép biển đầu ↔ biển đuôi khi xe ra (yêu cầu Chủ tịch HĐQT).
   // Trạng thái chương trình cầu nối camera (camera-agent/isapi-agent.js tự báo 60 giây/lần)
   const [camStatus, setCamStatus] = useState(null);
@@ -1349,7 +1348,7 @@ function GateScreen({ events, addEvent, addEvents }) {
   return (
     <div className="max-w-lg mx-auto p-4">
       <h1 className="text-xl font-bold text-white mt-2">🚧 Cổng vào / ra mỏ</h1>
-      <p className="text-slate-400 text-sm mb-4">Camera ANPR tự động ghi nhận xe VÀO (biển đuôi); xe RA Bảo vệ xác nhận ở danh sách bên dưới — nhập tay/chụp ảnh chỉ dùng khi cần bổ sung.</p>
+      <p className="text-slate-400 text-sm mb-4">Camera ANPR chỉ tự động ghi nhận xe VÀO (biển đuôi); xe RA do Bảo vệ xác nhận ở danh sách bên dưới — nhập tay/chụp ảnh chỉ dùng khi cần bổ sung.</p>
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
@@ -1362,14 +1361,14 @@ function GateScreen({ events, addEvent, addEvents }) {
                 : `🔴 Cầu nối camera không hoạt động — báo lần cuối lúc ${gioVN(camStatus.capNhatLuc)}. Kiểm tra máy tính chạy cầu nối tại mỏ.`}
             </div>
             <div className="text-slate-400 text-[11px] mt-0.5">
-              Hôm nay camera ghi nhận: <b className="text-white">{camHikStats.homNayCount}</b> xe vào · <b className="text-white">{camXeRaHomNay.length}</b> xe ra
+              Hôm nay camera ghi nhận: <b className="text-white">{camHikStats.homNayCount}</b> xe vào
               {camHikStats.last && <> · gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)}</>}
             </div>
           </div>
         ) : camHikStats.last ? (
           <div className="bg-slate-950 border border-brand-600/40 rounded-lg p-3 mb-2">
             <div className="text-brand-400 text-xs font-bold">✅ Đã từng nhận dữ liệu qua Camera</div>
-            <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} xe vào · {camXeRaHomNay.length} xe ra hôm nay</div>
+            <div className="text-slate-400 text-[11px] mt-0.5">Biển số gần nhất: <b className="text-white">{camHikStats.last.plate}</b> lúc {gioVN(camHikStats.last.time)} · {camHikStats.homNayCount} xe vào hôm nay</div>
           </div>
         ) : (
           <p className="text-slate-500 text-xs mb-2">Chưa nhận dữ liệu từ Camera — cần chạy chương trình cầu nối <b>isapi-agent.js</b> trên 1 máy tính trong mạng nội bộ mỏ (xem hướng dẫn bên dưới). Trong lúc chờ, Bảo vệ vẫn ghi nhận bằng tay bình thường.</p>
@@ -1384,7 +1383,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         <div className="mt-2">
         <div className="bg-emerald-900/20 border border-emerald-600/40 rounded-lg p-3 mb-3 text-xs text-slate-300 leading-relaxed space-y-1.5">
           <div className="text-emerald-400 font-bold">⭐ Cách khuyến nghị (từ 09/10): chương trình cầu nối ISAPI — kết nối thẳng camera ANPR 192.168.1.199</div>
-          <div>Tự động ghi nhận <b>xe VÀO</b> (camera báo chiều <b>reverse</b> — đọc biển <b>ĐUÔI</b>). <b>Xe RA</b>: không ghép biển đầu ↔ biển đuôi — camera chỉ tự ghi ra khi biển đọc được trùng đúng xe đang trong mỏ (xe thường); xe đầu kéo do Bảo vệ xác nhận ra cổng ở danh sách như trước.</div>
+          <div>Camera chỉ tự động ghi nhận <b>xe VÀO</b> (camera báo chiều <b>reverse</b> — đọc biển <b>ĐUÔI</b>). <b>Xe RA</b>: camera không ghi nhận — Bảo vệ xác nhận ra cổng ở danh sách như trước.</div>
           <div><b className="text-white">B1.</b> Trên 1 máy tính Windows trong mạng nội bộ mỏ (luôn bật): cài Node.js bản LTS tại <a className="text-brand-400 underline" href="https://nodejs.org" target="_blank" rel="noreferrer">nodejs.org</a>.</div>
           <div><b className="text-white">B2.</b> Tải thư mục <a className="text-brand-400 underline break-all" href="https://github.com/Thongnhatgroup/mo-khuon-gian-3/tree/main/camera-agent" target="_blank" rel="noreferrer">camera-agent</a> (nút "Code" → "Download ZIP"), giải nén.</div>
           <div><b className="text-white">B3.</b> Bấm đúp <code>Kiem-tra-ket-noi-camera.bat</code> — lần đầu nhập IP, tên đăng nhập, mật khẩu camera (mật khẩu chỉ lưu trên máy đó, không đưa lên Internet). Phải thấy 2 dòng [OK].</div>
@@ -1537,20 +1536,6 @@ function GateScreen({ events, addEvent, addEvents }) {
         {photo && <img src={photo} alt="ảnh xe" className="rounded-lg mb-2 max-h-32" />}
         <button onClick={() => ghiNhan()} className="w-full mt-1 bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg">✅ Xác nhận xe vào cổng</button>
       </Card>
-
-      {camXeRaHomNay.length > 0 && (
-        <Card className="mt-4 border-emerald-600/50">
-          <div className="font-bold text-white text-sm mb-1">📷 Camera đã tự ghi nhận xe RA hôm nay ({camXeRaHomNay.length})</div>
-          <div className="divide-y divide-slate-700 max-h-56 overflow-y-auto">
-            {camXeRaHomNay.map((o) => (
-              <div key={o.id} className="py-1.5 text-xs flex justify-between gap-2">
-                <span><b className="text-white tabular-nums">{o.plate}</b>{o.bienSoDauXe && o.bienSoDauXe !== o.plate ? <span className="text-slate-500"> (đầu {o.bienSoDauXe})</span> : null}</span>
-                <span className={o.coHang ? 'text-emerald-400' : 'text-amber-400'}>{gioVN(o.time)} · {o.coHang ? `phiếu ${o.ticketNo || ''}` : 'không có hàng'}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
 
       <Card className="mt-4 border-emerald-600/50">
         <div className="font-bold text-white text-sm mb-1">🚪 Xe ra cổng — ĐÃ XÚC HÀNG ({xeDaXucHang.length})</div>

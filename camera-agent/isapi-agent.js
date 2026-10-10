@@ -34,7 +34,7 @@ const path = require('path');
 const readline = require('readline');
 const os = require('os');
 
-const PHIEN_BAN = '1.3.0 (10/10/2026)';
+const PHIEN_BAN = '1.3.1 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -396,7 +396,7 @@ function xuLySuKien(ch, tt, text) {
   for (const [k, v] of daThayGanDay) if (now - v > 10 * 60000) daThayGanDay.delete(k);
 
   const docDuoc = bien && !/^(noplate|unknown)$/i.test(bien);
-  const nhan = !docDuoc ? 'không đọc được biển số' : huong === 'reverse' ? 'XE VÀO (biển đuôi)' : huong === 'forward' ? 'XE RA (biển đầu)' : 'chiều không rõ — bỏ qua';
+  const nhan = !docDuoc ? 'không đọc được biển số' : huong === 'reverse' ? 'XE VÀO (biển đuôi)' : huong === 'forward' ? 'chiều ra — chỉ ghi nhật ký (Bảo vệ xác nhận xe ra)' : 'chiều không rõ — bỏ qua';
   log.info(`[${ch.cameraIp}] Camera đọc: ${bien || '(không đọc được)'} · ${huong} -> ${nhan}${sk.confidence != null ? ` · tin cậy ${sk.confidence}` : ''}`);
   hangDoi.push({ plate: bien, direction: huong, dateTime: sk.dateTime, uuid: sk.uuid, confidence: sk.confidence, line: sk.line, ipAddress: ch.cameraIp });
   luuHangDoi();

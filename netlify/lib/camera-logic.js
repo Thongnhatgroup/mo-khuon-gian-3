@@ -6,9 +6,8 @@
 //  - Xe vào mỏ chủ yếu là xe đầu kéo: đầu xe và đuôi xe mang 2 biển số khác
 //    nhau. Chỉ ghi nhận XE VÀO bằng BIỂN ĐUÔI — tức đúng các lượt camera báo
 //    chiều di chuyển (Driving Direction / <direction>) là "reverse".
-//  - Xe RA (chiều "forward"): KHÔNG ghép biển đầu ↔ biển đuôi (đã bỏ theo
-//    yêu cầu 10/10). Chỉ tự ghi ra khi biển trùng đúng xe đang trong mỏ;
-//    còn lại Bảo vệ xác nhận ra cổng như trước.
+//  - Xe RA (chiều "forward"): camera KHÔNG ghi nhận (tắt hoàn toàn theo yêu
+//    cầu 10/10) — chỉ ghi nhật ký; Bảo vệ xác nhận xe ra cổng như trước.
 //  - Chiều "unknown"/không rõ -> chỉ ghi log, không ghi nhận.
 
 export const CUA_SO_CHONG_TRUNG_MS = 10 * 60 * 1000; // cùng biển + cùng chiều trong 10 phút = 1 lượt
@@ -186,22 +185,10 @@ export function xuLyLuotDoc({ events, plate, direction, dateTime, uuid = null, n
   }
 
   // ---------------- XE RA (chiều forward) ----------------
-  // (Sửa 10/10 — yêu cầu Chủ tịch HĐQT) BỎ HẲN việc ghép biển đầu ↔ biển đuôi
-  // khi xe ra (không còn danh sách "chờ ghép", không còn tự học). Lượt camera
-  // chiều forward chỉ tự ghi nhận RA khi biển đọc được TRÙNG ĐÚNG 1 xe đang
-  // trong mỏ (xe thường, biển đầu = biển đuôi); còn lại chỉ ghi log — Bảo vệ
-  // xác nhận xe ra cổng ở danh sách như trước.
-  const daRaGanDay = events.some((e) => e.type === 'gate_out' && chuanHoaBienSo(e.plate) === nb && ganDay(e));
-  if (daRaGanDay) {
-    return { ketQua: 'trung', thongDiep: `Xe ${bien} vừa được ghi nhận ra trong 10 phút gần đây — bỏ qua lượt đọc trùng`, suKienMoi: [], iso, dungGioCamera };
-  }
-  const trungBien = xeDangTrongMo(events).filter((g) => g.time <= iso && chuanHoaBienSo(g.plate) === nb);
-  const gateIn = trungBien[0];
-  if (gateIn && tMs - Date.parse(gateIn.time) >= THOI_GIAN_TOI_THIEU_TRONG_MO_MS) {
-    const ev = { ...taoSuKienXeRa({ events, gateIn, bienDau: bien, iso, nowMs, cachGhep: 'trung_bien' }), cameraUuid: uuid || undefined };
-    return { ketQua: 'xe_ra', thongDiep: `Đã ghi nhận xe ${gateIn.plate} RA cổng (trùng biển xe đang trong mỏ)${ev.coHang ? ` — phiếu ${ev.ticketNo || ''}` : ' — chưa có phiếu xúc'}`, suKienMoi: [ev], iso, dungGioCamera };
-  }
-  return { ketQua: 'bo_qua', thongDiep: `Camera thấy xe ${bien} chiều ra (forward) — không ghép biển đầu/đuôi, Bảo vệ xác nhận xe ra cổng như thường`, suKienMoi: [], iso, dungGioCamera };
+  // (Sửa 10/10 lần 2 — yêu cầu Chủ tịch HĐQT) TẮT HOÀN TOÀN việc camera ghi
+  // nhận xe ra: mọi lượt chiều forward chỉ ghi vào nhật ký camera, KHÔNG tạo
+  // sự kiện ra cổng. Toàn bộ xe ra do Bảo vệ xác nhận ở danh sách "Xe ra cổng".
+  return { ketQua: 'bo_qua', thongDiep: `Camera thấy xe ${bien} chiều ra (forward) — camera không ghi xe ra, Bảo vệ xác nhận ra cổng`, suKienMoi: [], iso, dungGioCamera };
 }
 
 // ---------------------------------------------------------------------------
