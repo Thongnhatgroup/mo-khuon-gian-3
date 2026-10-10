@@ -6,16 +6,9 @@
 //  - Xe vào mỏ chủ yếu là xe đầu kéo: đầu xe và đuôi xe mang 2 biển số khác
 //    nhau. Chỉ ghi nhận XE VÀO bằng BIỂN ĐUÔI — tức đúng các lượt camera báo
 //    chiều di chuyển (Driving Direction / <direction>) là "reverse".
-//  - Xe RA: camera báo chiều "forward" (xe tiến về phía camera, camera đọc
-//    được BIỂN ĐẦU). Vì biển đầu khác biển đuôi đã ghi lúc vào, phần mềm ghép
-//    theo thứ tự ưu tiên:
-//      1) Biển đọc được trùng đúng 1 xe đang trong mỏ (xe thường, đầu = đuôi)
-//         -> tự ghi nhận ra cổng.
-//      2) Biển đầu đã từng được Bảo vệ ghép với biển đuôi ở các lần trước
-//         (phần mềm tự "học") và đúng 1 biển đuôi đó đang trong mỏ -> tự ghi
-//         nhận ra cổng.
-//      3) Còn lại -> đưa vào danh sách "Camera ghi nhận xe ra — chờ ghép biển
-//         đuôi" trên màn Bảo vệ; Bảo vệ chọn 1 lần, các lần sau tự động.
+//  - Xe RA (chiều "forward"): KHÔNG ghép biển đầu ↔ biển đuôi (đã bỏ theo
+//    yêu cầu 10/10). Chỉ tự ghi ra khi biển trùng đúng xe đang trong mỏ;
+//    còn lại Bảo vệ xác nhận ra cổng như trước.
 //  - Chiều "unknown"/không rõ -> chỉ ghi log, không ghi nhận.
 
 export const CUA_SO_CHONG_TRUNG_MS = 10 * 60 * 1000; // cùng biển + cùng chiều trong 10 phút = 1 lượt
@@ -192,62 +185,23 @@ export function xuLyLuotDoc({ events, plate, direction, dateTime, uuid = null, n
     return { ketQua: 'xe_vao', thongDiep: `Đã ghi nhận xe ${bien} VÀO cổng (biển đuôi)`, suKienMoi: [ev], iso, dungGioCamera };
   }
 
-  // ---------------- XE RA (biển đầu, chiều forward) ----------------
-  const daRaGanDay = events.some((e) => e.type === 'gate_out' && (chuanHoaBienSo(e.bienSoDauXe) === nb || chuanHoaBienSo(e.plate) === nb) && ganDay(e));
-  const daChoGanDay = events.some((e) => e.type === 'camera_xe_ra_cho_ghep' && chuanHoaBienSo(e.plateDau) === nb && ganDay(e));
-  if (daRaGanDay || daChoGanDay) {
-    return { ketQua: 'trung', thongDiep: `Biển ${bien} vừa được ghi nhận ra trong 10 phút gần đây — bỏ qua lượt đọc trùng`, suKienMoi: [], iso, dungGioCamera };
+  // ---------------- XE RA (chiều forward) ----------------
+  // (Sửa 10/10 — yêu cầu Chủ tịch HĐQT) BỎ HẲN việc ghép biển đầu ↔ biển đuôi
+  // khi xe ra (không còn danh sách "chờ ghép", không còn tự học). Lượt camera
+  // chiều forward chỉ tự ghi nhận RA khi biển đọc được TRÙNG ĐÚNG 1 xe đang
+  // trong mỏ (xe thường, biển đầu = biển đuôi); còn lại chỉ ghi log — Bảo vệ
+  // xác nhận xe ra cổng ở danh sách như trước.
+  const daRaGanDay = events.some((e) => e.type === 'gate_out' && chuanHoaBienSo(e.plate) === nb && ganDay(e));
+  if (daRaGanDay) {
+    return { ketQua: 'trung', thongDiep: `Xe ${bien} vừa được ghi nhận ra trong 10 phút gần đây — bỏ qua lượt đọc trùng`, suKienMoi: [], iso, dungGioCamera };
   }
-
-  // (Bổ sung 10/10) Biển đầu đã học, xe tương ứng VỪA được Bảo vệ ghi ra bằng
-  // tay (trong 15 phút trước) -> lượt camera này là trùng, không đưa vào chờ ghép.
-  const duoiHoc0 = bangDauDuoi(events)[nb];
-  if (duoiHoc0) {
-    const raTay = events.find((e) => e.type === 'gate_out' && [...duoiHoc0].some((p) => chuanHoaBienSo(p) === chuanHoaBienSo(e.plate))
-      && tMs - Date.parse(e.time) >= -2 * 60000 && tMs - Date.parse(e.time) < 15 * 60000);
-    if (raTay) {
-      return { ketQua: 'trung', thongDiep: `Biển đầu ${bien} = xe ${raTay.plate} đã được ghi ra cổng lúc trước đó — bỏ qua lượt đọc trùng`, suKienMoi: [], iso, dungGioCamera };
-    }
+  const trungBien = xeDangTrongMo(events).filter((g) => g.time <= iso && chuanHoaBienSo(g.plate) === nb);
+  const gateIn = trungBien[0];
+  if (gateIn && tMs - Date.parse(gateIn.time) >= THOI_GIAN_TOI_THIEU_TRONG_MO_MS) {
+    const ev = { ...taoSuKienXeRa({ events, gateIn, bienDau: bien, iso, nowMs, cachGhep: 'trung_bien' }), cameraUuid: uuid || undefined };
+    return { ketQua: 'xe_ra', thongDiep: `Đã ghi nhận xe ${gateIn.plate} RA cổng (trùng biển xe đang trong mỏ)${ev.coHang ? ` — phiếu ${ev.ticketNo || ''}` : ' — chưa có phiếu xúc'}`, suKienMoi: [ev], iso, dungGioCamera };
   }
-
-  const trongMo = xeDangTrongMo(events).filter((g) => g.time <= iso);
-  const duLau = (g) => tMs - Date.parse(g.time) >= THOI_GIAN_TOI_THIEU_TRONG_MO_MS;
-
-  // 1) Trùng đúng biển (xe thường, biển đầu = biển đuôi)
-  const trungBien = trongMo.filter((g) => chuanHoaBienSo(g.plate) === nb);
-  // 2) Đã học: biển đầu -> biển đuôi
-  const duoiDaHoc = bangDauDuoi(events)[nb];
-  const theoHoc = duoiDaHoc ? trongMo.filter((g) => [...duoiDaHoc].some((p) => chuanHoaBienSo(p) === chuanHoaBienSo(g.plate))) : [];
-
-  let ungVien = null; let cachGhep = null;
-  if (trungBien.length) { ungVien = trungBien; cachGhep = 'trung_bien'; } else if (theoHoc.length) { ungVien = theoHoc; cachGhep = 'da_hoc'; }
-
-  if (ungVien) {
-    // Nhiều lượt vào cùng biển còn mở -> ghép với lượt vào SỚM nhất (đúng thứ tự)
-    const bienDuoiKhacNhau = new Set(ungVien.map((g) => chuanHoaBienSo(g.plate)));
-    const gateIn = ungVien[0];
-    if (bienDuoiKhacNhau.size === 1 && duLau(gateIn)) {
-      const ev = { ...taoSuKienXeRa({ events, gateIn, bienDau: bien, iso, nowMs, cachGhep }), cameraUuid: uuid || undefined };
-      const cach = cachGhep === 'trung_bien' ? 'trùng biển' : `biển đầu ${bien} đã học`;
-      return { ketQua: 'xe_ra', thongDiep: `Đã ghi nhận xe ${gateIn.plate} RA cổng (${cach})${ev.coHang ? ` — phiếu ${ev.ticketNo || ''}` : ' — chưa có phiếu xúc'}`, suKienMoi: [ev], iso, dungGioCamera };
-    }
-  }
-
-  const lyDo = ungVien
-    ? (new Set(ungVien.map((g) => chuanHoaBienSo(g.plate))).size > 1 ? 'biển đầu này từng kéo nhiều rơ-moóc đang cùng trong mỏ' : 'xe vào chưa đến 3 phút')
-    : 'chưa biết biển đầu này thuộc biển đuôi nào';
-  const cho = {
-    id: genId('CXR', nowMs),
-    type: 'camera_xe_ra_cho_ghep',
-    plateDau: bien,
-    goiY: ungVien ? ungVien.map((g) => g.plate) : [],
-    lyDo,
-    cameraUuid: uuid || undefined,
-    mayChuTao: true,
-    createdAt: nowMs,
-    time: iso,
-  };
-  return { ketQua: 'cho_ghep', thongDiep: `Camera thấy xe ${bien} RA cổng — ${lyDo}, chờ Bảo vệ ghép biển đuôi`, suKienMoi: [cho], iso, dungGioCamera };
+  return { ketQua: 'bo_qua', thongDiep: `Camera thấy xe ${bien} chiều ra (forward) — không ghép biển đầu/đuôi, Bảo vệ xác nhận xe ra cổng như thường`, suKienMoi: [], iso, dungGioCamera };
 }
 
 // ---------------------------------------------------------------------------

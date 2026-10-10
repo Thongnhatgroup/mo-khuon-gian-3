@@ -2,19 +2,13 @@
 
 ## ⭐ CÁCH KHUYẾN NGHỊ (từ 09/10/2026): `isapi-agent.js` — kết nối thẳng camera ANPR 192.168.1.199
 
-Tự động ghi nhận **xe VÀO** và **xe RA** cổng, Bảo vệ không cần thao tác.
+Tự động ghi nhận **xe VÀO** cổng (biển đuôi). Xe RA: Bảo vệ xác nhận như trước (trừ xe thường có biển đầu = biển đuôi).
 
 | Camera báo chiều (Driving Direction) | Camera đọc được | Phần mềm ghi nhận |
 |---|---|---|
 | `reverse` | Biển **đuôi** xe | **Xe VÀO cổng** (biển đuôi) |
-| `forward` | Biển **đầu** xe | **Xe RA cổng** — tự ghép với biển đuôi đang trong mỏ |
+| `forward` | Biển **đầu** xe | Không ghép biển đầu/đuôi (bỏ từ 10/10). Chỉ tự ghi **xe RA** khi biển trùng đúng xe đang trong mỏ; xe đầu kéo Bảo vệ xác nhận ra như trước |
 | `unknown` / không đọc được | — | Chỉ ghi log, bỏ qua |
-
-**Ghép biển đầu ↔ biển đuôi khi xe ra** (vì xe đầu kéo có 2 biển khác nhau):
-1. Biển đầu trùng đúng 1 xe đang trong mỏ (xe thường) → tự ghi ra.
-2. Biển đầu đã được Bảo vệ ghép trước đây (phần mềm tự "học") → tự ghi ra.
-3. Chưa biết → hiện ở mục **"Camera thấy xe RA — chờ ghép biển đuôi"** trên màn Bảo vệ,
-   Bảo vệ bấm chọn 1 lần; từ lần sau xe đó ra cổng sẽ tự động.
 
 ### Cài đặt nhanh (khuyến nghị)
 Bấm đúp **`CAI-DAT.bat`** — tự cài vào `C:\CauNoiCamera`, tự tải Node.js nếu thiếu, hỏi mật khẩu camera,
