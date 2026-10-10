@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const PHIEN_BAN = '1.2.2 (10/10/2026)';
+const PHIEN_BAN = '1.2.3 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -100,8 +100,8 @@ async function docCauHinh() {
   // (10/10) Tự sửa cấu hình cũ: bản trước chỉ có .199 (thực tế thiết bị gửi biển
   // số là .251) và có máy đã lỡ nhập địa chỉ IP vào ô mật khẩu.
   if (String(ch.cameraIp).trim() === '192.168.1.199') { ch.cameraIp = '192.168.1.199,192.168.1.251'; daSuaCauHinhCu = true; }
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(String(ch.matKhau || '').trim())) {
-    console.log('\n  !! Mật khẩu camera đang lưu lại là 1 ĐỊA CHỈ IP (nhập nhầm ở lần cài trước) — cần nhập lại.');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(String(ch.matKhau || '').trim()) && !ch.xacNhanMatKhauDangIp) {
+    console.log('\n  !! Mật khẩu camera đang lưu trông giống ĐỊA CHỈ IP (có thể nhập nhầm ở lần cài trước) — vui lòng nhập lại.');
     ch.matKhau = '';
   }
   if (!ch.matKhau || /NHAP_MAT_KHAU/i.test(ch.matKhau)) {
@@ -109,12 +109,18 @@ async function docCauHinh() {
     ch.cameraIp = await hoi('Địa chỉ IP camera (nhiều địa chỉ cách nhau dấu phẩy)', ch.cameraIp);
     ch.tenDangNhap = await hoi('Tên đăng nhập camera', ch.tenDangNhap);
     ch.matKhau = await hoi('Mật khẩu camera (mật khẩu đăng nhập admin của camera, KHÔNG phải địa chỉ IP)', '');
+    // Nhập giống địa chỉ IP -> nhắc 1 lần; nếu gõ lại ĐÚNG chuỗi đó lần nữa thì
+    // coi như mật khẩu thật sự có dạng như vậy và chấp nhận.
     while (/^\d{1,3}(\.\d{1,3}){3}$/.test(ch.matKhau)) {
-      console.log('  !! Bạn vừa nhập 1 ĐỊA CHỈ IP vào ô mật khẩu. Hãy gõ MẬT KHẨU đăng nhập camera.');
-      ch.matKhau = await hoi('Mật khẩu camera', '');
+      console.log('  !! Mật khẩu vừa gõ trông giống ĐỊA CHỈ IP. Mật khẩu là chuỗi dùng để ĐĂNG NHẬP trang quản trị camera');
+      console.log('     (cùng với tên đăng nhập admin). Nếu mật khẩu camera ĐÚNG LÀ chuỗi này, gõ lại y hệt để xác nhận.');
+      const lai = await hoi('Mật khẩu camera', '');
+      if (lai === ch.matKhau) break;
+      ch.matKhau = lai;
     }
     ch.diaChiPhanMem = await hoi('Địa chỉ nhận dữ liệu của phần mềm', ch.diaChiPhanMem);
     if (!ch.matKhau) { log.err('Chưa nhập mật khẩu camera — dừng.'); process.exit(1); }
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ch.matKhau)) ch.xacNhanMatKhauDangIp = true;
     fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2));
     log.ok(`Đã lưu cấu hình vào ${path.basename(FILE_CAU_HINH)} (chỉ nằm trên máy này).`);
   }
