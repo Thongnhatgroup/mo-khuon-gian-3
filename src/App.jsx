@@ -1884,7 +1884,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
       setDangSuaKhaiBao((prev) => ({ ...prev, [g.id]: false }));
       setForm((prev) => { const n = { ...prev }; delete n[g.id]; return n; });
       const veDaIn = events.filter((e) => e.type === 'ticket_print' && e.plate === g.plate && e.time > g.time && !e.daHuy).sort(compareTimeDesc)[0];
-      return notify(`Đã sửa khai báo xe ${g.plate}: ${g.khaiBao.khoiLuong} → ${tongKhoiLuong} m³${veDaIn ? ` — LƯU Ý: xe đã có phiếu ${veDaIn.ticketNo || ''} (${veDaIn.volume} m³) lập trước khi sửa, báo Kế toán mỏ sửa khối lượng phiếu` : ''}`);
+      return notify(`Đã sửa khai báo xe ${g.plate}: ${g.khaiBao.khoiLuong} → ${tongKhoiLuong} m³${veDaIn ? ` — LƯU Ý: xe đã có phiếu ${veDaIn.ticketNo || ''} (${veDaIn.volume} m³) lập trước khi sửa, báo Kế toán công ty sửa khối lượng phiếu` : ''}`);
     }
     notify(f.viPham ? `⚠ Đã lập biên bản vi phạm & xác nhận lại khối lượng xe ${g.plate}` : `Đã khai báo xe ${g.plate}: ${tongKhoiLuong} m³${ngonKhoiLuong ? ` (thùng xe ${khoiLuongGoc} + ngọn ${ngonKhoiLuong})` : ''} — KH: ${customer.name}`);
   };
