@@ -1666,9 +1666,10 @@ function GateScreen({ events, addEvent, addEvents }) {
 // hiện cơi thùng (khaiBao hiện tại lúc đó là lần "kiểm tra lại"). Trả về null
 // nếu đây là lần khai báo đầu tiên của xe (không có gì để so sánh).
 function banDauKhaiBao(khaiBao, events) {
-  const cungPlate = events
-    .filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === khaiBao.plate)
-    .sort(compareTime);
+  const cungPlate0 = events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.plate === khaiBao.plate);
+  // (Sửa 10/10) Bỏ các bản khai báo nhầm đã được Kỹ thuật sửa lại
+  const daBiSua = new Set(cungPlate0.filter((e) => e.suaTuKhaiBaoId).map((e) => e.suaTuKhaiBaoId));
+  const cungPlate = cungPlate0.filter((e) => !daBiSua.has(e.id)).sort(compareTime);
   const banDau = cungPlate[0];
   return banDau && banDau.id !== khaiBao.id ? banDau : null;
 }
@@ -1739,6 +1740,9 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   // được ngay, không phải chờ đến đúng định kỳ 3 ngày — object {[gateId]: true}
   // đánh dấu những xe đang mở form kiểm tra bất chợt này.
   const [dangKiemTraBatChot, setDangKiemTraBatChot] = useState({});
+  // (Sửa 10/10 — yêu cầu Chủ tịch HĐQT) Sửa lại khai báo ĐÃ xác nhận của lượt
+  // vào cổng hiện tại (VD khai báo nhầm kích thước/khối lượng phần ngọn).
+  const [dangSuaKhaiBao, setDangSuaKhaiBao] = useState({}); // {gateInId: true}
 
   const today = todayStr();
   // (Yêu cầu 17/09) Danh sách loại xe lấy từ config (dùng chung, đồng bộ mọi
@@ -1784,24 +1788,28 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   // (Bổ sung 24/09 lần 3 — yêu cầu Chủ tịch HĐQT) Đổi từ sắp xếp mới nhất lên
   // đầu (giảm dần) sang phát sinh trước lên đầu (tăng dần), đồng bộ với toàn
   // bộ các danh sách/báo cáo khác trong phần mềm.
+  const idKhaiBaoDaBiSuaKT = new Set(khaiBaos.filter((k) => k.suaTuKhaiBaoId).map((k) => k.suaTuKhaiBaoId));
   const dsBienBanTraCuu = khaiBaos
-    .filter((k) => dayStrOf(k.time) >= tuNgayBB && dayStrOf(k.time) <= denNgayBB)
+    .filter((k) => !idKhaiBaoDaBiSuaKT.has(k.id) && dayStrOf(k.time) >= tuNgayBB && dayStrOf(k.time) <= denNgayBB)
     .slice().sort(compareTime);
 
   const kichThuocBanDauTheoPlate = {};
-  khaiBaos.slice().sort(compareTime).forEach((k) => { if (!kichThuocBanDauTheoPlate[k.plate]) kichThuocBanDauTheoPlate[k.plate] = k; });
+  const khaiBaosHieuLuc = khaiBaos.filter((k) => !idKhaiBaoDaBiSuaKT.has(k.id)); // (Sửa 10/10) bỏ bản đã bị sửa
+  khaiBaosHieuLuc.slice().sort(compareTime).forEach((k) => { if (!kichThuocBanDauTheoPlate[k.plate]) kichThuocBanDauTheoPlate[k.plate] = k; });
 
   // Xe hôm nay: nếu có khai báo còn hiệu lực (trong hạn 3 ngày, không có báo cơi
   // nới sau đó) -> MIỄN, không cần thao tác gì (theo Bảng hiệu chỉnh V4.0 mục II.2)
   const list = gateIns.map((g) => {
     const hopLe = khaiBaoHopLe(g.plate, events);
-    const khaiBaoRieng = khaiBaos.find((k) => k.gateInId === g.id);
+    // (Sửa 10/10) Lấy khai báo MỚI NHẤT của lượt vào cổng này (sau khi Kỹ thuật
+    // sửa lại khai báo, bản sửa phải được dùng thay cho bản nhầm trước đó).
+    const khaiBaoRieng = khaiBaos.filter((k) => k.gateInId === g.id).sort(compareTimeDesc)[0];
     const conLai = ngayConLai(g.time);
     let trangThai;
     if (khaiBaoRieng) trangThai = 'xanh';
     else if (hopLe) trangThai = 'mien';
     else trangThai = conLai < 0 ? 'do' : 'vang';
-    const soLanKiemTraTruoc = khaiBaos.filter((k) => k.plate === g.plate).length;
+    const soLanKiemTraTruoc = khaiBaosHieuLuc.filter((k) => k.plate === g.plate).length;
     return { ...g, khaiBao: khaiBaoRieng, hopLe, trangThai, conLai, soLanKiemTraTruoc };
   }).sort((a, b) => (a.trangThai === 'do' ? -1 : 1) - (b.trangThai === 'do' ? -1 : 1) || b.time.localeCompare(a.time));
 
@@ -1842,17 +1850,21 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
     // goiY.khoiLuong là TỔNG (đã gồm ngọn) — phải lấy goiY.khoiLuongGoc (khối
     // lượng gốc, chưa có ngọn) làm giá trị gợi ý cho ô này, tránh cộng ngọn 2 lần.
     const khoiLuong = Number(f.khoiLuong) || goiY?.khoiLuongGoc || goiY?.khoiLuong || danhSachLoaiXeMap[loaiXeId]?.khoiLuong || 20;
-    const dai = Number(f.dai) || goiY?.dai || null, rong = Number(f.rong) || goiY?.rong || null, cao = Number(f.cao) || goiY?.cao || null;
+    // (Sửa 10/10) Phân biệt ô CHƯA đụng tới (undefined -> lấy gợi ý lần trước)
+    // với ô Kỹ thuật ĐÃ XOÁ TRẮNG ('' -> bỏ hẳn). Trước đây xoá trắng ô phần ngọn
+    // vẫn bị tự điền lại số nhầm của lần trước nên không sửa được khối lượng.
+    const layGiaTri = (field) => (f[field] !== undefined ? (Number(f[field]) || null) : (goiY?.[field] || null));
+    const dai = layGiaTri('dai'), rong = layGiaTri('rong'), cao = layGiaTri('cao');
     // (Yêu cầu 14/09) Kích thước phần ngọn — riêng, không bắt buộc, ghi thêm khi
     // xe chất đất cao hơn thành thùng (không cộng dồn tự động vào dai/rong/cao ở trên).
-    const ngonDai = Number(f.ngonDai) || goiY?.ngonDai || null, ngonRong = Number(f.ngonRong) || goiY?.ngonRong || null, ngonCao = Number(f.ngonCao) || goiY?.ngonCao || null;
+    const ngonDai = layGiaTri('ngonDai'), ngonRong = layGiaTri('ngonRong'), ngonCao = layGiaTri('ngonCao');
     // (Yêu cầu 16/09) Khối lượng thùng xe = Dài×Rộng×Cao (thành thùng) và khối
     // lượng cộng thêm = Dài×Rộng×Cao (phần ngọn) đã được tự động tính & điền
     // sẵn vào ô tương ứng ngay khi nhập đủ 3 kích thước (xem capNhatKichThuoc ở
     // trên) — Kỹ thuật có thể sửa tay lại nếu cần. Ở đây chỉ làm tròn 1 chữ số
     // thập phân trước khi lưu, tránh số lẻ dài do nhân 3 số thập phân.
     const khoiLuongGoc = lamTron1(khoiLuong);
-    const ngonKhoiLuong = lamTron1(Number(f.ngonKhoiLuong) || goiY?.ngonKhoiLuong || 0);
+    const ngonKhoiLuong = lamTron1(layGiaTri('ngonKhoiLuong') || 0);
     const tongKhoiLuong = lamTron1(khoiLuongGoc + ngonKhoiLuong);
     const customerId = f.customerId || goiYKhachHangTheoPlate(g.plate, events) || config.customers[0]?.id;
     const customer = config.customers.find((c) => c.id === customerId);
@@ -1865,8 +1877,15 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
       id: genId('KB'), type: 'ky_thuat_khai_bao', gateInId: g.id, plate: g.plate,
       loaiXe: loaiXeId, khoiLuong: tongKhoiLuong, khoiLuongGoc, ngonKhoiLuong, dai, rong, cao, ngonDai, ngonRong, ngonCao, customerId, customerName: customer.name,
       tenLaiXe: f.tenLaiXe || '', viPham: f.viPham || false, ghiChuViPham: f.viPham ? (f.ghiChuViPham || '') : '',
+      ...(dangSuaKhaiBao[g.id] && g.khaiBao ? { laSuaKhaiBao: true, suaTuKhaiBaoId: g.khaiBao.id, khoiLuongTruocKhiSua: g.khaiBao.khoiLuong } : {}),
       inspectorName: myName, time: new Date().toISOString(),
     });
+    if (dangSuaKhaiBao[g.id] && g.khaiBao) {
+      setDangSuaKhaiBao((prev) => ({ ...prev, [g.id]: false }));
+      setForm((prev) => { const n = { ...prev }; delete n[g.id]; return n; });
+      const veDaIn = events.filter((e) => e.type === 'ticket_print' && e.plate === g.plate && e.time > g.time && !e.daHuy).sort(compareTimeDesc)[0];
+      return notify(`Đã sửa khai báo xe ${g.plate}: ${g.khaiBao.khoiLuong} → ${tongKhoiLuong} m³${veDaIn ? ` — LƯU Ý: xe đã có phiếu ${veDaIn.ticketNo || ''} (${veDaIn.volume} m³) lập trước khi sửa, báo Kế toán mỏ sửa khối lượng phiếu` : ''}`);
+    }
     notify(f.viPham ? `⚠ Đã lập biên bản vi phạm & xác nhận lại khối lượng xe ${g.plate}` : `Đã khai báo xe ${g.plate}: ${tongKhoiLuong} m³${ngonKhoiLuong ? ` (thùng xe ${khoiLuongGoc} + ngọn ${ngonKhoiLuong})` : ''} — KH: ${customer.name}`);
   };
 
@@ -1936,7 +1955,7 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
   const nhanTrangThai = { do: 'QUÁ HẠN', vang: 'Chờ khai báo', xanh: 'Đã khai báo', mien: 'Miễn (trong hạn 3 ngày)' };
   const mauNhan = { do: 'bg-red-500/20 text-red-400', vang: 'bg-amber-500/20 text-amber-400', xanh: 'bg-emerald-500/20 text-emerald-400', mien: 'bg-slate-600/30 text-slate-300' };
 
-  const lichSuCuaPlate = xemLichSuPlate ? khaiBaos.filter((k) => k.plate === xemLichSuPlate).sort(compareTime) : [];
+  const lichSuCuaPlate = xemLichSuPlate ? khaiBaosHieuLuc.filter((k) => k.plate === xemLichSuPlate).sort(compareTime) : [];
 
   return (
     <div className="max-w-2xl mx-auto p-4">
@@ -2054,8 +2073,13 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
             </div>
           )}
 
-          {(!g.khaiBao && g.trangThai !== 'mien') || (g.trangThai === 'mien' && dangKiemTraBatChot[g.id]) ? (
+          {(!g.khaiBao && g.trangThai !== 'mien') || (g.trangThai === 'mien' && dangKiemTraBatChot[g.id]) || dangSuaKhaiBao[g.id] ? (
             <>
+              {dangSuaKhaiBao[g.id] && g.khaiBao && (
+                <div className="mt-3 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-600/40 rounded-lg px-2.5 py-1.5">
+                  ✏️ Đang SỬA khai báo lúc {gioVN(g.khaiBao.time)} ({soVN(g.khaiBao.khoiLuong)} m³). Sửa lại số liệu đúng (xoá trắng ô hoặc bấm "Xoá phần ngọn" nếu khai báo nhầm) rồi bấm "Lưu sửa khai báo".
+                </div>
+              )}
               {khaiBaoGoiY && (
                 <div className="mt-3 text-[11px] text-brand-400 bg-brand-500/10 border border-brand-600/30 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
                   <History className="w-3 h-3 flex-shrink-0" /> Đã tự động điền theo lần khai báo gần nhất ({gioVN(khaiBaoGoiY.time)}) — kiểm tra lại, sửa nếu lần này khác.
@@ -2095,9 +2119,9 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
               </div>
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước thành thùng xe (m) — không bắt buộc</label>
               <div className="grid grid-cols-3 gap-2">
-                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.dai || khaiBaoGoiY?.dai || ''} onChange={(e) => capNhatKichThuoc('thung', 'dai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong || khaiBaoGoiY?.rong || ''} onChange={(e) => capNhatKichThuoc('thung', 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao || khaiBaoGoiY?.cao || ''} onChange={(e) => capNhatKichThuoc('thung', 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.dai ?? khaiBaoGoiY?.dai ?? ''} onChange={(e) => capNhatKichThuoc('thung', 'dai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.rong ?? khaiBaoGoiY?.rong ?? ''} onChange={(e) => capNhatKichThuoc('thung', 'rong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.cao ?? khaiBaoGoiY?.cao ?? ''} onChange={(e) => capNhatKichThuoc('thung', 'cao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               </div>
               {/* (Yêu cầu 15/09) Thêm dòng "Khối lượng thùng xe" ngay trong mục kích
                   thước thành thùng — đây là số Kỹ thuật TỰ ĐÁNH (không tự tính theo
@@ -2112,16 +2136,20 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
                   vụ đối chiếu khi lập biên bản vi phạm vượt khối lượng. */}
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Kích thước phần ngọn (khối đất cao hơn thành thùng, m) — không bắt buộc, chỉ để ghi chú</label>
               <div className="grid grid-cols-3 gap-2">
-                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.ngonDai || khaiBaoGoiY?.ngonDai || ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonDai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.ngonRong || khaiBaoGoiY?.ngonRong || ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonRong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
-                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.ngonCao || khaiBaoGoiY?.ngonCao || ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonCao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Dài" value={form[g.id]?.ngonDai ?? khaiBaoGoiY?.ngonDai ?? ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonDai', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Rộng" value={form[g.id]?.ngonRong ?? khaiBaoGoiY?.ngonRong ?? ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonRong', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+                <input type="number" step="0.1" placeholder="Cao" value={form[g.id]?.ngonCao ?? khaiBaoGoiY?.ngonCao ?? ''} onChange={(e) => capNhatKichThuoc('ngon', 'ngonCao', e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
               </div>
               {/* (Bổ sung 14/09 lần 2) Phần ngọn chỉ ghi chú kích thước ở trên (không
                   tự tính ra m³ theo công thức) — ô riêng này để Kỹ thuật TỰ ĐÁNH số
                   khối lượng cộng thêm do ngọn, được cộng vào "Khối lượng thùng xe"
                   ở trên để ra Tổng khối lượng hiển thị ở khung đầu form. */}
               <label className="block text-slate-400 text-xs mb-1 mt-2 flex items-center gap-1"><Ruler className="w-3.5 h-3.5" /> Khối lượng cộng thêm do phần ngọn (m³) — không bắt buộc</label>
-              <input type="number" step="0.1" placeholder="VD: 2" value={form[g.id]?.ngonKhoiLuong || khaiBaoGoiY?.ngonKhoiLuong || ''} onChange={(e) => capNhatForm(g.id, 'ngonKhoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+              <input type="number" step="0.1" placeholder="VD: 2" value={form[g.id]?.ngonKhoiLuong ?? khaiBaoGoiY?.ngonKhoiLuong ?? ''} onChange={(e) => capNhatForm(g.id, 'ngonKhoiLuong', e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm" />
+              {(Number(form[g.id]?.ngonKhoiLuong ?? khaiBaoGoiY?.ngonKhoiLuong) > 0 || form[g.id]?.ngonDai || form[g.id]?.ngonRong || form[g.id]?.ngonCao || (form[g.id]?.ngonDai === undefined && khaiBaoGoiY?.ngonDai)) && (
+                <button onClick={() => setForm((prev) => ({ ...prev, [g.id]: { ...prev[g.id], ngonDai: '', ngonRong: '', ngonCao: '', ngonKhoiLuong: '' } }))}
+                  className="mt-1.5 text-[11px] bg-red-600/15 hover:bg-red-600/25 border border-red-600/50 text-red-300 px-2.5 py-1 rounded-full font-semibold">✕ Xoá phần ngọn (khai báo nhầm)</button>
+              )}
               <div className="text-emerald-400 text-[11px] mt-1">
                 Tổng khối lượng sẽ xác nhận: {soVN(tongKhoiLuongForm)} m³ (thùng xe {soVN(thungXeVal)}{ngonVal ? ` + ngọn ${soVN(ngonVal)}` : ''})
               </div>
@@ -2144,8 +2172,12 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
                   className="w-full mt-2 bg-slate-950 border border-amber-600 rounded-lg px-2 py-2 text-white text-sm" />
               )}
               <button onClick={() => { khaiBao(g); setDangKiemTraBatChot((prev) => ({ ...prev, [g.id]: false })); }} className={`w-full mt-2 font-bold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 text-white ${form[g.id]?.viPham ? 'bg-amber-600 hover:bg-amber-700' : 'bg-brand-600 hover:bg-brand-700'}`}>
-                <CheckCircle2 className="w-4 h-4" /> {form[g.id]?.viPham ? 'Lập biên bản vi phạm & xác nhận lại' : 'Xác nhận khai báo'}
+                <CheckCircle2 className="w-4 h-4" /> {form[g.id]?.viPham ? 'Lập biên bản vi phạm & xác nhận lại' : dangSuaKhaiBao[g.id] ? 'Lưu sửa khai báo' : 'Xác nhận khai báo'}
               </button>
+              {dangSuaKhaiBao[g.id] && (
+                <button onClick={() => { setDangSuaKhaiBao((prev) => ({ ...prev, [g.id]: false })); setForm((prev) => { const n = { ...prev }; delete n[g.id]; return n; }); }}
+                  className="w-full mt-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold py-2 rounded-lg">Hủy sửa, giữ khai báo cũ</button>
+              )}
               {/* (Yêu cầu 17/09) Đang kiểm tra bất chợt xe trong hạn Miễn — cho phép
                   hủy quay lại dùng khai báo cũ nếu bấm nhầm hoặc kiểm tra xong thấy
                   không có vấn đề gì, không cần lập biên bản mới. */}
@@ -2156,9 +2188,19 @@ function KyThuatScreen({ events, addEvent, addEvents, config, setConfig, myName 
           ) : g.khaiBao ? (
             <>
               <div className="mt-3 text-sm text-slate-300">{g.khaiBao.khoiLuong} m³{g.khaiBao.ngonKhoiLuong ? ` (thùng xe ${g.khaiBao.khoiLuongGoc} + ngọn ${g.khaiBao.ngonKhoiLuong})` : ''} · KH: <b className="text-white">{g.khaiBao.customerName}</b> · {danhSachLoaiXeMap[g.khaiBao.loaiXe]?.ten}{g.khaiBao.dai ? ` · Thành thùng: ${g.khaiBao.dai}×${g.khaiBao.rong}×${g.khaiBao.cao}m` : ''}{g.khaiBao.ngonDai ? ` · Kích thước ngọn: ${g.khaiBao.ngonDai}×${g.khaiBao.ngonRong}×${g.khaiBao.ngonCao}m` : ''}</div>
+              {g.khaiBao.laSuaKhaiBao && <div className="mt-1 text-amber-400 text-[11px]">✏️ Đã sửa khai báo lúc {gioVN(g.khaiBao.time)} (trước khi sửa: {soVN(g.khaiBao.khoiLuongTruocKhiSua)} m³) — {g.khaiBao.inspectorName}</div>}
               {g.khaiBao.viPham && <div className="mt-2 text-amber-400 text-xs">⚠ Biên bản vi phạm: {g.khaiBao.ghiChuViPham || 'cơi nới thùng không báo trước'}</div>}
               <div className="flex items-center gap-3 mt-2">
                 <button onClick={() => setXemBienBanViPham(g.khaiBao)} className="text-[11px] bg-slate-700 hover:bg-slate-600 text-white px-2.5 py-1 rounded-full font-semibold">Xem / In biên bản</button>
+                <button onClick={() => {
+                  const k = g.khaiBao; const s = (v) => (v === null || v === undefined || v === 0 ? '' : v);
+                  setForm((prev) => ({ ...prev, [g.id]: {
+                    loaiXe: k.loaiXe, khoiLuong: k.khoiLuongGoc ?? k.khoiLuong, dai: s(k.dai), rong: s(k.rong), cao: s(k.cao),
+                    ngonDai: s(k.ngonDai), ngonRong: s(k.ngonRong), ngonCao: s(k.ngonCao), ngonKhoiLuong: s(k.ngonKhoiLuong),
+                    customerId: k.customerId, tenLaiXe: k.tenLaiXe || '', viPham: !!k.viPham, ghiChuViPham: k.ghiChuViPham || '',
+                  } }));
+                  setDangSuaKhaiBao((prev) => ({ ...prev, [g.id]: true }));
+                }} className="text-[11px] bg-amber-600/20 hover:bg-amber-600/30 border border-amber-600/50 text-amber-300 px-2.5 py-1 rounded-full font-semibold flex items-center gap-1"><Pencil className="w-3 h-3" /> Sửa khai báo</button>
                 {!daLapBienBanIds.has(g.khaiBao.id) && (
                   <label className="flex items-center gap-2 text-sm text-white">
                     <input type="checkbox" checked={!!checked[g.khaiBao.id]} onChange={(e) => { setChecked({ ...checked, [g.khaiBao.id]: e.target.checked }); if (e.target.checked) setXemBienBanViPham(g.khaiBao); }} className="w-4 h-4" />
@@ -3348,7 +3390,9 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
   const [ngayXemPhieu, setNgayXemPhieu] = useState(today);
   const ticketsHomNay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === today);
   const ticketsXemTheoNgay = events.filter((e) => e.type === 'ticket_print' && dayStrOf(e.time) === ngayXemPhieu);
-  const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today);
+  // (Sửa 10/10) Bỏ các bản khai báo đã bị Kỹ thuật sửa lại (chỉ in bản đúng mới nhất)
+  const idKhaiBaoDaBiSua = new Set(events.filter((e) => e.type === 'ky_thuat_khai_bao' && e.suaTuKhaiBaoId).map((e) => e.suaTuKhaiBaoId));
+  const khaiBaoHomNay = events.filter((e) => e.type === 'ky_thuat_khai_bao' && dayStrOf(e.time) === today && !idKhaiBaoDaBiSua.has(e.id));
 
   // (Bổ sung 24/09 — yêu cầu Chủ tịch HĐQT) Xe vào đã múc đất, lái máy xúc đã
   // xác nhận xúc đầy (đã lập phiếu) nhưng xe hỏng/sự cố -> phải đổ lại đất,
