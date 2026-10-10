@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const PHIEN_BAN = '1.2.4 (10/10/2026)';
+const PHIEN_BAN = '1.2.5 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -466,7 +466,7 @@ async function chayLienTuc(ch) {
 async function kiemTra(ch) {
   console.log('\n=== KIỂM TRA KẾT NỐI ===');
   let datCamera = false; let datPhanMem = false;
-  for (let lanThu = 0; lanThu < 4 && !datCamera; lanThu++) {
+  for (let lanThu = 0; lanThu < 6 && !datCamera; lanThu++) {
     let saiMatKhau = false;
     for (const ip of dsCamera(ch)) {
       try {
@@ -479,8 +479,10 @@ async function kiemTra(ch) {
     if (!datCamera && !saiMatKhau && process.stdin.isTTY) {
       console.log('\n  >> Không địa chỉ nào ở trên là camera (ping được nhưng từ chối kết nối, hoặc không trả lời).');
       console.log('     Dữ liệu thực tế cho thấy thiết bị gửi biển số có địa chỉ 192.168.1.251.');
-      const ipMoi = await hoi('     Gõ địa chỉ IP camera khác để thử (VD 192.168.1.251), hoặc Enter để bỏ qua', '');
-      if (!ipMoi) break;
+      const goiY = dsCamera(ch).includes('192.168.1.251') ? '' : '192.168.1.251';
+      const ipMoi = await hoi(`     Gõ địa chỉ IP camera để thử lại${goiY ? ' (bấm Enter = dùng 192.168.1.251)' : ''}, hoặc gõ chữ K để bỏ qua`, goiY);
+      if (!ipMoi || /^k$/i.test(ipMoi)) break;
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ipMoi)) { console.log('  !! Địa chỉ không hợp lệ (phải có dạng 192.168.1.251).'); continue; }
       ch.cameraIp = ipMoi;
       try { fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2)); log.ok(`Đã lưu địa chỉ camera mới: ${ipMoi} — kiểm tra lại...`); } catch { /* bỏ qua */ }
       continue;
