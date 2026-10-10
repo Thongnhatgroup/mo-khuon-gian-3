@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const PHIEN_BAN = '1.2.0 (10/10/2026)';
+const PHIEN_BAN = '1.2.1 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -100,7 +100,11 @@ async function docCauHinh() {
     console.log('\n=== CÀI ĐẶT LẦN ĐẦU — nhập thông tin camera (bấm Enter để giữ giá trị trong ngoặc) ===');
     ch.cameraIp = await hoi('Địa chỉ IP camera (nhiều địa chỉ cách nhau dấu phẩy)', ch.cameraIp);
     ch.tenDangNhap = await hoi('Tên đăng nhập camera', ch.tenDangNhap);
-    ch.matKhau = await hoi('Mật khẩu camera', '');
+    ch.matKhau = await hoi('Mật khẩu camera (mật khẩu đăng nhập admin của camera, KHÔNG phải địa chỉ IP)', '');
+    while (/^\d{1,3}(\.\d{1,3}){3}$/.test(ch.matKhau)) {
+      console.log('  !! Bạn vừa nhập 1 ĐỊA CHỈ IP vào ô mật khẩu. Hãy gõ MẬT KHẨU đăng nhập camera.');
+      ch.matKhau = await hoi('Mật khẩu camera', '');
+    }
     ch.diaChiPhanMem = await hoi('Địa chỉ nhận dữ liệu của phần mềm', ch.diaChiPhanMem);
     if (!ch.matKhau) { log.err('Chưa nhập mật khẩu camera — dừng.'); process.exit(1); }
     fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2));
@@ -442,12 +446,21 @@ async function chayLienTuc(ch) {
 async function kiemTra(ch) {
   console.log('\n=== KIỂM TRA KẾT NỐI ===');
   let datCamera = false; let datPhanMem = false;
-  for (const ip of dsCamera(ch)) {
-    try {
-      const tb = await doCongIsapi({ ...ch, cameraIp: ip });
-      datCamera = true;
-      log.ok(`Camera ${ip}: kết nối ISAPI được ở cổng ${tb.cong} · ${tb.ten || ''} · model ${tb.model} · firmware ${tb.firmware}`);
-    } catch (e) { log.err(`Camera ${ip}: ${e.message}`); }
+  for (let lanThu = 0; lanThu < 3 && !datCamera; lanThu++) {
+    let saiMatKhau = false;
+    for (const ip of dsCamera(ch)) {
+      try {
+        const tb = await doCongIsapi({ ...ch, cameraIp: ip });
+        datCamera = true;
+        log.ok(`Camera ${ip}: kết nối ISAPI được ở cổng ${tb.cong} · ${tb.ten || ''} · model ${tb.model} · firmware ${tb.firmware}`);
+      } catch (e) { log.err(`Camera ${ip}: ${e.message}`); if (/401/.test(e.message)) saiMatKhau = true; }
+    }
+    // (10/10) Sai mật khẩu -> cho nhập lại ngay, không phải xoá file cấu hình
+    if (datCamera || !saiMatKhau || !process.stdin.isTTY) break;
+    const mk = await hoi('\n  >> SAI MẬT KHẨU camera. Gõ lại mật khẩu đăng nhập camera (bấm Enter để bỏ qua)', '');
+    if (!mk) break;
+    ch.matKhau = mk;
+    try { fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2)); log.ok('Đã lưu mật khẩu mới — kiểm tra lại...'); } catch { /* bỏ qua */ }
   }
   if (dsCamera(ch).length > 1) log.info('(Có nhiều địa chỉ camera: chỉ cần ÍT NHẤT 1 địa chỉ đạt là chương trình hoạt động được.)');
   try {

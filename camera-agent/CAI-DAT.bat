@@ -11,7 +11,7 @@ set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
 echo ================================================================
 echo    CAI DAT CHUONG TRINH CAU NOI CAMERA ANPR - MO KHUON GIAN 3
-echo    Camera 192.168.1.199  --^>  Phan mem quan ly mo (Netlify)
+echo    Camera 192.168.1.199 / .251  --^>  Phan mem quan ly mo (Netlify)
 echo ================================================================
 echo.
 
@@ -59,20 +59,17 @@ if not defined NODE (
 echo       Da co Node.js.
 echo.
 
-echo [3/6] Kiem tra mang noi bo toi camera 192.168.1.199 ...
-ping -n 2 -w 1500 192.168.1.199 >nul
-if errorlevel 1 (
-  echo       CANH BAO: may nay khong "ping" duoc camera 192.168.1.199.
-  echo       Kiem tra may tinh co cam day mang cung mang voi camera khong.
-  echo       [Neu camera chan ping thi co the bo qua canh bao nay.]
-) else (
-  echo       Thong mang toi camera.
+echo [3/6] Kiem tra mang noi bo toi camera ...
+for %%I in (192.168.1.199 192.168.1.251) do (
+  ping -n 2 -w 1500 %%I >nul
+  if errorlevel 1 (echo       %%I : KHONG ping duoc) else (echo       %%I : thong mang)
 )
+echo       [Chi can it nhat 1 dia chi thong mang. Neu ca 2 KHONG ping duoc: kiem tra day mang.]
 echo.
 
 echo [4/6] Cau hinh va kiem tra ket noi ...
 echo       Lan dau se hoi thong tin camera. Bam Enter de giu gia tri trong ngoac [ ].
-echo       Chi can go MAT KHAU camera roi bam Enter.
+echo       Chi can go MAT KHAU DANG NHAP CAMERA (khong phai dia chi IP) roi bam Enter.
 echo.
 "%NODE%" isapi-agent.js --kiem-tra
 if errorlevel 1 (
