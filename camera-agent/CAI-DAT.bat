@@ -81,6 +81,11 @@ if errorlevel 1 (
 echo.
 
 echo [5/6] Cai tu chay khi bat may + tao loi tat tren man hinh ...
+netsh advfirewall firewall show rule name="CauNoiCamera8899" >nul 2>&1
+if errorlevel 1 (
+  echo       Mo CONG NHAN 8899 tren tuong lua Windows - neu Windows hoi quyen quan tri, bam YES.
+  powershell -NoProfile -Command "Start-Process netsh -ArgumentList 'advfirewall firewall add rule name=CauNoiCamera8899 dir=in action=allow protocol=TCP localport=8899' -Verb RunAs -Wait" >nul 2>&1
+)
 > "%STARTUP%\Cau-noi-camera-mo.bat" echo @echo off
 >> "%STARTUP%\Cau-noi-camera-mo.bat" echo start "Cau noi camera" /min "%DICH%\Chay-camera-ISAPI.bat"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=New-Object -ComObject WScript.Shell; $d=[Environment]::GetFolderPath('Desktop'); foreach ($x in @(@('Cau noi camera - CHAY','Chay-camera-ISAPI.bat'),@('Cau noi camera - KIEM TRA','Kiem-tra-ket-noi-camera.bat'))) { $l=$s.CreateShortcut((Join-Path $d ($x[0]+'.lnk'))); $l.TargetPath='%DICH%\'+$x[1]; $l.WorkingDirectory='%DICH%'; $l.Save() }" >nul 2>&1

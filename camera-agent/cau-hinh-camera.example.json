@@ -1,10 +1,22 @@
 {
   "cameraIp": "192.168.1.199,192.168.1.251",
-  "cacCongThu": [80, 8000, 443],
+  "cacCongThu": [
+    80,
+    8080,
+    81,
+    88,
+    8081,
+    8888,
+    85,
+    8000,
+    443,
+    8443
+  ],
   "tenDangNhap": "admin",
   "matKhau": "NHAP_MAT_KHAU_CAMERA_TAI_DAY",
   "diaChiPhanMem": "https://mo-khuon-gian-3.netlify.app/api/camera-webhook",
   "khoaBaoMat": "",
   "doTinCayToiThieu": 0,
-  "giayChoNhipTim": 120
+  "giayChoNhipTim": 120,
+  "congNhan": 8899
 }

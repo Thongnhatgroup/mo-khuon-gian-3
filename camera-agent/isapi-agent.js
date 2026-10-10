@@ -32,8 +32,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const os = require('os');
 
-const PHIEN_BAN = '1.2.5 (10/10/2026)';
+const PHIEN_BAN = '1.3.0 (10/10/2026)';
 const CONG_KHOA_CHAY_1_BAN = 47811; // chống chạy 2 cửa sổ cùng lúc
 const THU_MUC = __dirname;
 const FILE_CAU_HINH = path.join(THU_MUC, 'cau-hinh-camera.json');
@@ -47,7 +48,13 @@ const MAC_DINH = {
   // Cổng ISAPI: thông thường là cổng HTTP 80 (hoặc HTTPS 443). Cổng 8000 của
   // Hikvision thường là cổng SDK riêng (không phải ISAPI) — chương trình sẽ
   // tự thử lần lượt các cổng dưới đây và dùng cổng đầu tiên trả lời đúng.
-  cacCongThu: [80, 8000, 443],
+  // (10/10) Thực tế tại mỏ: camera .251 đóng cổng 80 -> dò thêm các cổng web hay dùng.
+  cacCongThu: [80, 8080, 81, 88, 8081, 8888, 85, 8000, 443, 8443],
+  // (10/10) CỔNG NHẬN: chương trình mở sẵn cổng này trên máy tính tại mỏ để
+  // camera ĐẨY biển số về (cấu hình trên camera: máy chủ nhận = IP máy tính
+  // này, cổng 8899). Mạng nội bộ ổn định hơn nhiều so với camera đẩy thẳng
+  // lên Internet; chương trình giữ hàng đợi và gửi bù lên phần mềm.
+  congNhan: 8899,
   tenDangNhap: 'admin',
   matKhau: '',
   diaChiPhanMem: 'https://mo-khuon-gian-3.netlify.app/api/camera-webhook',
@@ -129,7 +136,8 @@ async function docCauHinh() {
     fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2));
     log.ok(`Đã lưu cấu hình vào ${path.basename(FILE_CAU_HINH)} (chỉ nằm trên máy này).`);
   }
-  if (!Array.isArray(ch.cacCongThu) || !ch.cacCongThu.length) ch.cacCongThu = MAC_DINH.cacCongThu;
+  if (!Array.isArray(ch.cacCongThu) || !ch.cacCongThu.length || JSON.stringify(ch.cacCongThu) === '[80,8000,443]') ch.cacCongThu = MAC_DINH.cacCongThu;
+  if (!ch.congNhan) ch.congNhan = MAC_DINH.congNhan;
   if (daSuaCauHinhCu) { try { fs.writeFileSync(FILE_CAU_HINH, JSON.stringify(ch, null, 2)); log.info('Đã tự thêm địa chỉ camera 192.168.1.251 vào cấu hình.'); } catch { /* bỏ qua */ } }
   return ch;
 }
@@ -164,7 +172,7 @@ function taoHeaderXacThuc(tc, phuongThuc, uri, user, pass, nc) {
 }
 
 function guiYeuCau({ ip, cong, phuongThuc = 'GET', uri, headers = {}, body = null, timeoutMs = 8000 }) {
-  const laHttps = cong === 443;
+  const laHttps = cong === 443 || cong === 8443;
   const lib = laHttps ? https : http;
   return new Promise((resolve, reject) => {
     const req = lib.request({
@@ -450,16 +458,73 @@ async function chayMotCamera(chGoc, ip) {
       if (/401|mật khẩu/i.test(e.message)) log.err('-> Kiểm tra lại tên đăng nhập / mật khẩu trong file cau-hinh-camera.json');
       tt.congIsapi = null;
       baoTrangThai(ch, trangThaiTongHop());
-      choLai = Math.min(choLai * 2, 120);
+      choLai = Math.min(choLai * 2, /ở cổng nào/.test(e.message) ? 600 : 120);
       log.info(`[${ip}] Thử lại sau ${choLai} giây...`);
     }
     await new Promise((r) => setTimeout(r, choLai * 1000));
   }
 }
 
+// ----------------------------------------------------------------------------
+// (10/10) CỔNG NHẬN — camera đẩy biển số về máy tính này (HTTP Listening /
+// Alarm Server trên camera trỏ tới http://<IP máy này>:8899/camera)
+// ----------------------------------------------------------------------------
+function ipMayNay() {
+  const ds = [];
+  for (const [ten, arr] of Object.entries(os.networkInterfaces())) {
+    for (const a of arr || []) if (a.family === 'IPv4' && !a.internal) ds.push({ ten, ip: a.address });
+  }
+  return ds;
+}
+function moCongNhan(ch) {
+  const tt = trangThaiCam[`cổng nhận ${ch.congNhan}`] = { ketNoiCamera: false, thongDiep: 'Đang mở cổng nhận', congIsapi: null, cameraModel: null, lanCuoiNhanSuKien: null };
+  return new Promise((resolve) => {
+    const sv = http.createServer((req, res) => {
+      if (req.method !== 'POST') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Cau noi camera dang chay'); return; }
+      const parts = [];
+      req.on('data', (c) => parts.push(c));
+      req.on('end', () => {
+        // Trả lời camera NGAY (camera không phải chờ, không gửi lại)
+        res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('OK');
+        const buf = Buffer.concat(parts);
+        const latin = buf.toString('latin1');
+        const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+        const chCam = { ...ch, cameraIp: ip || 'camera' };
+        let co = false;
+        const re = /<EventNotificationAlert[\s\S]*?<\/EventNotificationAlert>/g; let m;
+        while ((m = re.exec(latin))) { co = true; xuLySuKien(chCam, tt, Buffer.from(m[0], 'latin1').toString('utf8')); }
+        if (!co) {
+          const t = buf.toString('utf8').trim();
+          if (t.startsWith('{')) { co = true; xuLySuKien(chCam, tt, t); }
+        }
+        if (co) { tt.ketNoiCamera = true; tt.thongDiep = `Đang nhận dữ liệu camera ${ip} đẩy về cổng ${ch.congNhan}`; }
+      });
+    });
+    sv.on('error', (e) => {
+      tt.thongDiep = `Không mở được cổng nhận ${ch.congNhan}: ${e.message}`;
+      log.err(tt.thongDiep);
+      resolve(false);
+    });
+    sv.listen(ch.congNhan, '0.0.0.0', () => {
+      tt.thongDiep = `Đang chờ camera đẩy dữ liệu về cổng ${ch.congNhan}`;
+      log.ok(`Đã mở CỔNG NHẬN ${ch.congNhan} — camera có thể đẩy biển số về: ${ipMayNay().map((x) => `http://${x.ip}:${ch.congNhan}/camera`).join('  hoặc  ') || '(chưa thấy địa chỉ mạng)'}`);
+      resolve(true);
+    });
+  });
+}
+
 async function chayLienTuc(ch) {
   setInterval(() => guiHangDoi(ch), 15000);
   setInterval(() => baoTrangThai(ch, trangThaiTongHop()), 60000);
+  // Coi "cổng nhận" là mất kết nối nếu quá 30 phút không có dữ liệu camera đẩy về
+  setInterval(() => {
+    const t = trangThaiCam[`cổng nhận ${ch.congNhan}`];
+    if (t && t.ketNoiCamera && t.lanCuoiNhanSuKien && Date.now() - new Date(t.lanCuoiNhanSuKien).getTime() > 30 * 60000) {
+      t.ketNoiCamera = false; t.thongDiep = `Quá 30 phút chưa có dữ liệu camera đẩy về cổng ${ch.congNhan}`;
+    }
+  }, 60000);
+  await moCongNhan(ch);
+  baoTrangThai(ch, trangThaiTongHop());
   await Promise.all(dsCamera(ch).map((ip) => chayMotCamera(ch, ip)));
 }
 
@@ -480,7 +545,7 @@ async function kiemTra(ch) {
       console.log('\n  >> Không địa chỉ nào ở trên là camera (ping được nhưng từ chối kết nối, hoặc không trả lời).');
       console.log('     Dữ liệu thực tế cho thấy thiết bị gửi biển số có địa chỉ 192.168.1.251.');
       const goiY = dsCamera(ch).includes('192.168.1.251') ? '' : '192.168.1.251';
-      const ipMoi = await hoi(`     Gõ địa chỉ IP camera để thử lại${goiY ? ' (bấm Enter = dùng 192.168.1.251)' : ''}, hoặc gõ chữ K để bỏ qua`, goiY);
+      const ipMoi = await hoi(`     Gõ địa chỉ IP camera để thử lại${goiY ? ' (bấm Enter = dùng 192.168.1.251)' : ''}, hoặc gõ chữ K để bỏ qua (chương trình sẽ dùng chế độ CỔNG NHẬN — camera đẩy dữ liệu về)`, goiY);
       if (!ipMoi || /^k$/i.test(ipMoi)) break;
       if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ipMoi)) { console.log('  !! Địa chỉ không hợp lệ (phải có dạng 192.168.1.251).'); continue; }
       ch.cameraIp = ipMoi;
@@ -502,7 +567,24 @@ async function kiemTra(ch) {
     if (res.ok && j.ok) log.ok(`Phần mềm ${ch.diaChiPhanMem}: đang hoạt động${j.canKhoa ? ' (có yêu cầu khoá bảo mật)' : ''}`);
     else log.err(`Phần mềm trả mã ${res.status}`);
   } catch (e) { log.err(`Không kết nối được phần mềm (${ch.diaChiPhanMem}): ${e.message}`); }
+  // (10/10) Cổng nhận: thử mở để chắc không bị chương trình khác chiếm
+  let datCongNhan = false;
+  await new Promise((ok) => {
+    const sv = http.createServer();
+    sv.once('error', (e) => { if (e.code === 'EADDRINUSE') { datCongNhan = true; log.ok(`Cổng nhận ${ch.congNhan}: đang được chương trình cầu nối (đang chạy) sử dụng.`); } else log.err(`Không mở được cổng nhận ${ch.congNhan}: ${e.message}`); ok(); });
+    sv.listen(ch.congNhan, '0.0.0.0', () => { datCongNhan = true; sv.close(); log.ok(`Cổng nhận ${ch.congNhan} sẵn sàng.`); ok(); });
+  });
+  const dsIp = ipMayNay();
+  if (datCongNhan) {
+    console.log(`\n  Địa chỉ để cấu hình trên camera (mục HTTP Listening / Alarm Server — máy chủ nhận dữ liệu):`);
+    dsIp.forEach((x) => console.log(`     IP: ${x.ip}   Cổng: ${ch.congNhan}   Đường dẫn: /camera   (card mạng: ${x.ten})`));
+  }
   console.log('=== KẾT THÚC KIỂM TRA ===\n');
+  if (!datCamera && datCongNhan && datPhanMem) {
+    console.log('>>> KẾT QUẢ: ĐẠT (chế độ CỔNG NHẬN) — chưa vào được camera bằng cổng web, chương trình sẽ chờ camera ĐẨY dữ liệu về.');
+    console.log('    Cần nhờ kỹ thuật cấu hình camera đẩy dữ liệu về địa chỉ ở trên (xem hướng dẫn). Có thể tiếp tục cài đặt.\n');
+    return true;
+  }
   if (datCamera && datPhanMem) console.log('>>> KẾT QUẢ: ĐẠT — có thể chạy chương trình.\n');
   else console.log(`>>> KẾT QUẢ: CHƯA ĐẠT — ${!datCamera ? 'chưa kết nối được CAMERA' : ''}${!datCamera && !datPhanMem ? ' và ' : ''}${!datPhanMem ? 'chưa kết nối được PHẦN MỀM (Internet)' : ''}. Xem mục "Xử lý sự cố" trong hướng dẫn.\n`);
   return datCamera && datPhanMem;
