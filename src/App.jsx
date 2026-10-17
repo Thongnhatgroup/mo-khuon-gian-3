@@ -664,6 +664,58 @@ async function storageSet(key, value, shared) {
 }
 
 // ---------------------------------------------------------------------------
+// (Sửa 17/10 — lỗi "khai báo xong lại mất, dữ liệu không sang phân hệ khác"
+// sau khi chuyển lán trại, mạng tại mỏ yếu) Đồng bộ sự kiện vận hành TỪNG
+// PHẦN qua /api/events thay vì gửi/tải lại TOÀN BỘ dữ liệu mỗi lần:
+//  - Mỗi thao tác chỉ gửi đúng sự kiện mới (vài trăm byte).
+//  - Thao tác chưa gửi được (mất mạng, mạng chậm, tải lại trang, tắt máy...)
+//    được GIỮ LẠI trong máy (hàng đợi lưu ở localStorage) và tự gửi bù.
+//  - Mỗi lần đồng bộ chỉ tải phần thay đổi kể từ lần trước.
+// ---------------------------------------------------------------------------
+const CO_API_SU_KIEN = !CO_ARTIFACT_STORAGE;
+const KHOA_HANG_DOI_SU_KIEN = 'mkg3_hang_doi_su_kien_v1';
+function docHangDoiSuKien() {
+  try { const v = JSON.parse(localStorage.getItem(KHOA_HANG_DOI_SU_KIEN) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function luuHangDoiSuKien(ds) {
+  try { localStorage.setItem(KHOA_HANG_DOI_SU_KIEN, JSON.stringify(ds)); } catch { /* bộ nhớ trình duyệt bị chặn/đầy — vẫn giữ trong bộ nhớ tạm */ }
+}
+async function goiApiSuKien(method, query, body, timeoutMs) {
+  const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const hen = ctl ? setTimeout(() => ctl.abort(), timeoutMs || 45000) : null;
+  try {
+    const res = await fetch(`/api/events${query || ''}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctl ? ctl.signal : undefined,
+    });
+    if (res.status === 401) { baoHetPhien(); return { ok: false, status: 401 }; }
+    mat401GanDay = false;
+    const data = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, loi: String(e?.message || e) };
+  } finally { if (hen) clearTimeout(hen); }
+}
+// Tải sự kiện: chỉ phần mới sau "hienCo" (nếu máy chủ xác nhận khớp), không thì tải lại từ đầu.
+async function taiSuKienTuMayChu(hienCo) {
+  let ds = Array.isArray(hienCo) ? hienCo : [];
+  let epoch = 0; let resetLock = 0; let daTaiLaiTuDau = false;
+  for (let vong = 0; vong < 40; vong++) {
+    const n = ds.length; const last = n ? ds[n - 1]?.id || '' : '';
+    const r = await goiApiSuKien('GET', `?n=${n}&last=${encodeURIComponent(last)}&limit=2000`, null, 60000);
+    if (!r.ok || !r.data || !Array.isArray(r.data.events)) return null;
+    const d = r.data;
+    epoch = d.epoch || 0; resetLock = d.resetLock || 0;
+    if (d.tu === 0 && (d.full || n !== 0)) { ds = []; daTaiLaiTuDau = true; }
+    ds = ds.concat(d.events);
+    if (!d.more) break;
+  }
+  return { events: ds, epoch, resetLock, daTaiLaiTuDau };
+}
+
+// ---------------------------------------------------------------------------
 // Mật khẩu — băm bằng Web Crypto (SHA-256 + salt). CHỈ dùng cho bản demo xem
 // trước; bản chính thức (Netlify) đã dùng scrypt phía máy chủ, an toàn hơn.
 // ---------------------------------------------------------------------------
@@ -848,7 +900,7 @@ function phieuGiaoNhanHTML(t, events) {
 // ---------------------------------------------------------------------------
 // Thành phần dùng chung
 // ---------------------------------------------------------------------------
-function TopBar({ session, onLogout, onChangePassword, onlineCount, syncing }) {
+function TopBar({ session, onLogout, onChangePassword, onlineCount, syncing, chuaGui = 0, matKetNoi = false }) {
   const info = ROLES_INFO[session.role];
   const Icon = info?.icon || Users;
   return (
@@ -866,6 +918,16 @@ function TopBar({ session, onLogout, onChangePassword, onlineCount, syncing }) {
         <div className="flex items-center gap-1.5 text-slate-400">
           <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /><span>{syncing ? 'Đang đồng bộ...' : 'Đã đồng bộ'}</span>
         </div>
+        {matKetNoi && (
+          <div className="flex items-center gap-1.5 bg-red-500/15 border border-red-500/50 text-red-300 rounded-full px-2.5 py-1 font-semibold" title="Không tải được dữ liệu mới từ máy chủ (mạng yếu/mất mạng) — phần mềm tự thử lại, thao tác vẫn được giữ lại trên máy">
+            ⚠ Mạng yếu — đang thử kết nối lại
+          </div>
+        )}
+        {chuaGui > 0 && (
+          <div className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/50 text-amber-300 rounded-full px-2.5 py-1 font-semibold" title="Thao tác đã lưu trên máy này, đang chờ mạng để gửi lên máy chủ — KHÔNG mất, tự gửi khi có mạng">
+            ⏳ {chuaGui} thao tác đang chờ gửi
+          </div>
+        )}
         <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-full px-3 py-1.5">
           <Icon className="w-3.5 h-3.5 text-brand-500" /><span className="text-slate-200">{session.name}{session.chucDanh ? ` — ${session.chucDanh}` : ''}</span>
         </div>
@@ -5001,6 +5063,23 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const mySessionId = useRef(genId('sess'));
   const persistEventsRef = useRef(null);
+  // (Sửa 17/10) Đồng bộ từng phần — xem goiApiSuKien()/taiSuKienTuMayChu()
+  const suKienMayChuRef = useRef([]); // bản sự kiện đã có trên máy chủ (đã tải về)
+  const hangDoiRef = useRef(CO_API_SU_KIEN ? docHangDoiSuKien() : []); // thao tác chưa gửi được
+  const [chuaGui, setChuaGui] = useState(() => hangDoiRef.current.length);
+  const dangGuiRef = useRef(false);
+  const henGuiLaiRef = useRef(null);
+  const soLanLoiGuiRef = useRef(0);
+  const daGuiChoThayRef = useRef([]); // đã gửi thành công, chờ thấy trong lần tải tiếp theo
+  const [matKetNoi, setMatKetNoi] = useState(false);
+  const ghepHienThi = () => {
+    const ids = new Set(suKienMayChuRef.current.map((e) => e.id));
+    daGuiChoThayRef.current = daGuiChoThayRef.current.filter((e) => !ids.has(e.id));
+    const them = [];
+    for (const e of [...daGuiChoThayRef.current, ...hangDoiRef.current]) { if (!ids.has(e.id)) { ids.add(e.id); them.push(e); } }
+    return them.length ? [...suKienMayChuRef.current, ...them] : suKienMayChuRef.current;
+  };
+  const capNhatHangDoi = (ds) => { hangDoiRef.current = ds; luuHangDoiSuKien(ds); setChuaGui(ds.length); };
   // (Sửa lỗi 21/09 lần 7 — PHÁT HIỆN GỐC RỄ THẬT SỰ, sau khi lần 6 vẫn KHÔNG
   // giải quyết được: đã sửa đúng 2 hàm máy chủ (camera-webhook, import-plates)
   // tôn trọng "reset_lock", nhưng "sự kiện vận hành" VẪN quay lại Y NGUYÊN,
@@ -5046,8 +5125,23 @@ export default function App() {
       const cfg = await storageGet('config', true, null);
       const mergedCfg = cfg ? { ...DEFAULT_CONFIG, ...cfg, thietKe: { ...DEFAULT_CONFIG.thietKe, ...(cfg.thietKe || {}) } } : DEFAULT_CONFIG;
       setConfigState(mergedCfg);
-      const evs = await storageGet('events', true, []);
-      setEvents(evs || []);
+      if (CO_API_SU_KIEN) {
+        const kq = await taiSuKienTuMayChu([]);
+        setMatKetNoi(!kq);
+        if (kq) {
+          suKienMayChuRef.current = kq.events;
+          lastResetEpochRef.current = kq.epoch || 0;
+          // Bỏ khỏi hàng đợi những thao tác máy chủ đã có; thao tác cũ hơn lần
+          // đặt lại dữ liệu thì bỏ (máy chủ cũng sẽ từ chối).
+          const ids = new Set(kq.events.map((e) => e.id));
+          capNhatHangDoi(hangDoiRef.current.filter((e) => !ids.has(e.id) && !(kq.epoch && Date.parse(e.time || '') < kq.epoch)));
+        }
+        setEvents(ghepHienThi());
+        setTimeout(() => guiHangDoiRef.current?.(), 500);
+      } else {
+        const evs = await storageGet('events', true, []);
+        setEvents(evs || []);
+      }
       // (Yêu cầu 24/09 — theo phản ánh Chủ tịch HĐQT) Số phiếu TRƯỚC ĐÂY reset
       // về 1 mỗi ngày (kèm tiền tố "PKG-YYMMDD-") -> đổi thành số NỐI TIẾP
       // xuyên suốt, không reset theo ngày, và ngắn gọn hơn.
@@ -5060,7 +5154,7 @@ export default function App() {
       // MỞ TRANG — để sau này nếu máy chủ báo mốc mới hơn (nghĩa là đã có 1 đợt
       // đặt lại dữ liệu xảy ra ở nơi khác trong lúc tab này vẫn đang mở), tab sẽ
       // nhận biết được và không tự ý "gộp/khôi phục" dữ liệu cũ của chính nó.
-      lastResetEpochRef.current = (await storageGet('data_epoch', true, 0)) || 0;
+      if (!CO_API_SU_KIEN) lastResetEpochRef.current = (await storageGet('data_epoch', true, 0)) || 0;
       setReady(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5068,6 +5162,29 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     setSyncing(true);
+    if (CO_API_SU_KIEN) {
+      const kq = await taiSuKienTuMayChu(suKienMayChuRef.current);
+      setMatKetNoi(!kq);
+      if (kq) {
+        if (kq.epoch > lastResetEpochRef.current) {
+          // Vừa có đợt "Đặt lại dữ liệu vận hành" ở nơi khác -> nhận đúng dữ
+          // liệu máy chủ, bỏ thao tác cũ hơn mốc đặt lại trong hàng đợi.
+          lastResetEpochRef.current = kq.epoch;
+          capNhatHangDoi(hangDoiRef.current.filter((e) => !(Date.parse(e.time || '') < kq.epoch)));
+          daGuiChoThayRef.current = [];
+        }
+        suKienMayChuRef.current = kq.events;
+        const ids = new Set(kq.events.map((e) => e.id));
+        if (hangDoiRef.current.some((e) => ids.has(e.id))) capNhatHangDoi(hangDoiRef.current.filter((e) => !ids.has(e.id)));
+        setEvents(ghepHienThi());
+      }
+      if (hangDoiRef.current.length) guiHangDoiRef.current?.();
+      const cfg = await storageGet('config', true, null);
+      if (cfg) setConfigState({ ...DEFAULT_CONFIG, ...cfg, thietKe: { ...DEFAULT_CONFIG.thietKe, ...(cfg.thietKe || {}) } });
+      const cl = await storageGet('claims', true, {}); setClaims(cl || {});
+      setSyncing(false);
+      return;
+    }
     const evs = await storageGet('events', true, []);
     // (Sửa lỗi 21/09 — PHÁT HIỆN QUA THỰC TẾ) Khi công cụ "Đặt lại dữ liệu vận
     // hành" (mục Quản lý tài khoản) đang chạy, TẠM BỎ QUA hẳn phần "gộp" bên
@@ -5168,7 +5285,49 @@ export default function App() {
   // Thêm NHIỀU sự kiện liên quan trong 1 lần ghi duy nhất (atomic) — dùng khi 1
   // thao tác của người dùng phải tạo ra hơn 1 sự kiện cùng lúc (VD: xác nhận
   // xúc đầy xe -> tạo cả "lượt xúc" lẫn "phiếu" trong đúng 1 lần ghi).
+  // (Sửa 17/10) Gửi hàng đợi thao tác lên máy chủ — từng lô nhỏ, tự gửi lại
+  // khi lỗi mạng (giãn dần 5 giây -> 60 giây), không bao giờ bỏ thao tác.
+  const guiHangDoiRef = useRef(null);
+  const guiHangDoi = useCallback(async () => {
+    if (!CO_API_SU_KIEN || dangGuiRef.current) return;
+    if (!hangDoiRef.current.length) return;
+    dangGuiRef.current = true;
+    try {
+      while (hangDoiRef.current.length) {
+        const lo = hangDoiRef.current.slice(0, 100);
+        const r = await goiApiSuKien('POST', '', { append: lo }, 60000);
+        if (!r.ok) throw new Error(`HTTP ${r.status} ${r.loi || ''}`);
+        const daGui = new Set(lo.map((e) => e.id));
+        // Máy chủ đã nhận: chuyển sang danh sách "đã gửi, chờ thấy ở lần tải
+        // tiếp theo" để vẫn hiển thị liền mạch (không chớp mất vài giây).
+        daGuiChoThayRef.current = [...daGuiChoThayRef.current, ...lo];
+        capNhatHangDoi(hangDoiRef.current.filter((e) => !daGui.has(e.id)));
+        soLanLoiGuiRef.current = 0;
+      }
+    } catch (e) {
+      soLanLoiGuiRef.current += 1;
+      const cho = Math.min(60000, 5000 * soLanLoiGuiRef.current);
+      clearTimeout(henGuiLaiRef.current);
+      henGuiLaiRef.current = setTimeout(() => guiHangDoiRef.current?.(), cho);
+    } finally {
+      dangGuiRef.current = false;
+    }
+  }, []);
+  guiHangDoiRef.current = guiHangDoi;
+  useEffect(() => {
+    if (!CO_API_SU_KIEN) return;
+    const khiCoMang = () => { guiHangDoiRef.current?.(); };
+    window.addEventListener('online', khiCoMang);
+    return () => window.removeEventListener('online', khiCoMang);
+  }, []);
   const addEvents = useCallback((evs) => {
+    if (CO_API_SU_KIEN) {
+      // Lưu NGAY vào hàng đợi trên máy (không mất dù tải lại trang/mất mạng), rồi gửi.
+      capNhatHangDoi([...hangDoiRef.current, ...evs]);
+      setEvents((prev) => [...prev, ...evs]);
+      guiHangDoiRef.current?.();
+      return;
+    }
     setEvents((prev) => { const next = [...prev, ...evs]; persistEvents(next); return next; });
   }, [persistEvents]);
   const addEvent = useCallback((ev) => addEvents([ev]), [addEvents]);
@@ -5232,6 +5391,7 @@ export default function App() {
     // nhập lại bằng tài khoản khác trên CÙNG máy/tab còn thấy sót dữ liệu cũ
     // trong khoảnh khắc trước khi dữ liệu mới tải xong.
     setEvents([]); setConfigState(DEFAULT_CONFIG); setClaims({});
+    suKienMayChuRef.current = []; daGuiChoThayRef.current = [];
   };
 
   // (Sửa lỗi khẩn 09/09) QUAN TRỌNG: useMemo phải gọi ở ĐÂY — TRƯỚC mọi
@@ -5256,7 +5416,7 @@ export default function App() {
   const role = session.role;
   return (
     <div className="min-h-screen bg-slate-950">
-      <TopBar session={session} onLogout={dangXuat} onChangePassword={() => setDoiMK(true)} onlineCount={onlineCount} syncing={syncing} />
+      <TopBar session={session} onLogout={dangXuat} onChangePassword={() => setDoiMK(true)} onlineCount={onlineCount} syncing={syncing} chuaGui={chuaGui} matKetNoi={matKetNoi} />
       {role === 'baove' && <GateScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} myName={session.name} />}
       {role === 'laixuc' && <DriverScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} myUsername={session.username} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
       {role === 'kythuat' && <KyThuatScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} myName={session.name} />}

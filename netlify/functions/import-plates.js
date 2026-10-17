@@ -8,6 +8,7 @@
 // chuẩn web) thay vì chuẩn V1 cũ (exports.handler) — cùng lý do với kv.js:
 // tránh lỗi "MissingBlobsEnvironmentError" khi gọi Netlify Blobs.
 import { getStore } from '@netlify/blobs';
+import { noiThemSuKien } from '../lib/events-store.js';
 
 function json(statusCode, body) {
   return new Response(JSON.stringify(body), {
@@ -72,7 +73,9 @@ export default async (req) => {
   }
 
   if (newEvents.length > 0) {
-    await store.setJSON('events', [...events, ...newEvents]);
+    // (Sửa 17/10) Nối thêm nguyên tử — không ghi đè mất dữ liệu nơi khác vừa ghi
+    const epoch = await store.get('data_epoch', { type: 'json' }).catch(() => null);
+    await noiThemSuKien(store, newEvents, epoch);
   }
   return json(200, { added: newEvents.length });
 };

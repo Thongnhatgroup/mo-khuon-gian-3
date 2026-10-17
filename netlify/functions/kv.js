@@ -18,6 +18,7 @@
 // netlify/functions/login.js sau khi xác thực mật khẩu thật) gửi kèm ở header
 // "Authorization: Bearer <token>". Token vô hiệu/hết hạn -> trả về lỗi 401.
 import { getStore } from '@netlify/blobs';
+import { noiThemSuKien } from '../lib/events-store.js';
 
 const TEN_KHO_CHINH = 'mo-khuon-gian-v6';
 const TEN_KHO_PHIEN = 'mo-khuon-gian-v6-sessions';
@@ -82,38 +83,28 @@ export default async (req) => {
     try { body = await req.json(); } catch { return json(400, { error: 'Body không hợp lệ' }); }
     const { key, value } = body || {};
     if (!key) return json(400, { error: 'Thiếu tham số key' });
-    // (Bổ sung 09/10, sửa 10/10) Sự kiện do MÁY CHỦ tự tạo (camera ghi nhận xe
-    // vào/ra — đánh dấu mayChuTao: true) có thể chưa kịp tới trình duyệt khi
-    // trình duyệt ghi đè cả mảng "events" (đồng bộ 6 giây/lần). Giữ lại các sự
-    // kiện đó thay vì để bị ghi đè mất — trừ khi đang "Đặt lại dữ liệu vận
-    // hành" hoặc sự kiện được tạo TRƯỚC lần đặt lại gần nhất. Ghi có điều kiện
-    // (chỉ ghi nếu từ lúc đọc chưa có ai ghi thêm) để camera ghi đúng lúc này
-    // cũng không bị mất.
-    if (key === 'events' && Array.isArray(value) && value.length > 0) {
-      let xong = false;
-      try {
-        const [khoa, epoch] = await Promise.all([
-          store.get('reset_lock', { type: 'json' }),
-          store.get('data_epoch', { type: 'json' }),
-        ]);
-        const dangDatLai = khoa && Date.now() - Number(khoa) < 90000;
-        if (!dangDatLai) {
-          for (let lan = 0; lan < 8 && !xong; lan++) {
-            const r = await store.getWithMetadata('events', { type: 'json' });
-            const hienTai = r && Array.isArray(r.data) ? r.data : [];
-            const idsMoi = new Set(value.map((e) => e && e.id));
-            const thieu = hienTai.filter((e) => e && e.mayChuTao && !idsMoi.has(e.id) && (!epoch || (e.createdAt || 0) > Number(epoch)));
-            const giaTriGhi = thieu.length ? [...value, ...thieu] : value;
-            const w = await store.setJSON('events', giaTriGhi, r && r.etag ? { onlyIfMatch: r.etag } : { onlyIfNew: true });
-            if (!w || w.modified !== false) xong = true;
-            else await new Promise((ok) => setTimeout(ok, 40 + Math.random() * 150 * (lan + 1)));
-          }
-        }
-      } catch { /* lỗi đọc/ghi có điều kiện -> ghi như cũ bên dưới */ }
-      if (!xong) await store.setJSON(key, value);
-    } else {
-      await store.setJSON(key, value);
+    // (Sửa 17/10 — lỗi "khai báo xong lại mất" sau khi chuyển lán trại) Ghi
+    // khoá "events" qua đây (các máy còn chạy bản cũ gửi cả mảng) KHÔNG còn ghi
+    // đè nữa: chỉ NỐI THÊM các sự kiện máy gửi lên mà máy chủ chưa có — mọi sự
+    // kiện đang có trên máy chủ (của máy khác, camera...) luôn được giữ nguyên.
+    // Xoá trắng (mảng rỗng) chỉ được phép khi đang "Đặt lại dữ liệu vận hành".
+    if (key === 'events') {
+      if (!Array.isArray(value)) return json(400, { error: 'Dữ liệu sự kiện không hợp lệ' });
+      const [khoa, epoch] = await Promise.all([
+        store.get('reset_lock', { type: 'json' }).catch(() => null),
+        store.get('data_epoch', { type: 'json' }).catch(() => null),
+      ]);
+      const dangDatLai = khoa && Date.now() - Number(khoa) < 90000;
+      if (value.length === 0) {
+        if (!dangDatLai) return json(409, { error: 'Không cho phép xoá trắng dữ liệu vận hành ngoài công cụ Đặt lại dữ liệu' });
+        await store.setJSON(key, []);
+        return json(200, { ok: true });
+      }
+      if (dangDatLai) return json(503, { error: 'Đang đặt lại dữ liệu, gửi lại sau' });
+      const kq = await noiThemSuKien(store, value, epoch);
+      return json(200, { ok: true, ...kq });
     }
+    await store.setJSON(key, value);
     return json(200, { ok: true });
   }
 
