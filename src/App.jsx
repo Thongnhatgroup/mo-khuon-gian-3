@@ -803,7 +803,9 @@ function pseudoQRHTML(seed, size = 64) {
   for (let y = 0; y < cells; y++) for (let x = 0; x < cells; x++) if (rnd(y * cells + x)) rects += `<rect x="${x * cellSize}" y="${y * cellSize}" width="${cellSize}" height="${cellSize}" fill="#111"/>`;
   return `<svg width="${size}" height="${size}" style="background:#fff;border-radius:4px;padding:2px">${rects}</svg>`;
 }
-// Dựng nội dung HTML của phiếu giao nhận (3 liên) để IN THẬT (qua inTrucTiep,
+// (Sửa 17/10 — yêu cầu Chủ tịch HĐQT) Phiếu xuất đất in 2 LIÊN (trước đây 3 liên).
+const LIEN_PHIEU_XUAT_DAT = ['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Giao lái xe / khách hàng'];
+// Dựng nội dung HTML của phiếu giao nhận (2 liên) để IN THẬT (qua inTrucTiep,
 // khổ 80mm) — giữ đúng bố cục như bản xem trước trên màn hình Kế toán mỏ.
 function phieuGiaoNhanHTML(t, events) {
   // (Sửa lỗi 25/09 — theo phản ánh Chủ tịch HĐQT) TRƯỚC ĐÂY luôn lấy lượt vào
@@ -814,7 +816,7 @@ function phieuGiaoNhanHTML(t, events) {
   // trước t.time) — đúng chuyến xe đang xét, không giới hạn trong ngày nữa
   // (phòng trường hợp xe vào cuối ngày hôm trước, xúc ngay sau nửa đêm).
   const gateIn = events.filter((e) => e.type === 'gate_in' && e.plate === t.plate && e.time <= t.time).sort(compareTimeDesc)[0];
-  const lienList = ['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'];
+  const lienList = LIEN_PHIEU_XUAT_DAT;
   // (Bảng hiệu chỉnh 25/08) — bỏ mã QR giả trên phiếu, cỡ chữ đồng nhất 12pt
   // (như Word/Excel) thay vì 9–13pt lẫn lộn trước đây, TẤT CẢ chữ in đậm,
   // giãn dòng rộng hơn cho dễ nhìn — khổ giấy 80mm tự giãn dài theo nội dung
@@ -1179,7 +1181,7 @@ function ChangePasswordScreen({ session, onDone, batBuoc }) {
 // ---------------------------------------------------------------------------
 // Bảo vệ cổng — thêm: xe RA cổng, cảnh báo xe chưa ghi nhận (báo từ hiện trường)
 // ---------------------------------------------------------------------------
-function GateScreen({ events, addEvent, addEvents }) {
+function GateScreen({ events, addEvent, addEvents, myName }) {
   const [plate, setPlate] = useState('');
   const [loaiXe, setLoaiXe] = useState(LOAI_XE[0].id);
   const [photo, setPhoto] = useState(null);
@@ -1267,9 +1269,31 @@ function GateScreen({ events, addEvent, addEvents }) {
   // (Sửa 10/10) Đã BỎ việc ghép biển đầu ↔ biển đuôi khi xe ra (yêu cầu Chủ tịch HĐQT).
   // Trạng thái chương trình cầu nối camera (camera-agent/isapi-agent.js tự báo 60 giây/lần)
   const [camStatus, setCamStatus] = useState(null);
+  // (Bổ sung 17/10 — yêu cầu Chủ tịch HĐQT) Nút TẮT/MỞ nhận dữ liệu camera.
+  // Lưu ở khoá dùng chung "camera_cai_dat" để MÁY CHỦ (camera-webhook) cũng
+  // đọc được: khi TẮT, mọi lượt camera gửi lên chỉ ghi nhật ký, không tạo xe
+  // vào — Bảo vệ khai báo bằng tay như bình thường.
+  const [camCaiDat, setCamCaiDat] = useState(null);
+  const camDangTat = !!camCaiDat?.tatNhan;
+  const [dangDoiCam, setDangDoiCam] = useState(false);
+  const doiTrangThaiNhanCamera = async () => {
+    if (dangDoiCam) return;
+    const tatNhan = !camDangTat;
+    setDangDoiCam(true);
+    const moi = { tatNhan, capNhatLuc: new Date().toISOString(), capNhatBoi: myName || 'Bảo vệ' };
+    try {
+      await storageSet('camera_cai_dat', moi, true);
+      setCamCaiDat(moi);
+      addEvent({ id: genId('CBT'), type: 'camera_bat_tat', tatNhan, boi: myName || 'Bảo vệ', time: moi.capNhatLuc });
+      notify(tatNhan ? 'Đã TẮT nhận dữ liệu camera — Bảo vệ khai báo xe vào bằng tay' : 'Đã MỞ lại nhận dữ liệu camera — camera tự ghi nhận xe vào');
+    } finally { setDangDoiCam(false); }
+  };
   useEffect(() => {
     let huy = false;
-    const tai = async () => { const s = await storageGet('camera_status', true, null); if (!huy) setCamStatus(s); };
+    const tai = async () => {
+      const [s, cd] = await Promise.all([storageGet('camera_status', true, null), storageGet('camera_cai_dat', true, null)]);
+      if (!huy) { setCamStatus(s); setCamCaiDat(cd); }
+    };
     tai(); const t = setInterval(tai, 30000);
     return () => { huy = true; clearInterval(t); };
   }, []);
@@ -1352,8 +1376,19 @@ function GateScreen({ events, addEvent, addEvents }) {
 
       <Card className="mb-4 border-brand-600/50">
         <div className="flex items-center gap-2 font-bold text-white text-sm mb-1"><Globe className="w-4 h-4 text-brand-400" /> Lấy biển số xe từ Camera HikCentral</div>
+        {/* (Bổ sung 17/10) Nút TẮT/MỞ nhận dữ liệu camera */}
+        <div className={`flex items-center justify-between gap-3 rounded-lg p-2.5 mb-2 border ${camDangTat ? 'bg-slate-900 border-slate-600' : 'bg-emerald-900/20 border-emerald-600/50'}`}>
+          <div className="min-w-0">
+            <div className={`text-sm font-bold ${camDangTat ? 'text-slate-300' : 'text-emerald-400'}`}>Nhận dữ liệu camera: {camDangTat ? 'ĐANG TẮT' : 'ĐANG MỞ'}</div>
+            <div className="text-slate-400 text-[11px]">{camDangTat ? 'Camera KHÔNG ghi nhận xe — Bảo vệ khai báo xe vào bằng tay ở ô bên dưới.' : 'Camera tự ghi nhận xe vào (biển đuôi).'}{camCaiDat?.capNhatLuc ? ` · ${camDangTat ? 'Tắt' : 'Mở'} lúc ${gioVN(camCaiDat.capNhatLuc)} bởi ${camCaiDat.capNhatBoi || '—'}` : ''}</div>
+          </div>
+          <button onClick={doiTrangThaiNhanCamera} disabled={dangDoiCam}
+            className={`flex-shrink-0 text-xs font-bold px-3 py-2 rounded-lg text-white disabled:opacity-50 ${camDangTat ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}>
+            {dangDoiCam ? 'Đang lưu...' : camDangTat ? 'MỞ nhận camera' : 'TẮT nhận camera'}
+          </button>
+        </div>
         {/* (Bổ sung 09/10) Trạng thái chương trình cầu nối camera ANPR (isapi-agent.js) */}
-        {camStatus ? (
+        {camDangTat ? null : camStatus ? (
           <div className={`rounded-lg p-3 mb-2 border ${camStatusMoi && camStatus.ketNoiCamera ? 'bg-emerald-900/20 border-emerald-600/50' : camStatusMoi ? 'bg-amber-900/20 border-amber-600/50' : 'bg-red-900/20 border-red-600/50'}`}>
             <div className={`text-xs font-bold ${camStatusMoi && camStatus.ketNoiCamera ? 'text-emerald-400' : camStatusMoi ? 'text-amber-400' : 'text-red-400'}`}>
               {camStatusMoi && camStatus.ketNoiCamera ? `🟢 Cầu nối camera: đang kết nối camera ${camStatus.cameraIp || ''}${camStatus.congIsapi ? ` (cổng ${camStatus.congIsapi})` : ''}`
@@ -1373,7 +1408,7 @@ function GateScreen({ events, addEvent, addEvents }) {
         ) : (
           <p className="text-slate-500 text-xs mb-2">Chưa nhận dữ liệu từ Camera — cần chạy chương trình cầu nối <b>isapi-agent.js</b> trên 1 máy tính trong mạng nội bộ mỏ (xem hướng dẫn bên dưới). Trong lúc chờ, Bảo vệ vẫn ghi nhận bằng tay bình thường.</p>
         )}
-        {camBoSotHomNay.length > 0 && (
+        {!camDangTat && camBoSotHomNay.length > 0 && (
           <div className="bg-amber-900/20 border border-amber-600/50 rounded-lg p-2 mb-2 text-amber-300 text-[11px]">⚠ Hôm nay Bảo vệ phải nhập tay <b>{camBoSotHomNay.length}</b> xe vào mà camera KHÔNG gửi lên (camera đã gửi {camVaoHomNay.length} xe). Nếu con số này lớn: kiểm tra chương trình cầu nối tại mỏ và đường Internet của camera.</div>
         )}
         <button onClick={() => setXemKhoiHuongDanCamera(!xemKhoiHuongDanCamera)} className="w-full flex items-center justify-center gap-1.5 text-brand-400 text-xs font-semibold underline py-1">
@@ -2438,7 +2473,7 @@ function DriverScreen({ events, addEvent, addEvents, config, myName, myUsername,
     addEvents([loadEv, ticket]);
     clearClaim(plateDaChon);
     setSelectedPlate(null); setSearch('');
-    notify(`Đã xác nhận xúc đầy xe ${plateDaChon} — hệ thống tự động lập phiếu ${ticket.ticketNo} (3 liên)`);
+    notify(`Đã xác nhận xúc đầy xe ${plateDaChon} — hệ thống tự động lập phiếu ${ticket.ticketNo} (2 liên)`);
   };
 
   const guiBaoXeLa = () => {
@@ -3548,7 +3583,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
                     <div key={t.id} className={`py-2.5 ${t.daHuy ? 'opacity-50' : ''}`}>
                       <button onClick={() => setXemLai(t)} className="w-full flex justify-between items-center text-left hover:bg-slate-700/30 px-1 rounded">
                         <div><div className="text-white font-bold tabular-nums">{t.plate}</div><div className="text-slate-500 text-[11px]">{t.ticketNo} · {t.customerName || 'Chưa gán KH'} · {gioVN(t.time)}{t.daHuy && <span className="text-red-400"> · ĐÃ HỦY — {t.lyDoHuy}</span>}</div></div>
-                        <div className="text-right"><div className="text-white">{soVN(t.volume)} m³</div><div className="text-slate-500 text-[11px] flex items-center gap-1 justify-end"><Printer className="w-3 h-3" /> Xem 3 liên</div></div>
+                        <div className="text-right"><div className="text-white">{soVN(t.volume)} m³</div><div className="text-slate-500 text-[11px] flex items-center gap-1 justify-end"><Printer className="w-3 h-3" /> Xem 2 liên</div></div>
                       </button>
                       <div className="flex items-center gap-2 mt-1 px-1 flex-wrap">
                         {t.daHuy ? null : daKy ? <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">✓ Lái xe đã ký nhận</span>
@@ -3631,7 +3666,7 @@ function AccountantScreen({ events, addEvent, addEvents, config, setConfig, myNa
           <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-3">
           <button onClick={() => inTrucTiep(phieuGiaoNhanHTML(xemLai, events), `Phiếu ${xemLai.ticketNo}`, '80mm')} className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold px-4 py-2 rounded-lg"><Printer className="w-4 h-4" /> In phiếu (khổ 80mm)</button>
           <div className="flex gap-3 flex-wrap justify-center">
-            {['Liên 1 — Kế toán mỏ lưu', 'Liên 2 — Cấp khách hàng', 'Liên 3 — Lái xe ký nhận, giữ lại'].map((tieuDe) => (
+            {LIEN_PHIEU_XUAT_DAT.map((tieuDe) => (
               <div key={tieuDe} className="bg-white text-slate-900 rounded-lg p-4 w-full max-w-[300px] font-mono text-sm font-bold leading-relaxed" style={{ width: '80mm' }}>
                 <div className="text-center">CÔNG TY CP DV VÀ TM THỐNG NHẤT</div>
                 <div className="text-center mb-2">Mỏ Khuôn Giàn 3</div>
@@ -4239,7 +4274,7 @@ const NHAN_LOAI_SU_KIEN = {
   phieu_lai_xe_ky: 'Lái xe ký nhận phiếu', customer_deposit: 'Khách hàng thanh toán',
   dang_ky_xe_khach_hang: 'Đăng ký/điều chuyển biển số',
   bo_sung_cong_no_coi_noi: 'Bổ sung công nợ (cơi nới thùng)',
-  camera_xe_ra_cho_ghep: 'Camera thấy xe ra (chờ ghép biển)', camera_xe_ra_da_xu_ly: 'Bảo vệ ghép biển đầu/đuôi xe ra',
+  camera_bat_tat: 'Bật/tắt nhận dữ liệu camera', camera_xe_ra_cho_ghep: 'Camera thấy xe ra (chờ ghép biển)', camera_xe_ra_da_xu_ly: 'Bảo vệ ghép biển đầu/đuôi xe ra',
 };
 function NhatKyHoatDong({ events }) {
   const [tuNgay, setTuNgay] = useState(todayStr());
@@ -5222,7 +5257,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950">
       <TopBar session={session} onLogout={dangXuat} onChangePassword={() => setDoiMK(true)} onlineCount={onlineCount} syncing={syncing} />
-      {role === 'baove' && <GateScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} />}
+      {role === 'baove' && <GateScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} myName={session.name} />}
       {role === 'laixuc' && <DriverScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} myName={session.name} myUsername={session.username} claims={claims} setClaim={setClaim} clearClaim={clearClaim} buildTicket={buildTicket} />}
       {role === 'kythuat' && <KyThuatScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} myName={session.name} />}
       {role === 'ketoan' && <AccountantScreen events={eventsHienThi} addEvent={addEvent} addEvents={addEvents} config={config} setConfig={setConfig} myName={session.name} />}

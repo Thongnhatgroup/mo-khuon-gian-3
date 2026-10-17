@@ -145,8 +145,16 @@ export default async (req) => {
 
   // Ghi sự kiện "nguyên tử": nếu 2 lượt camera (hoặc trình duyệt Bảo vệ) ghi
   // cùng lúc thì lượt sau tự đọc lại và làm lại, không ghi đè mất của nhau.
+  // (Bổ sung 17/10) Bảo vệ đã TẮT nhận dữ liệu camera (nút ở phân hệ Bảo vệ)
+  // -> chỉ ghi nhật ký, KHÔNG tạo xe vào; trả 200 để camera/cầu nối không gửi lại.
+  let caiDat = null;
+  try { caiDat = await store.get('camera_cai_dat', { type: 'json' }); } catch { /* đọc lỗi -> coi như đang mở */ }
+  const dangTatNhan = !!(caiDat && caiDat.tatNhan);
+
   let ketQuaTungLuot = [];
-  try {
+  if (dangTatNhan) {
+    ketQuaTungLuot = luot.map((l) => ({ l, ketQua: 'tat_nhan', thongDiep: `Đang TẮT nhận dữ liệu camera (${caiDat.capNhatBoi || 'Bảo vệ'} tắt) — không ghi nhận xe ${l.plate || ''}`, iso: nhanLucIso }));
+  } else try {
     ketQuaTungLuot = await capNhatNguyenTu(store, 'events', (hienTai) => {
       let events = Array.isArray(hienTai) ? hienTai : [];
       const uuidDaCo = new Set(events.map((e) => e.cameraUuid).filter(Boolean));
